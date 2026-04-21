@@ -5,8 +5,8 @@
 <h1 align="center">Pulse</h1>
 
 <p align="center">
-  <strong>Keep your terminals alive.</strong><br/>
-  A self-hosted dashboard for persistent tmux sessions — reconnect from any device without losing state.
+  <strong>Your AI coding cockpit.</strong><br/>
+  Notifications, mobile control, and a shared workspace for every Claude Code / Cursor / Codex / Gemini session you run.
 </p>
 
 <p align="center">
@@ -16,8 +16,21 @@
 </p>
 
 <p align="center">
-  <img src="assets/demo.gif" alt="Demo — reconnecting mid-session" width="720"/>
+  <sub>Tested with <strong>Claude Code</strong>, <strong>Cursor CLI</strong>, <strong>Codex CLI</strong>, <strong>Gemini CLI</strong> — works with any CLI that runs in a shell.</sub>
 </p>
+
+<!--
+  TODO: record assets/demo.gif before the next release.
+  Suggested 20–30s loop:
+    1. Split into 4 panes, each running a different AI CLI.
+    2. Trigger an action in pane 1, cut to phone mockup receiving the idle notification.
+    3. Back to desktop: drag a sticky note, show saved prompts, flip to an Excalidraw flow.
+    4. End on the dashboard tagline.
+-->
+
+You kick off Claude Code, wait three minutes, come back — it's been idle for two and a half, waiting on a Yes/No prompt. Leave the desk for a coffee and your phone buzzes: `frontend::refactor is idle — Approve edit to layout.js?`. You tap yes, it keeps going.
+
+Pulse is a web dashboard for your tmux sessions. The AI CLIs keep running on your machine; you stay connected from any device.
 
 ## Install
 
@@ -43,40 +56,94 @@ Open `http://localhost:3000` when it finishes. That's it.
 
 ## Why Pulse?
 
-tmux on its own is powerful but has no UI. Tools like `ttyd` and `gotty` give you a web terminal but lose state on disconnect. Desktop apps like Tabby or iTerm are single-device. Pulse sits between all of these:
+- **vs. a local terminal.** Close the lid and the agent freezes waiting for your input. Pulse's tmux sessions outlive laptop sleep; the idle watcher pings your phone the moment the output stops moving.
+- **vs. `tmux` + `ttyd`/`gotty`.** You get a terminal in a browser, but no project-scoped groups, no mobile keybar sized for AI approvals, no notifications, no per-pane "open in VSCode".
+- **vs. Tabby / iTerm / Warp.** Single device, no remote-by-default, no shared workspace with notes and flow diagrams.
 
-- Your **sessions live on the host**, multiplexed by real tmux — close the laptop, open your phone, keep working.
-- Your **shells are the host's shells** — same aliases, same ssh keys, same `code` command. Pulse is not a container.
-- One **dashboard, many servers**. Add a remote machine to `servers.json` and manage its terminals alongside your local ones.
+Pulse runs on your machine, speaks to real tmux, doesn't containerize anything, doesn't phone home.
 
 ## Features
 
-- **Persistent tmux sessions.** Close the tab, restart the service, swap devices — sessions keep running.
-- **Multi-server.** One dashboard, multiple remote Pulse clients (each on its own machine with its own API key).
-- **Tiling mosaic UI** powered by `react-mosaic` — split, resize, and swap panes by drag-and-drop.
-- **Notes and flows** live next to your terminals — quick sticky notes and visual flowcharts in the same workspace.
-- **16 themes** (Tokyo Night, Dracula, Nord, Solarized, …) and **3 languages** (English, Português, Español).
-- **Zero Docker.** Runs as a `systemd` or `launchd` user service — auto-starts on login, auto-restarts on crash.
-- **One-line install** — no package manager required beyond the one you already have (`apt` / `brew`).
+### Don't miss an approval prompt
+
+Every 5 seconds Pulse MD5s the tmux pane. Thirty seconds of no change after your last Enter = the AI is waiting on you. The threshold is tunable per deployment (5 seconds to 1 hour) and the toggle is per session — a bell in the sidebar flips it on, persisted as a tmux option so it survives restarts.
+
+Notifications land in the **browser** (toast + sound + Web Notification API) while the dashboard is open, and on **Telegram** when it isn't — so the phone in your pocket tells you when the agent stops. The payload carries the last 20 lines of pane output, which is usually enough to decide yes/no without opening the dashboard.
+
+<!-- TODO: add assets/screenshots/mobile-notification.png — phone receiving an idle toast with the MobileKeyBar visible. -->
+
+### Work from anywhere, from any device
+
+Fully responsive (rebuilt, not "friendly"). On mobile, `TerminalMosaic` switches to a tab-based layout because `react-mosaic` doesn't play well with touch. A keybar pinned to the bottom gives you `Esc · Tab · ← → ↑ ↓ · Enter · Ctrl+C` — the exact keys the major AI CLIs ask for during approvals.
+
+Touch scroll inside the terminal works via synthesized VT200 mouse-wheel escapes, so Claude Code, `less`, and `vim` all scroll as if you had a wheel. The viewport is pinned (`interactiveWidget: resizes-content`) so the virtual keyboard pushes the page up instead of covering the terminal.
+
+### Multi-project, multi-session organization
+
+Two levels of grouping: **Projects** at the top (switchable from the header) and **Groups** inside each project. Assign any session to a group; open all sessions in a group with a single click; hide groups you don't want to see today. Drag-and-drop reorders them.
+
+Mosaic layouts are saved per `project::group` pair — switch project, your split panes come back exactly where you left them. When you reopen the dashboard, sessions auto-restore and reconnect with backoff.
+
+<!-- TODO: add assets/screenshots/mosaic-four-ais.png — split mosaic with four panes, each running a different AI CLI. -->
+
+### Jump to code
+
+`POST /api/sessions/{id}/open-editor` launches `code <cwd>` on the machine where the client runs. Pulse resolves the `code` binary across `apt`, `snap`, flatpak, and forces `DISPLAY=:0` so it works when the client runs under systemd without a login session.
+
+For remote clients, the same button opens `vscode://vscode-remote/ssh-remote+<host><cwd>` — your local VSCode handles the URI and drops into the right directory via Remote-SSH. The "open in VSCode" action is available on every sidebar card, on every mosaic pane, and on group chips ("open all").
+
+### Keep context alive
+
+- **Sticky notes** — draggable, resizable, color-themed, pinned and minimizable. Stored per project. Auto-saved.
+- **Saved prompts** — a searchable library of reusable prompts. One click copies to clipboard or sends straight to the active terminal, with or without Enter. Scope them globally or per project.
+- **Flows** — Excalidraw embedded as a page. Multiple diagrams per project, auto-saved, themed alongside the rest of the dashboard.
+
+<table>
+  <tr>
+    <td>
+      <!-- TODO: add assets/screenshots/sticky-notes.png — dashboard with three floating sticky notes over a mosaic of terminals. -->
+    </td>
+    <td>
+      <!-- TODO: add assets/screenshots/excalidraw-flow.png — Flows page showing an architecture diagram for a real project. -->
+    </td>
+  </tr>
+</table>
+
+### Paste images into AI CLIs
+
+Paste a screenshot straight into the dashboard. Pulse drops the file on the host and types the path as `@/tmp/…` into the active pane — the Claude Code way to attach an image.
+
+### Run Pulse anywhere you SSH
+
+One dashboard, any number of clients. Each remote has its own color, health check, and API key. Session IDs are prefixed `srv-xxx::term-N` so you never lose track of which box a terminal lives on.
+
+### Look the way you want
+
+16 themes: Dracula, Nord, Tokyo Night, Catppuccin (Latte / Frappé / Macchiato / Mocha), Gruvbox (light + dark), Solarized (light + dark), One Dark, Monokai, GitHub Dark Dimmed, plus the default dark and light. 3 UI languages: English, Português (Brasil), Español — 518 keys each.
 
 ## How it works
 
 ```
-┌──────────────┐           ┌─────────────────┐          ┌───────────────┐
-│  Browser     │◄─────────►│  Pulse          │◄────────►│  Pulse Client │
-│  (you)       │   HTTPS   │  Dashboard      │   WS +   │  (FastAPI)    │
-│              │           │  (Next.js)      │   REST   │               │
-└──────────────┘           └─────────────────┘          │   ▼           │
-                                                        │   tmux        │
-                                                        │   ▼           │
-                                                        │   bash/zsh    │
-                                                        └───────────────┘
+┌──────────────┐           ┌─────────────────┐          ┌─────────────────────────┐
+│  Browser     │◄─────────►│  Pulse          │◄────────►│  Pulse Client           │
+│  (you)       │   HTTPS   │  Dashboard      │   WS +   │  (FastAPI)              │
+│              │           │  (Next.js)      │   REST   │                         │
+└──────────────┘           └─────────────────┘          │   ▼                     │
+                                                        │   tmux                  │
+                                                        │   ▼                     │
+                                                        │   bash/zsh              │
+                                                        │   + Claude Code /       │
+                                                        │     Cursor CLI /        │
+                                                        │     Codex / Gemini /    │
+                                                        │     anything else       │
+                                                        └─────────────────────────┘
                                                           host machine
 ```
 
 - The **dashboard** (Next.js) is stateless — it talks to one or more **clients** (FastAPI + tmux).
 - Each **client** runs on the machine whose terminals you want to manage. Sessions live in tmux; the client is a thin bridge between the browser WebSocket and the tmux pty.
-- Restart the client? Sessions rebuild from `tmux list-sessions`. No state to lose.
+- A **background watcher** in the client MD5s every session flagged for idle detection on a 5-second tick and pushes events through the same WebSocket the browser uses.
+- Restart the client? Sessions rebuild from `tmux list-sessions`. Nothing to lose.
 
 ## Self-hosting
 
@@ -141,16 +208,30 @@ cd pulse
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the full dev setup, project layout, and conventions.
 
-## Architecture
+## Changelog
 
-- **`client/`** — FastAPI app exposing REST + WebSocket. Spawns and multiplexes tmux sessions.
-- **`frontend/`** — Next.js 15 (App Router) + React 19 + Tailwind 3 + xterm.js + react-mosaic. Single-password login with HS256 JWT.
-- **`install/`** — the installer (`install.sh` / `install.ps1`), the `pulse` CLI umbrella, and systemd/launchd templates.
-- **`.github/workflows/release.yml`** — packages a tarball on tag push and publishes a GitHub Release.
+See [CHANGELOG.md](CHANGELOG.md) for release notes.
+
+## Acknowledgments
+
+Pulse is built on top of a lot of great open-source work. A non-exhaustive list of the projects it leans on most:
+
+- [tmux](https://github.com/tmux/tmux) (ISC) — the terminal multiplexer that makes sessions persistent.
+- [xterm.js](https://github.com/xtermjs/xterm.js) (MIT) — the browser-side terminal emulator.
+- [Excalidraw](https://github.com/excalidraw/excalidraw) (MIT) — the whiteboard that powers Flows.
+- [react-mosaic](https://github.com/nomcopter/react-mosaic) (MIT) — the tiling window manager for the desktop layout.
+- [react-rnd](https://github.com/bokuweb/react-rnd) (MIT) — draggable and resizable sticky notes.
+- [FastAPI](https://github.com/tiangolo/fastapi) (MIT) — the HTTP + WebSocket server on the client side.
+- [Next.js](https://github.com/vercel/next.js) (MIT) — the dashboard framework.
+- [lucide-react](https://github.com/lucide-icons/lucide) (ISC) — icons.
+
+Licenses for each dependency ship with it via `npm` / `pip` and travel with every install. Pulse does not redistribute these projects' source.
 
 ## License
 
-[MIT](LICENSE) © 2026 Kevin Zezel Gomes
+[MIT](LICENSE) © 2026 Kevin Zezel Gomes.
+
+Pulse embeds [Excalidraw](https://github.com/excalidraw/excalidraw/blob/master/LICENSE), [xterm.js](https://github.com/xtermjs/xterm.js/blob/master/LICENSE), [react-mosaic](https://github.com/nomcopter/react-mosaic/blob/master/LICENSE), and other components — all MIT or MIT-compatible. See [Acknowledgments](#acknowledgments).
 
 ## Contributing
 
