@@ -216,9 +216,22 @@
     "splitV": "Dividir vertical",
     "openEditorLocal": "Abrir VS Code (local)",
     "openEditorRemote": "Abrir VS Code (remoto vía SSH)",
+    "capture": "Capturar salida como texto",
+    "captureLabel": "Copiar",
     "maximize": "Maximizar",
     "restore": "Restaurar",
     "close": "Cerrar"
+  },
+  "capture": {
+    "title": "Captura del terminal",
+    "linesLabel": "Líneas:",
+    "filterPlaceholder": "Filtrar líneas...",
+    "copyAll": "Copiar todo",
+    "copied_short": "Copiado",
+    "copied": "{count} caracteres copiados",
+    "copyFailed": "Portapapeles no disponible — selección hecha, pulsa Ctrl/Cmd+C",
+    "download": "Descargar .txt",
+    "hint": "Captura en texto puro del scrollback del pane. Selecciona con mouse/toque y copia con Ctrl/Cmd+C."
   },
   "mosaic": {
     "emptyState": "Haz clic en una sesión de la barra lateral para comenzar"

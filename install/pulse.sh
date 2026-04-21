@@ -352,6 +352,138 @@ cmd_config_password() {
     cmd_restart dashboard 2>/dev/null || warn "could not restart dashboard automatically — run: pulse restart dashboard"
 }
 
+cmd_config_host() {
+    new_client=""
+    new_dashboard=""
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
+            --client=*)    new_client="${1#*=}"; shift ;;
+            --client)      shift; new_client="${1:-}"; shift || true ;;
+            --dashboard=*) new_dashboard="${1#*=}"; shift ;;
+            --dashboard)   shift; new_dashboard="${1:-}"; shift || true ;;
+            -h|--help)
+                printf "usage: pulse config host [--client HOST] [--dashboard HOST]\n"
+                printf "  Without args, prints the current hosts.\n"
+                return 0
+                ;;
+            *) die "unknown arg: $1 (use: --client HOST --dashboard HOST)" ;;
+        esac
+    done
+    client_env="$CONFIG_ROOT/client.env"
+    dash_env="$CONFIG_ROOT/frontend.env"
+    cur_client="$(grep -E '^API_HOST=' "$client_env" 2>/dev/null | cut -d= -f2- || true)"
+    cur_dash="$(grep -E '^WEB_HOST='  "$dash_env"   2>/dev/null | cut -d= -f2- || true)"
+    if [ -z "$new_client" ] && [ -z "$new_dashboard" ]; then
+        printf "%bcurrent hosts:%b\n" "$BOLD" "$NC"
+        printf "  client API:   %s\n" "${cur_client:-?}"
+        printf "  dashboard:    %s\n" "${cur_dash:-?}"
+        printf "\n%busage:%b pulse config host [--client HOST] [--dashboard HOST]\n" "$DIM" "$NC"
+        printf "\n%bcommon values:%b\n" "$BOLD" "$NC"
+        printf "  127.0.0.1   — localhost only (default, safest)\n"
+        printf "  0.0.0.0     — all interfaces (e.g. reach from phone on LAN)\n"
+        return 0
+    fi
+    # Minimal validation: permit IPv4, hostnames, ::, and common IPv6 chars.
+    validate_host() {
+        case "$1" in
+            ''|*[!0-9a-zA-Z.:-]*) die "invalid host: '$1'" ;;
+        esac
+    }
+    [ -n "$new_client"    ] && validate_host "$new_client"
+    [ -n "$new_dashboard" ] && validate_host "$new_dashboard"
+
+    restart_client=0
+    restart_dash=0
+
+    if [ -n "$new_client" ] && [ "$new_client" != "$cur_client" ] && [ -f "$client_env" ]; then
+        update_env_key "$client_env" API_HOST "$new_client"
+        log "client API_HOST: ${cur_client:-?} → $new_client"
+        restart_client=1
+        case "$new_client" in
+            0.0.0.0|\*) warn "client API is now reachable on all interfaces. Make sure the machine is behind a firewall or VPN." ;;
+        esac
+    fi
+
+    if [ -n "$new_dashboard" ] && [ "$new_dashboard" != "$cur_dash" ] && [ -f "$dash_env" ]; then
+        update_env_key "$dash_env" WEB_HOST "$new_dashboard"
+        log "dashboard WEB_HOST: ${cur_dash:-?} → $new_dashboard"
+        restart_dash=1
+        case "$new_dashboard" in
+            0.0.0.0|\*)
+                warn "dashboard is now reachable on all interfaces over HTTP."
+                warn "For public exposure, put it behind NGINX/Caddy with TLS and run: pulse config secure on"
+                ;;
+        esac
+    fi
+
+    [ "$restart_client" = 1 ] && cmd_restart client
+    [ "$restart_dash"   = 1 ] && cmd_restart dashboard
+    log "done"
+}
+
+cmd_config_secure() {
+    val="${1:-}"
+    env_file="$CONFIG_ROOT/frontend.env"
+    [ -f "$env_file" ] || die "dashboard not installed (no frontend.env)"
+    current="$(grep -E '^AUTH_COOKIE_SECURE=' "$env_file" | cut -d= -f2- || true)"
+    case "$val" in
+        on|true|yes|1)   new="true"  ;;
+        off|false|no|0)  new="false" ;;
+        ''|show)
+            printf "%bAUTH_COOKIE_SECURE:%b %s\n" "$BOLD" "$NC" "${current:-?}"
+            printf "\n%busage:%b pulse config secure <on|off>\n" "$DIM" "$NC"
+            printf "  on  — required when behind HTTPS (production / reverse proxy)\n"
+            printf "  off — dev only; the cookie works over plain HTTP\n"
+            return 0
+            ;;
+        *) die "usage: pulse config secure <on|off>" ;;
+    esac
+    if [ "$current" = "$new" ]; then
+        log "AUTH_COOKIE_SECURE is already $new — no change"
+        return 0
+    fi
+    update_env_key "$env_file" AUTH_COOKIE_SECURE "$new"
+    log "AUTH_COOKIE_SECURE: ${current:-?} → $new"
+    [ "$new" = "false" ] && warn "cookie will be sent over HTTP — use this in development only."
+    cmd_restart dashboard
+}
+
+cmd_config_rotate_jwt() {
+    yes=0
+    for arg in "$@"; do
+        case "$arg" in
+            -y|--yes) yes=1 ;;
+            -h|--help)
+                printf "usage: pulse config rotate-jwt [-y|--yes]\n"
+                printf "  Regenerates AUTH_JWT_SECRET. Every active dashboard login will be\n"
+                printf "  invalidated and users will be bounced back to /login.\n"
+                return 0
+                ;;
+            *) die "unknown arg: $arg (use: -y|--yes)" ;;
+        esac
+    done
+    env_file="$CONFIG_ROOT/frontend.env"
+    [ -f "$env_file" ] || die "dashboard not installed (no frontend.env)"
+    if [ "$yes" = 0 ]; then
+        printf "%bWarning:%b rotating AUTH_JWT_SECRET invalidates every active login.\n" "$YELLOW" "$NC"
+        printf "  Everyone currently on the dashboard will be sent back to /login.\n"
+        printf "Continue? [y/N] "
+        read -r ans
+        case "$ans" in
+            y|Y|yes|YES) ;;
+            *) log "aborted"; return 0 ;;
+        esac
+    fi
+    if need_cmd openssl; then
+        new_secret="$(openssl rand -hex 32)"
+    else
+        new_secret="$(head -c 48 /dev/urandom | base64 | tr -d '\n' | head -c 64)"
+    fi
+    update_env_key "$env_file" AUTH_JWT_SECRET "$new_secret"
+    log "AUTH_JWT_SECRET rotated (old sessions invalidated)"
+    cmd_restart dashboard
+}
+
 cmd_config_ports() {
     new_client=""
     new_dashboard=""
@@ -469,11 +601,14 @@ cmd_config() {
     sub="${1:-}"
     [ "$#" -gt 0 ] && shift || true
     case "$sub" in
-        edit)     cmd_config_edit "$@" ;;
-        password) cmd_config_password "$@" ;;
-        ports)    cmd_config_ports "$@" ;;
-        paths)    cmd_config_paths "$@" ;;
-        open)     cmd_config_open "$@" ;;
+        edit)       cmd_config_edit "$@" ;;
+        password)   cmd_config_password "$@" ;;
+        ports)      cmd_config_ports "$@" ;;
+        host|hosts) cmd_config_host "$@" ;;
+        secure)     cmd_config_secure "$@" ;;
+        rotate-jwt) cmd_config_rotate_jwt "$@" ;;
+        paths)      cmd_config_paths "$@" ;;
+        open)       cmd_config_open "$@" ;;
         ''|help|-h|--help)
             cat <<EOF
 ${BOLD}Usage:${NC} pulse config <subcommand> [args]
@@ -483,6 +618,10 @@ ${BOLD}Subcommands:${NC}
   password [--stdin]            change the dashboard password (interactive by default)
   ports [--client N] [--dashboard N]
                                 show current ports, or change them (auto-restarts)
+  host [--client H] [--dashboard H]
+                                show current bind hosts, or change them (use 0.0.0.0 to expose)
+  secure <on|off>               toggle AUTH_COOKIE_SECURE (on = behind HTTPS, off = dev)
+  rotate-jwt [-y|--yes]         regenerate AUTH_JWT_SECRET (logs everyone out)
   paths                         print install / config / logs / data paths
   open <config|install|logs|data>
                                 open the relevant directory in your file manager
@@ -547,6 +686,10 @@ ${BOLD}Config:${NC}
   config password                       change the dashboard password
   config ports [--client N] [--dashboard N]
                                         show or change service ports
+  config host  [--client H] [--dashboard H]
+                                        show or change bind hosts (0.0.0.0 exposes)
+  config secure <on|off>                toggle AUTH_COOKIE_SECURE
+  config rotate-jwt                     rotate AUTH_JWT_SECRET (logs everyone out)
   config paths                          print install / config / logs paths
   config open <config|install|logs|data>
                                         open that directory in your file manager

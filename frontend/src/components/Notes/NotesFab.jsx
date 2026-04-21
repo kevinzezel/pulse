@@ -128,11 +128,9 @@ export function NotesFab() {
       <button
         ref={fabRef}
         type="button"
-        className="fixed z-[9000] flex h-11 w-11 items-center justify-center rounded-full shadow-lg hover:shadow-xl"
+        className="fixed z-[9000] flex h-11 w-11 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-md hover:bg-primary/90 hover:shadow-lg transition-colors"
         style={{
           ...positionStyle,
-          background: 'hsl(var(--primary))',
-          color: 'hsl(var(--primary-foreground))',
           cursor: dragPos ? 'grabbing' : 'grab',
           touchAction: 'none',
           userSelect: 'none',

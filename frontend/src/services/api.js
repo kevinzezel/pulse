@@ -466,6 +466,12 @@ export function discoverChatId(serverId, botToken) {
   });
 }
 
+export function captureSession(compositeId, lines) {
+  const { serverId, sessionId } = splitSessionId(compositeId);
+  const qs = lines ? `?lines=${encodeURIComponent(lines)}` : '';
+  return request(serverId, `/api/sessions/${encodeURIComponent(sessionId)}/capture${qs}`);
+}
+
 export function updateEditorSettings(serverId, { binaryOverride }) {
   return request(serverId, '/api/settings/editor', {
     method: 'PUT',

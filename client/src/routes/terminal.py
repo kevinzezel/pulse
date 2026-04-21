@@ -164,6 +164,35 @@ def get_cwd(request: Request, session_id: str):
     return build_i18n_response(request, 200, {"detail_key": "status.ok", "cwd": cwd})
 
 
+CAPTURE_LINES_DEFAULT = 500
+CAPTURE_LINES_MAX = 50000
+
+
+@router.get("/sessions/{session_id}/capture")
+def capture_session(request: Request, session_id: str, lines: int = CAPTURE_LINES_DEFAULT):
+    # Returns the pane's text buffer (visible + scrollback up to `lines`) as
+    # plain UTF-8. The frontend renders this in a modal with a plain textarea
+    # so users can select/search/copy without fighting xterm's own selection
+    # engine — especially helpful on mobile and inside alt-screen apps (Claude
+    # Code, less, vim) where xterm's text selection is fragile.
+    with _sessions_lock:
+        if session_id not in sessions:
+            raise AppException(key="errors.session_not_found", status_code=404)
+    try:
+        lines_i = max(1, min(CAPTURE_LINES_MAX, int(lines)))
+    except (TypeError, ValueError):
+        lines_i = CAPTURE_LINES_DEFAULT
+    from tools.tmux import capture_pane
+    text = capture_pane(session_id, lines=lines_i)
+    if text is None:
+        raise AppException(key="errors.tmux_session_not_found", status_code=404)
+    return build_i18n_response(request, 200, {
+        "detail_key": "status.ok",
+        "text": text,
+        "lines": lines_i,
+    })
+
+
 EDITOR_FALLBACK_BINARIES = (
     # Linux — most common distro installs and Flatpak/Snap.
     "/usr/bin/code",

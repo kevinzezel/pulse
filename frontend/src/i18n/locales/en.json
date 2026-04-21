@@ -216,9 +216,22 @@
     "splitV": "Split vertical",
     "openEditorLocal": "Open VS Code (local)",
     "openEditorRemote": "Open VS Code (remote SSH)",
+    "capture": "Capture output as text",
+    "captureLabel": "Copy",
     "maximize": "Maximize",
     "restore": "Restore",
     "close": "Close"
+  },
+  "capture": {
+    "title": "Terminal capture",
+    "linesLabel": "Lines:",
+    "filterPlaceholder": "Filter lines...",
+    "copyAll": "Copy all",
+    "copied_short": "Copied",
+    "copied": "Copied {count} characters",
+    "copyFailed": "Clipboard unavailable — selection made, press Ctrl/Cmd+C",
+    "download": "Download .txt",
+    "hint": "Plain-text snapshot of the pane's scrollback. Select freely with mouse / touch and copy with Ctrl/Cmd+C."
   },
   "mosaic": {
     "emptyState": "Click a session in the sidebar to begin"

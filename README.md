@@ -162,6 +162,10 @@ pulse keys regen                # rotate it (updates servers.json too)
 pulse config password           # change the dashboard password
 pulse config ports              # show current ports
 pulse config ports --client 8000 --dashboard 4000   # change them (auto-restarts)
+pulse config host               # show current bind hosts
+pulse config host --dashboard 0.0.0.0               # expose on the LAN
+pulse config secure on          # AUTH_COOKIE_SECURE=true (behind HTTPS)
+pulse config rotate-jwt         # regenerate AUTH_JWT_SECRET (kicks every login)
 pulse config paths              # print install / config / logs paths
 pulse config open config        # open ~/.config/pulse in your file manager
 pulse config edit client        # open client.env in $EDITOR
