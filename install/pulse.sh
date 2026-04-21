@@ -17,8 +17,11 @@ STATE_ROOT="$HOME/.local/state/pulse"
 # Colors
 # -----------------------------------------------------------------------------
 if [ -t 1 ]; then
-    YELLOW='\033[1;33m'; GREEN='\033[1;32m'; RED='\033[1;31m'
-    BLUE='\033[1;34m'; BOLD='\033[1m'; DIM='\033[2m'; NC='\033[0m'
+    # Use real ESC bytes (not literal backslash-escape strings) so heredocs
+    # and `echo` render them as ANSI codes without needing `printf %b`.
+    ESC="$(printf '\033')"
+    YELLOW="${ESC}[1;33m"; GREEN="${ESC}[1;32m"; RED="${ESC}[1;31m"
+    BLUE="${ESC}[1;34m"; BOLD="${ESC}[1m"; DIM="${ESC}[2m"; NC="${ESC}[0m"
 else
     YELLOW=''; GREEN=''; RED=''; BLUE=''; BOLD=''; DIM=''; NC=''
 fi
@@ -186,7 +189,12 @@ cmd_upgrade() {
     # PULSE_AUTH_PASSWORD is deliberately NOT forwarded: the installer preserves
     # existing frontend.env via its own guard, and re-sending the password is a
     # footgun. PULSE_NO_INTERACT is also skipped — upgrades should be interactive.
-    env \
+    #
+    # `exec` is critical: the installer overwrites ~/.local/bin/pulse mid-run,
+    # and if this shell kept reading its own file afterwards dash would blow up
+    # with a "Syntax error" when its byte offset hit the new file's content.
+    # Replacing the process sidesteps that entirely.
+    exec env \
         PULSE_VERSION="${PULSE_VERSION:-latest}" \
         PULSE_CLIENT_ONLY="${PULSE_CLIENT_ONLY:-0}" \
         PULSE_DASHBOARD_ONLY="${PULSE_DASHBOARD_ONLY:-0}" \

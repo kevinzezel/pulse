@@ -6,6 +6,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [1.3.2] — 2026-04-21
+
+### Fixed
+
+- `pulse upgrade` crashing at the end with `Syntax error: "(" unexpected` on Debian/Ubuntu (dash). Root cause: `install.sh` overwrites `~/.local/bin/pulse` while dash is still reading it, so the parser's byte offset lands inside new-file content. Fix: `cmd_upgrade` now `exec`s the installer, replacing this shell instead of returning to it.
+- `pulse help` and `pulse config` printing literal `\033[1m` escape sequences instead of formatting. The color variables stored backslash-escapes as strings, which `printf "%b"` expanded correctly but `cat <<EOF` did not. Fix: the setup block now materializes the variables as real ESC bytes via `$(printf '\033')`, so heredocs, `printf`, and `echo` all render them identically.
+
 ## [1.3.0] — 2026-04-21
 
 ### Added
@@ -56,6 +63,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.3.2...HEAD
+[1.3.2]: https://github.com/kevinzezel/pulse/releases/tag/v1.3.2
+[1.3.1]: https://github.com/kevinzezel/pulse/releases/tag/v1.3.1
 [1.3.0]: https://github.com/kevinzezel/pulse/releases/tag/v1.3.0
 [1.2.0]: https://github.com/kevinzezel/pulse/releases/tag/v1.2.0
