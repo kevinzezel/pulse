@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>sh.pulse.client</string>
+    <!--
+      Secrets (API_KEY) and runtime config (API_HOST, API_PORT) live in
+      ~/.config/pulse/client.env. The shell wrapper sources that file so the
+      plist itself never holds user-supplied strings — that sidesteps XML
+      escaping concerns and lets the user rotate secrets without reinstalling.
+    -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/sh</string>
+        <string>-c</string>
+        <string>set -a; . "$HOME/.config/pulse/client.env"; set +a; exec "$HOME/.local/share/pulse/client/.venv/bin/uvicorn" service:app --host "$API_HOST" --port "$API_PORT"</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>@@HOME@@/.local/share/pulse/client/src</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>HOME</key>
+        <string>@@HOME@@</string>
+        <key>PATH</key>
+        <string>@@HOME@@/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+        <key>Crashed</key>
+        <true/>
+    </dict>
+    <key>ThrottleInterval</key>
+    <integer>5</integer>
+    <key>StandardOutPath</key>
+    <string>@@HOME@@/.local/state/pulse/logs/client.log</string>
+    <key>StandardErrorPath</key>
+    <string>@@HOME@@/.local/state/pulse/logs/client.err</string>
+</dict>
+</plist>

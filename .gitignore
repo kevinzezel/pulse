@@ -1,0 +1,11 @@
+.venv
+node_modules
+.next
+__pycache__
+.superpowers
+# Internal planning artifacts (brainstorming/specs) — kept local, not in git
+docs/
+client/data/*
+frontend/data/*
+frontend/.env
+client/.env

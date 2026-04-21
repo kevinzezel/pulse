@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>sh.pulse.dashboard</string>
+    <!--
+      AUTH_PASSWORD / AUTH_JWT_SECRET live in ~/.config/pulse/frontend.env. The
+      shell wrapper sources that file so secrets never land in the plist XML —
+      avoids XML-escaping issues on weird password characters and lets the user
+      rotate AUTH_JWT_SECRET without reinstalling.
+    -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/sh</string>
+        <string>-c</string>
+        <string>set -a; . "$HOME/.config/pulse/frontend.env"; set +a; exec npx next start -H "$WEB_HOST" -p "$WEB_PORT"</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>@@HOME@@/.local/share/pulse/frontend</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>HOME</key>
+        <string>@@HOME@@</string>
+        <key>NODE_ENV</key>
+        <string>production</string>
+        <key>PATH</key>
+        <string>@@HOME@@/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+        <key>Crashed</key>
+        <true/>
+    </dict>
+    <key>ThrottleInterval</key>
+    <integer>5</integer>
+    <key>StandardOutPath</key>
+    <string>@@HOME@@/.local/state/pulse/logs/dashboard.log</string>
+    <key>StandardErrorPath</key>
+    <string>@@HOME@@/.local/state/pulse/logs/dashboard.err</string>
+</dict>
+</plist>

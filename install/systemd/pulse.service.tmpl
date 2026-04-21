@@ -1,0 +1,24 @@
+[Unit]
+Description=Pulse Dashboard — web UI managing Pulse clients
+Documentation=https://github.com/kevinzezel/pulse
+After=network.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=exec
+WorkingDirectory=%h/.local/share/pulse/frontend
+EnvironmentFile=%h/.config/pulse/frontend.env
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=NODE_ENV=production
+ExecStart=/bin/sh -c 'exec npx next start -H "$WEB_HOST" -p "$WEB_PORT"'
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target

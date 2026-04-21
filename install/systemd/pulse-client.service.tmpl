@@ -1,0 +1,25 @@
+[Unit]
+Description=Pulse Client — terminal agent keeping tmux sessions alive
+Documentation=https://github.com/kevinzezel/pulse
+After=network.target
+# Give up after 5 restarts in 60s (prevents tight crash loops from hammering the box).
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=exec
+WorkingDirectory=%h/.local/share/pulse/client/src
+EnvironmentFile=%h/.config/pulse/client.env
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=%h/.local/share/pulse/client/.venv/bin/uvicorn service:app --host ${API_HOST} --port ${API_PORT}
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+# Security hardening (user unit — most of this is no-op for user units but set for discipline).
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target

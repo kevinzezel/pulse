@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions and general discussion
+    url: https://github.com/kevinzezel/pulse/discussions
+    about: For questions, help, or sharing how you use Pulse — use Discussions instead of an issue.
+  - name: Security vulnerability
+    url: https://github.com/kevinzezel/pulse/security/advisories/new
+    about: Report a security issue privately via GitHub Security Advisory (see SECURITY.md).

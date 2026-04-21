@@ -1,0 +1,39 @@
+@import '../themes/terminal.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--muted-foreground) / 0.4) hsl(var(--muted) / 0.4);
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+.sidebar-backdrop {
+  animation: fadeIn 200ms ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Mobile: delegar touch ao xterm.js, impedir pull-to-refresh/scroll da página */
+.xterm-screen {
+  touch-action: none;
+}
+
+/* Ocultar scrollbar da tab bar no mobile (WebKit) */
+.mobile-tab-bar::-webkit-scrollbar {
+  display: none;
+}
+

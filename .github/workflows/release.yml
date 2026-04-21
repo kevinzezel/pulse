@@ -1,0 +1,77 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and publish release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Derive version from tag
+        id: version
+        run: |
+          TAG_NAME="${GITHUB_REF#refs/tags/}"        # v1.2.0
+          VERSION="${TAG_NAME#v}"                    # 1.2.0
+          echo "tag=$TAG_NAME"     >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION"  >> "$GITHUB_OUTPUT"
+
+      - name: Build tarball
+        id: build
+        run: |
+          set -eu
+          TAG="${{ steps.version.outputs.tag }}"
+          STAGING="$(mktemp -d)/pulse-${TAG}"
+          mkdir -p "$STAGING"
+
+          # Copy source + distribution artifacts
+          cp -R client                "$STAGING/"
+          cp -R frontend              "$STAGING/"
+          cp -R install               "$STAGING/"
+          cp -R assets                "$STAGING/"
+          cp LICENSE README.md        "$STAGING/"
+          cp CONTRIBUTING.md          "$STAGING/"
+          cp SECURITY.md              "$STAGING/"
+          cp CODE_OF_CONDUCT.md       "$STAGING/"
+          cp CHANGELOG.md             "$STAGING/"
+
+          # Strip artifacts that would inflate the tarball or aren't portable
+          find "$STAGING" -type d -name node_modules -prune -exec rm -rf {} +
+          find "$STAGING" -type d -name .venv        -prune -exec rm -rf {} +
+          find "$STAGING" -type d -name __pycache__  -prune -exec rm -rf {} +
+          find "$STAGING" -type d -name .next        -prune -exec rm -rf {} +
+          find "$STAGING" -type f -name '.env'       -delete
+          find "$STAGING" -type f -name '*.pyc'      -delete
+          # Strip sample data directories (they're user-local; install seeds empties)
+          rm -rf "$STAGING/frontend/data" "$STAGING/client/data"
+
+          # Create tarball
+          OUT="pulse-${TAG}.tar.gz"
+          tar -C "$(dirname "$STAGING")" -czf "$OUT" "$(basename "$STAGING")"
+
+          # Checksum
+          sha256sum "$OUT" > SHA256SUMS
+
+          echo "tarball=$OUT" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+          TARBALL="${{ steps.build.outputs.tarball }}"
+          gh release create "$TAG" \
+            --title "Pulse $TAG" \
+            --generate-notes \
+            "$TARBALL" \
+            SHA256SUMS \
+            install/install.sh \
+            install/install.ps1
