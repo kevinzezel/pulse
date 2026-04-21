@@ -135,7 +135,8 @@ node_ok() {
     v="$(node -v)"; v="${v#v}"
     major="${v%%.*}"; rest="${v#*.}"; minor="${rest%%.*}"
     if [ "$major" -gt 18 ]; then return 0; fi
-    if [ "$major" -eq 18 ] && [ "$minor" -ge 17 ]; then return 0; fi
+    # Next 15 requires Node >= 18.18
+    if [ "$major" -eq 18 ] && [ "$minor" -ge 18 ]; then return 0; fi
     return 1
 }
 
@@ -152,7 +153,7 @@ ensure_node() {
             brew link --overwrite --force node@20 2>/dev/null || true
             ;;
     esac
-    node_ok || die "Node.js 18.17+ installation failed"
+    node_ok || die "Node.js 18.18+ installation failed"
 }
 
 ensure_runtime_deps() {
@@ -171,6 +172,15 @@ ensure_runtime_deps() {
         log "installing system packages: $need"
         # shellcheck disable=SC2086
         install_packages $need
+    fi
+    # Fail fast if the system python3 is too old. uv can download a newer one
+    # for the client venv, but some uv/pip helper scripts still run against the
+    # system python, and 3.10 is the floor we actually test against.
+    if [ "$PULSE_DASHBOARD_ONLY" = 0 ] && need_cmd python3; then
+        if ! python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)' 2>/dev/null; then
+            py_ver="$(python3 -c 'import sys; print("{0}.{1}".format(*sys.version_info))' 2>/dev/null || echo '?')"
+            die "Python 3.10+ required (found $py_ver). Please install a newer python3 and rerun."
+        fi
     fi
     [ "$PULSE_DASHBOARD_ONLY" = 0 ] && ensure_uv
     [ "$PULSE_CLIENT_ONLY"    = 0 ] && ensure_node
@@ -195,11 +205,40 @@ resolve_download_url() {
     printf '%s' "$url"
 }
 
+verify_checksum() {
+    # SHA256SUMS lives next to the tarball in the same release, so we derive
+    # its URL by swapping the basename. Missing sums file is non-fatal (warn);
+    # mismatch is fatal. Users who want strict enforcement can pin PULSE_VERSION.
+    tarball="$1"
+    sums_url="$(printf '%s' "$DOWNLOAD_URL" | sed 's|/[^/]*$|/SHA256SUMS|')"
+    sums_file="$TEMP_DIR/SHA256SUMS"
+    if ! curl -fsSL "$sums_url" -o "$sums_file" 2>/dev/null; then
+        warn "SHA256SUMS not found — skipping checksum verification"
+        return 0
+    fi
+    expected="$(grep 'pulse-.*\.tar\.gz' "$sums_file" | awk '{print $1}' | head -n 1)"
+    if [ -z "$expected" ]; then
+        warn "SHA256SUMS has no pulse tarball entry — skipping verification"
+        return 0
+    fi
+    if need_cmd sha256sum; then
+        actual="$(sha256sum "$tarball" | awk '{print $1}')"
+    elif need_cmd shasum; then
+        actual="$(shasum -a 256 "$tarball" | awk '{print $1}')"
+    else
+        warn "no sha256sum/shasum tool available — skipping checksum verification"
+        return 0
+    fi
+    [ "$actual" = "$expected" ] || die "checksum mismatch: expected $expected, got $actual"
+    ok "checksum verified"
+}
+
 download_and_extract() {
     status "downloading Pulse ($PULSE_VERSION)"
     DOWNLOAD_URL="$(resolve_download_url)"
     log "$DOWNLOAD_URL"
     curl -fsSL "$DOWNLOAD_URL" -o "$TEMP_DIR/pulse.tar.gz" || die "download failed"
+    verify_checksum "$TEMP_DIR/pulse.tar.gz"
     tar -xzf "$TEMP_DIR/pulse.tar.gz" -C "$TEMP_DIR" || die "tarball extraction failed"
     # GitHub tarball creates <repo>-<version>/ — pick it up
     EXTRACTED="$(find "$TEMP_DIR" -mindepth 1 -maxdepth 1 -type d ! -name 'pulse.*' | head -n 1)"
@@ -239,9 +278,17 @@ install_files() {
         log "setting up Python environment for client (this may take a minute)"
         # uv sync requires pyproject.toml which we don't ship (would need to commit one).
         # Use uv venv + uv pip instead — works off the existing requirements.txt.
+        # Pin the interpreter from .python-version so users with pyenv/asdf defaulting
+        # to an old Python don't end up with a broken venv.
         (
             cd "$INSTALL_ROOT/client"
-            uv venv .venv --quiet >/dev/null 2>&1
+            if [ -f .python-version ]; then
+                py_version="$(tr -d '[:space:]' < .python-version)"
+                uv venv .venv --python "$py_version" --quiet >/dev/null 2>&1 \
+                    || die "uv venv failed for Python $py_version (uv may need to download it; check network)"
+            else
+                uv venv .venv --quiet >/dev/null 2>&1 || die "uv venv failed"
+            fi
             uv pip install --python .venv/bin/python --quiet -r requirements.txt
         ) || die "Python environment setup failed"
     fi
@@ -305,10 +352,13 @@ prompt_password() {
     if [ ! -r /dev/tty ] || [ ! -w /dev/tty ]; then
         die "cannot prompt for password (no /dev/tty). Re-run with PULSE_AUTH_PASSWORD=yourpassword or set PULSE_NO_INTERACT=1."
     fi
+    # Ensure Ctrl+C / SIGTERM restore echo so the terminal doesn't end up mute.
+    trap 'stty echo < /dev/tty 2>/dev/null || true; printf "\n" > /dev/tty; exit 130' INT TERM
     printf "%b  Dashboard login password:%b " "$BOLD" "$NC" > /dev/tty
     stty -echo < /dev/tty 2>/dev/null || true
     read -r pw < /dev/tty
     stty  echo < /dev/tty 2>/dev/null || true
+    trap - INT TERM
     printf '\n' > /dev/tty
     [ -n "$pw" ] || die "empty password not allowed"
     printf '%s' "$pw"
@@ -438,7 +488,9 @@ enable_services() {
         linux)
             # loginctl enable-linger lets user services run without an active login
             if [ "$PULSE_IS_WSL" = 0 ]; then
-                $PULSE_SUDO loginctl enable-linger "$USER" 2>/dev/null || true
+                log "enabling user-service linger (may prompt for sudo password)"
+                $PULSE_SUDO loginctl enable-linger "$USER" 2>/dev/null \
+                    || warn "could not enable linger — services won't start at boot until you log in"
             fi
             units=""
             [ "$PULSE_DASHBOARD_ONLY" = 0 ] && units="$units pulse-client.service"
@@ -491,14 +543,31 @@ print_success() {
     printf "    %bpulse upgrade%b          — upgrade to latest\n"    "$DIM" "$NC"
     printf "    %bpulse uninstall%b        — remove everything\n"    "$DIM" "$NC"
     printf "\n"
-    # Remind about PATH if ~/.local/bin is not on PATH
+    # If ~/.local/bin is already on PATH, nothing to do.
     case ":$PATH:" in
-        *":$BIN_ROOT:"*) ;;
-        *)
-            printf "  %b!%b Add %b%s%b to your PATH:\n" "$YELLOW" "$NC" "$BOLD" "$BIN_ROOT" "$NC"
-            printf "      echo 'export PATH=\"%s:\$PATH\"' >> ~/.bashrc && source ~/.bashrc\n\n" "$BIN_ROOT"
-            ;;
+        *":$BIN_ROOT:"*) return 0 ;;
     esac
+    # Try to add to the active shell's rc file; fall back to manual instructions.
+    case "$(basename "${SHELL:-}")" in
+        zsh)  rc_file="$HOME/.zshrc"  ;;
+        bash) rc_file="$HOME/.bashrc" ;;
+        *)    rc_file=""              ;;
+    esac
+    added=0
+    if [ -n "$rc_file" ] && [ -w "$(dirname "$rc_file")" ]; then
+        if ! grep -q '\.local/bin' "$rc_file" 2>/dev/null; then
+            # shellcheck disable=SC2016
+            printf '\n# Added by Pulse installer\nexport PATH="$HOME/.local/bin:$PATH"\n' >> "$rc_file"
+            added=1
+        fi
+    fi
+    if [ "$added" = 1 ]; then
+        printf "  %b✓%b Added %s to PATH in %s. Restart your shell or run: %bsource %s%b\n\n" \
+            "$GREEN" "$NC" "$BIN_ROOT" "$rc_file" "$BOLD" "$rc_file" "$NC"
+    else
+        printf "  %b!%b Add %b%s%b to your PATH manually:\n"      "$YELLOW" "$NC" "$BOLD" "$BIN_ROOT" "$NC"
+        printf "      export PATH=\"%s:\$PATH\"\n\n" "$BIN_ROOT"
+    fi
 }
 
 # -----------------------------------------------------------------------------

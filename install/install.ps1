@@ -64,10 +64,14 @@ function Invoke-WslBootstrap {
     $rawUrl = "https://raw.githubusercontent.com/$Repo/main/install/install.sh"
     # Pipe the env vars from the Windows shell through into wsl
     $envPrefix = ''
-    if ($env:PULSE_VERSION)        { $envPrefix += "PULSE_VERSION='$($env:PULSE_VERSION)' " }
-    if ($env:PULSE_CLIENT_ONLY)    { $envPrefix += "PULSE_CLIENT_ONLY='$($env:PULSE_CLIENT_ONLY)' " }
-    if ($env:PULSE_AUTH_PASSWORD)  { $envPrefix += "PULSE_AUTH_PASSWORD='$($env:PULSE_AUTH_PASSWORD)' " }
-    if ($env:PULSE_NO_INTERACT)    { $envPrefix += "PULSE_NO_INTERACT='$($env:PULSE_NO_INTERACT)' " }
+    if ($env:PULSE_VERSION)         { $envPrefix += "PULSE_VERSION='$($env:PULSE_VERSION)' " }
+    if ($env:PULSE_CLIENT_ONLY)     { $envPrefix += "PULSE_CLIENT_ONLY='$($env:PULSE_CLIENT_ONLY)' " }
+    if ($env:PULSE_DASHBOARD_ONLY)  { $envPrefix += "PULSE_DASHBOARD_ONLY='$($env:PULSE_DASHBOARD_ONLY)' " }
+    if ($env:PULSE_NO_START)        { $envPrefix += "PULSE_NO_START='$($env:PULSE_NO_START)' " }
+    if ($env:PULSE_AUTH_PASSWORD)   { $envPrefix += "PULSE_AUTH_PASSWORD='$($env:PULSE_AUTH_PASSWORD)' " }
+    if ($env:PULSE_NO_INTERACT)     { $envPrefix += "PULSE_NO_INTERACT='$($env:PULSE_NO_INTERACT)' " }
+    if ($env:PULSE_CLIENT_PORT)     { $envPrefix += "PULSE_CLIENT_PORT='$($env:PULSE_CLIENT_PORT)' " }
+    if ($env:PULSE_DASHBOARD_PORT)  { $envPrefix += "PULSE_DASHBOARD_PORT='$($env:PULSE_DASHBOARD_PORT)' " }
     & wsl -d $distro -- bash -c "$envPrefix curl -fsSL '$rawUrl' | sh"
     if ($LASTEXITCODE -ne 0) { Write-ErrExit "WSL install failed (exit code $LASTEXITCODE)" }
 }

@@ -181,9 +181,19 @@ cmd_open() {
 
 cmd_upgrade() {
     log "upgrading Pulse (re-running install script)..."
-    # Forward opt-in env vars (PULSE_VERSION, PULSE_CLIENT_ONLY, etc.) through to installer.
-    curl -fsSL "https://raw.githubusercontent.com/$GITHUB_REPO/main/install/install.sh" \
-        | PULSE_VERSION="${PULSE_VERSION:-latest}" sh
+    # Forward all opt-in env vars to the installer so upgrades preserve shape
+    # (e.g. a --client-only install doesn't accidentally grow a dashboard).
+    # PULSE_AUTH_PASSWORD is deliberately NOT forwarded: the installer preserves
+    # existing frontend.env via its own guard, and re-sending the password is a
+    # footgun. PULSE_NO_INTERACT is also skipped — upgrades should be interactive.
+    env \
+        PULSE_VERSION="${PULSE_VERSION:-latest}" \
+        PULSE_CLIENT_ONLY="${PULSE_CLIENT_ONLY:-0}" \
+        PULSE_DASHBOARD_ONLY="${PULSE_DASHBOARD_ONLY:-0}" \
+        PULSE_NO_START="${PULSE_NO_START:-0}" \
+        PULSE_CLIENT_PORT="${PULSE_CLIENT_PORT:-}" \
+        PULSE_DASHBOARD_PORT="${PULSE_DASHBOARD_PORT:-}" \
+        sh -c 'curl -fsSL "https://raw.githubusercontent.com/'"$GITHUB_REPO"'/main/install/install.sh" | sh'
 }
 
 cmd_uninstall() {
