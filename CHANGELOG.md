@@ -6,6 +6,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [1.3.0] — 2026-04-21
+
+### Added
+
+- `pulse config password` — change the dashboard password interactively (or via `--stdin` / `PULSE_AUTH_PASSWORD`). Auto-restarts the dashboard.
+- `pulse config ports` — show or change the client/dashboard ports. With `--client N` / `--dashboard N` it updates both `.env` files, keeps `servers.json`'s localhost entry in sync, and restarts the affected services.
+- `pulse config paths` — print the install, config, logs, data, binary, and service-unit paths.
+- `pulse config open <config|install|logs|data>` — open that directory in the system file manager.
+
+### Fixed
+
+- **Terminal panes auto-deleted with "Session ended" right after opening**, when Pulse ran under systemd/launchd. Root cause: `tmux attach-session` exits immediately without `TERM`, which systemd/launchd user units don't inherit from a shell. The client now injects `TERM=xterm-256color` before spawning tmux, and the systemd/launchd unit templates also set `TERM` as a belt-and-suspenders fallback.
+- WebSocket handler now treats Starlette 1.0's `RuntimeError("WebSocket is not connected...")` as a clean disconnect instead of logging it as an error. That error was being raised when `send_output` closed the socket (e.g. on session-end) at the same moment the main loop was waiting on `receive_text`.
+
 ## [1.2.0] — 2026-04-21
 
 First public release.
@@ -42,5 +56,6 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/kevinzezel/pulse/releases/tag/v1.3.0
 [1.2.0]: https://github.com/kevinzezel/pulse/releases/tag/v1.2.0

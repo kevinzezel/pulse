@@ -468,8 +468,16 @@ async def websocket_terminal(websocket: WebSocket, session_id: str):
                     pass
     except WebSocketDisconnect:
         logger.info(f"WebSocket disconnected: {session_id}")
+    except RuntimeError as e:
+        # Starlette >= 1.0 raises RuntimeError("WebSocket is not connected...")
+        # when another task (send_output) closes the socket while we're awaiting
+        # receive_text. That's a clean disconnect from our POV, not an error.
+        if 'not connected' in str(e).lower():
+            logger.info(f"WebSocket closed by server while receiving: {session_id}")
+        else:
+            logger.error(f"WebSocket error for {session_id}: {type(e).__name__}: {e}", exc_info=True)
     except Exception as e:
-        logger.error(f"WebSocket error for {session_id}: {e}")
+        logger.error(f"WebSocket error for {session_id}: {type(e).__name__}: {e}", exc_info=True)
     finally:
         async with _ws_lock(session_id):
             if _active_ws.get(session_id) is websocket:

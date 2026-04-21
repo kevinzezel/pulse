@@ -23,12 +23,19 @@ def create_session(session_id, cols=80, rows=24, start_directory=None):
 
 def attach_session(session_id):
     master_fd, slave_fd = pty.openpty()
+    # tmux attach-session refuses to run without TERM (exits immediately with
+    # "open terminal failed: missing or unsuitable terminal"). When the client
+    # runs under systemd/launchd the parent process inherits no TERM, so we
+    # inject a sane default before spawning.
+    env = os.environ.copy()
+    env.setdefault('TERM', 'xterm-256color')
     process = subprocess.Popen(
         ['tmux', 'attach-session', '-t', session_id],
         stdin=slave_fd,
         stdout=slave_fd,
         stderr=slave_fd,
-        preexec_fn=os.setsid
+        preexec_fn=os.setsid,
+        env=env,
     )
     os.close(slave_fd)
     logger.info(f"Attached to tmux session: {session_id} (pid={process.pid}, fd={master_fd})")

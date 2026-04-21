@@ -11,6 +11,8 @@ Type=exec
 WorkingDirectory=%h/.local/share/pulse/client/src
 EnvironmentFile=%h/.config/pulse/client.env
 Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+# tmux attach-session refuses to run without TERM; systemd units inherit no TERM.
+Environment=TERM=xterm-256color
 ExecStart=%h/.local/share/pulse/client/.venv/bin/uvicorn service:app --host ${API_HOST} --port ${API_PORT}
 Restart=on-failure
 RestartSec=5

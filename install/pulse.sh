@@ -272,7 +272,44 @@ PY
     esac
 }
 
-cmd_config() {
+# Replace (or append) a KEY=VALUE line in an .env file, preserving order and
+# other entries. Uses a tempfile so readers never see a half-written file.
+update_env_key() {
+    env_file="$1"
+    key="$2"
+    value="$3"
+    [ -f "$env_file" ] || die "env file not found: $env_file"
+    tmp="${env_file}.tmp.$$"
+    awk -v k="$key" -v v="$value" '
+        BEGIN{updated=0}
+        $0 ~ "^" k "=" {print k "=" v; updated=1; next}
+        {print}
+        END{if (!updated) print k "=" v}
+    ' "$env_file" > "$tmp" && mv "$tmp" "$env_file"
+    chmod 600 "$env_file"
+}
+
+prompt_password_interactive() {
+    if [ ! -r /dev/tty ] || [ ! -w /dev/tty ]; then
+        die "cannot prompt for password (no /dev/tty). Use --stdin or set PULSE_AUTH_PASSWORD."
+    fi
+    trap 'stty echo < /dev/tty 2>/dev/null || true; printf "\n" > /dev/tty; exit 130' INT TERM
+    printf "  New dashboard password: " > /dev/tty
+    stty -echo < /dev/tty 2>/dev/null || true
+    read -r pw1 < /dev/tty
+    stty  echo < /dev/tty 2>/dev/null || true
+    printf "\n  Confirm: " > /dev/tty
+    stty -echo < /dev/tty 2>/dev/null || true
+    read -r pw2 < /dev/tty
+    stty  echo < /dev/tty 2>/dev/null || true
+    printf "\n" > /dev/tty
+    trap - INT TERM
+    [ "$pw1" = "$pw2" ] || die "passwords don't match"
+    [ -n "$pw1" ] || die "empty password not allowed"
+    printf '%s' "$pw1"
+}
+
+cmd_config_edit() {
     sub="${1:-}"
     case "$sub" in
         client|dashboard) ;;
@@ -281,6 +318,170 @@ cmd_config() {
     env_file="$CONFIG_ROOT/${sub}.env"
     [ -f "$env_file" ] || die "$sub not installed"
     "${EDITOR:-vi}" "$env_file"
+}
+
+cmd_config_password() {
+    use_stdin=0
+    for arg in "$@"; do
+        case "$arg" in
+            --stdin) use_stdin=1 ;;
+            *) die "unknown arg: $arg (use: --stdin)" ;;
+        esac
+    done
+    env_file="$CONFIG_ROOT/frontend.env"
+    [ -f "$env_file" ] || die "dashboard not installed (no frontend.env)"
+    if [ "$use_stdin" = 1 ]; then
+        read -r pw
+        [ -n "$pw" ] || die "empty password from stdin"
+    elif [ -n "${PULSE_AUTH_PASSWORD:-}" ]; then
+        pw="$PULSE_AUTH_PASSWORD"
+    else
+        pw="$(prompt_password_interactive)"
+    fi
+    update_env_key "$env_file" AUTH_PASSWORD "$pw"
+    log "password updated"
+    log "restarting dashboard..."
+    cmd_restart dashboard 2>/dev/null || warn "could not restart dashboard automatically — run: pulse restart dashboard"
+}
+
+cmd_config_ports() {
+    new_client=""
+    new_dashboard=""
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
+            --client=*)    new_client="${1#*=}"; shift ;;
+            --client)      shift; new_client="${1:-}"; shift || true ;;
+            --dashboard=*) new_dashboard="${1#*=}"; shift ;;
+            --dashboard)   shift; new_dashboard="${1:-}"; shift || true ;;
+            -h|--help)
+                printf "usage: pulse config ports [--client N] [--dashboard N]\n"
+                printf "  Without args, prints the current ports.\n"
+                return 0
+                ;;
+            *) die "unknown arg: $1 (use: --client N --dashboard N)" ;;
+        esac
+    done
+    client_env="$CONFIG_ROOT/client.env"
+    dash_env="$CONFIG_ROOT/frontend.env"
+    cur_client="$(grep -E '^API_PORT=' "$client_env" 2>/dev/null | cut -d= -f2- || true)"
+    cur_dash="$(grep -E '^WEB_PORT='  "$dash_env"   2>/dev/null | cut -d= -f2- || true)"
+    if [ -z "$new_client" ] && [ -z "$new_dashboard" ]; then
+        printf "%bcurrent ports:%b\n" "$BOLD" "$NC"
+        printf "  client API:   %s\n" "${cur_client:-?}"
+        printf "  dashboard:    %s\n" "${cur_dash:-?}"
+        printf "\n%busage:%b pulse config ports [--client N] [--dashboard N]\n" "$DIM" "$NC"
+        return 0
+    fi
+    validate_port() {
+        case "$1" in
+            ''|*[!0-9]*) die "invalid port: '$1' (must be integer)" ;;
+        esac
+        [ "$1" -ge 1024 ] && [ "$1" -le 65535 ] || die "port out of range: $1 (1024-65535)"
+    }
+    [ -n "$new_client"    ] && validate_port "$new_client"
+    [ -n "$new_dashboard" ] && validate_port "$new_dashboard"
+
+    restart_client=0
+    restart_dash=0
+
+    if [ -n "$new_client" ] && [ "$new_client" != "$cur_client" ] && [ -f "$client_env" ]; then
+        update_env_key "$client_env" API_PORT "$new_client"
+        log "client API_PORT: ${cur_client:-?} → $new_client"
+        restart_client=1
+        servers_file="$INSTALL_ROOT/frontend/data/servers.json"
+        if [ -f "$servers_file" ] && need_cmd python3; then
+            SERVERS_FILE="$servers_file" NEW_PORT="$new_client" python3 <<'PY'
+import json, os
+p = os.environ['SERVERS_FILE']
+with open(p) as f:
+    data = json.load(f)
+changed = False
+for s in (data.get('servers') or []):
+    if s.get('id') == 'localhost':
+        s['port'] = int(os.environ['NEW_PORT'])
+        changed = True
+if changed:
+    with open(p, 'w') as f:
+        json.dump(data, f, indent=2)
+        f.write('\n')
+PY
+            log "updated localhost port in servers.json"
+            restart_dash=1
+        fi
+    fi
+
+    if [ -n "$new_dashboard" ] && [ "$new_dashboard" != "$cur_dash" ] && [ -f "$dash_env" ]; then
+        update_env_key "$dash_env" WEB_PORT "$new_dashboard"
+        log "dashboard WEB_PORT: ${cur_dash:-?} → $new_dashboard"
+        restart_dash=1
+    fi
+
+    [ "$restart_client" = 1 ] && cmd_restart client
+    [ "$restart_dash"   = 1 ] && cmd_restart dashboard
+    log "done"
+}
+
+cmd_config_paths() {
+    bin_path="$(command -v pulse 2>/dev/null || printf '%s' "$HOME/.local/bin/pulse")"
+    printf "%bPulse paths:%b\n" "$BOLD" "$NC"
+    printf "  %binstall:%b  %s\n" "$DIM" "$NC" "$INSTALL_ROOT"
+    printf "  %bconfig:%b   %s\n" "$DIM" "$NC" "$CONFIG_ROOT"
+    printf "  %blogs:%b     %s\n" "$DIM" "$NC" "$STATE_ROOT/logs"
+    printf "  %bdata:%b     %s\n" "$DIM" "$NC" "$INSTALL_ROOT/frontend/data"
+    printf "  %bbinary:%b   %s\n" "$DIM" "$NC" "$bin_path"
+    case "$PULSE_OS" in
+        linux) printf "  %bunits:%b    %s/pulse*.service\n" "$DIM" "$NC" "$HOME/.config/systemd/user" ;;
+        macos) printf "  %bplists:%b   %s/sh.pulse.*.plist\n" "$DIM" "$NC" "$HOME/Library/LaunchAgents" ;;
+    esac
+}
+
+cmd_config_open() {
+    target="${1:-}"
+    case "$target" in
+        config)  dir="$CONFIG_ROOT" ;;
+        install) dir="$INSTALL_ROOT" ;;
+        logs)    dir="$STATE_ROOT/logs" ;;
+        data)    dir="$INSTALL_ROOT/frontend/data" ;;
+        ''|-h|--help|help) die "usage: pulse config open <config|install|logs|data>" ;;
+        *)       die "unknown target: '$target' (use: config, install, logs, data)" ;;
+    esac
+    [ -d "$dir" ] || die "directory not found: $dir"
+    log "opening $dir"
+    case "$PULSE_OS" in
+        linux)
+            if need_cmd xdg-open; then xdg-open "$dir" >/dev/null 2>&1 &
+            elif need_cmd wslview; then wslview "$dir" >/dev/null 2>&1 &
+            else printf "  path: %s\n" "$dir"; fi
+            ;;
+        macos) open "$dir" ;;
+    esac
+}
+
+cmd_config() {
+    sub="${1:-}"
+    [ "$#" -gt 0 ] && shift || true
+    case "$sub" in
+        edit)     cmd_config_edit "$@" ;;
+        password) cmd_config_password "$@" ;;
+        ports)    cmd_config_ports "$@" ;;
+        paths)    cmd_config_paths "$@" ;;
+        open)     cmd_config_open "$@" ;;
+        ''|help|-h|--help)
+            cat <<EOF
+${BOLD}Usage:${NC} pulse config <subcommand> [args]
+
+${BOLD}Subcommands:${NC}
+  edit <client|dashboard>       open .env in \$EDITOR
+  password [--stdin]            change the dashboard password (interactive by default)
+  ports [--client N] [--dashboard N]
+                                show current ports, or change them (auto-restarts)
+  paths                         print install / config / logs / data paths
+  open <config|install|logs|data>
+                                open the relevant directory in your file manager
+EOF
+            ;;
+        *) die "unknown config subcommand: '$sub' (run: pulse config help)" ;;
+    esac
 }
 
 cmd_version() {
@@ -334,7 +535,13 @@ ${BOLD}Lifecycle:${NC}
 ${BOLD}Config:${NC}
   keys show             print the client's API_KEY
   keys regen            generate new API_KEY, update servers.json
-  config edit <client|dashboard>   open .env in \$EDITOR
+  config edit <client|dashboard>        open .env in \$EDITOR
+  config password                       change the dashboard password
+  config ports [--client N] [--dashboard N]
+                                        show or change service ports
+  config paths                          print install / config / logs paths
+  config open <config|install|logs|data>
+                                        open that directory in your file manager
 
 ${BOLD}Links:${NC}
   github.com/${GITHUB_REPO}

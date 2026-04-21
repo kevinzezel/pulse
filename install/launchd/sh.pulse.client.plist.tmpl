@@ -24,6 +24,9 @@
         <string>@@HOME@@</string>
         <key>PATH</key>
         <string>@@HOME@@/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <!-- tmux attach-session exits immediately without TERM; launchd sets none by default. -->
+        <key>TERM</key>
+        <string>xterm-256color</string>
     </dict>
     <key>RunAtLoad</key>
     <true/>
