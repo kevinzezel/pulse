@@ -191,20 +191,24 @@ O bloco deve conter, nesta ordem:
    - **minor** (`X.Y+1.0`) — features novas, novos comandos CLI, mudanças de UI não-breaking, expansão de API
    - **major** (`X+1.0.0`) — breaking changes (renomeação de comando, remoção de flag, mudança de schema de env/config, mudança incompatível de API)
 2. **Atualização do `CHANGELOG.md`** feita por mim antes de fechar a tarefa — seção nova no topo (`## [X.Y.Z] — YYYY-MM-DD`) com `### Added` / `### Changed` / `### Fixed` / `### Removed` apropriados, bullets descritivos por mudança, e atualização dos links no rodapé. Se eu não fiz isso ainda, fazer antes de devolver o bloco.
-3. **Bloco de comandos git** pronto pra copiar/colar, com placeholders claros quando necessário. Padrão:
+3. **Script shell pronto em `/tmp/`** — em vez de devolver um bloco de comandos pra copiar/colar, **gerar um arquivo executável** via Write tool em `/tmp/pulse-release-v<X.Y.Z>.sh` (release) ou `/tmp/pulse-commit-<slug>.sh` (docs-only / commit sem tag), com permissão de exec implícita (o usuário faz `bash /tmp/...sh`). Conteúdo padrão da release:
 
    ```sh
+   #!/usr/bin/env bash
+   set -eu
    cd /media/kzezel/data/dados/development/aws/projetos/open_source/pulse
    git status
-   git diff                       # revisar antes
-   git add <paths específicos>    # nunca `git add -A`
+   git add <paths específicos>   # nunca `git add -A`
    git commit -m "<tipo>(<escopo>): <resumo>"
    git tag -a v<X.Y.Z> -m "Pulse v<X.Y.Z> — <resumo>"
    git push origin main
-   git push origin v<X.Y.Z>       # dispara o workflow `.github/workflows/release.yml`
+   git push origin v<X.Y.Z>      # dispara .github/workflows/release.yml
+   echo "done — monitor with: gh run list --workflow=release.yml --limit 3"
    ```
 
-4. **Nota curta de monitoramento**: lembrar que `gh run list --workflow=release.yml --limit 3` e `gh release view v<X.Y.Z>` validam que o workflow publicou os 4 assets (`pulse-v<X.Y.Z>.tar.gz`, `SHA256SUMS`, `install.sh`, `install.ps1`).
+   Para commits sem tag (docs-only, chores), omitir o `git tag` e o segundo `git push`. Não incluir `git diff` — usuário revisa pelo próprio editor/IDE se quiser.
+
+4. **Mensagem final** mencionando o path do script (ex: "Rode: `bash /tmp/pulse-release-v1.3.3.sh`") e o que o script vai fazer em uma linha.
 
 Regras:
 

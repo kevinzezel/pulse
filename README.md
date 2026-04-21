@@ -35,7 +35,7 @@ irm https://raw.githubusercontent.com/kevinzezel/pulse/main/install/install.ps1 
 
 Open `http://localhost:3000` when it finishes. That's it.
 
-> **Pin a version** — `PULSE_VERSION=v1.2.0 curl -fsSL …/install.sh | sh`
+> **Pin a version** — `PULSE_VERSION=v1.3.2 curl -fsSL …/install.sh | sh`
 >
 > **Client only** (for a remote server) — `PULSE_CLIENT_ONLY=1 curl -fsSL …/install.sh | sh`
 >
@@ -80,15 +80,24 @@ tmux on its own is powerful but has no UI. Tools like `ttyd` and `gotty` give yo
 
 ## Self-hosting
 
-After install, a few commands you'll want:
+After install, a few commands you'll want. Run `pulse help` for the full list.
 
 ```sh
-pulse status           # service health (client + dashboard)
-pulse logs client -f   # follow client logs
-pulse open             # launch browser at the dashboard
-pulse keys show        # print the client's API_KEY
-pulse upgrade          # fetch latest release and reinstall
-pulse uninstall        # remove everything
+pulse status                    # service health (client + dashboard)
+pulse logs client -f            # follow client logs
+pulse open                      # launch browser at the dashboard
+pulse upgrade                   # fetch latest release and reinstall
+pulse uninstall                 # remove everything
+
+pulse keys show                 # print the client's API_KEY
+pulse keys regen                # rotate it (updates servers.json too)
+
+pulse config password           # change the dashboard password
+pulse config ports              # show current ports
+pulse config ports --client 8000 --dashboard 4000   # change them (auto-restarts)
+pulse config paths              # print install / config / logs paths
+pulse config open config        # open ~/.config/pulse in your file manager
+pulse config edit client        # open client.env in $EDITOR
 ```
 
 Config files (all in `~/.config/pulse/`):
@@ -98,6 +107,8 @@ Config files (all in `~/.config/pulse/`):
 | `client.env`      | `API_HOST`, `API_PORT`, `API_KEY` |
 | `frontend.env`    | `WEB_HOST`, `WEB_PORT`, `AUTH_PASSWORD`, `AUTH_JWT_SECRET`, `AUTH_COOKIE_SECURE` |
 | `../local/share/pulse/frontend/data/servers.json` | list of Pulse clients the dashboard connects to |
+
+Prefer `pulse config password` / `pulse config ports` over editing the env files by hand — they keep `servers.json` in sync and restart the right services for you.
 
 ### Behind a reverse proxy
 
@@ -120,7 +131,7 @@ In the dashboard: **Settings → Servers → Add**, paste the host + port + API 
 
 ## Development
 
-Prerequisites: `tmux`, `python3 ≥ 3.10`, `node ≥ 18.17`. On Debian/Ubuntu or macOS, the start script installs them for you on first run.
+Prerequisites: `tmux`, `python3 ≥ 3.10`, `node ≥ 18.18`. On Debian/Ubuntu or macOS, the start script installs them for you on first run.
 
 ```sh
 git clone https://github.com/kevinzezel/pulse.git
