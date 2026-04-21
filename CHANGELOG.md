@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [1.3.3] — 2026-04-21
+
+### Fixed
+
+- Dashboard stuck in a crashloop on macOS when a Node.js version below 18.18 was present in `/usr/local/bin/node` or elsewhere on the launchd PATH. Next.js 15 refused to start, logging `You are using Node.js 18.16.1. For Next.js, Node.js version "^18.18.0 || ^19.8.0 || >= 20.0.0" is required.` and launchd restarted the process in a loop. The launchd plist wrapper now resolves `brew --prefix node@20` at start time and prepends it to `PATH`, so the dashboard always runs against the Node installed by the Pulse installer regardless of older binaries on the system.
+
 ## [1.3.2] — 2026-04-21
 
 ### Fixed
@@ -63,7 +69,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.3.2...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.3.3...HEAD
+[1.3.3]: https://github.com/kevinzezel/pulse/releases/tag/v1.3.3
 [1.3.2]: https://github.com/kevinzezel/pulse/releases/tag/v1.3.2
 [1.3.1]: https://github.com/kevinzezel/pulse/releases/tag/v1.3.1
 [1.3.0]: https://github.com/kevinzezel/pulse/releases/tag/v1.3.0

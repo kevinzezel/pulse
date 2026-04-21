@@ -14,7 +14,14 @@
     <array>
         <string>/bin/sh</string>
         <string>-c</string>
-        <string>set -a; . "$HOME/.config/pulse/frontend.env"; set +a; exec npx next start -H "$WEB_HOST" -p "$WEB_PORT"</string>
+        <!--
+          Next.js (15) refuses to run on Node < 18.18. The launchd PATH is static,
+          so if the user has an older /usr/local/bin/node around, npx can pick it
+          up even when node@20 is installed via brew. Resolve brew's node@20
+          explicitly at start time and prepend it to PATH — works on Apple
+          Silicon and Intel without hard-coded paths in the plist.
+        -->
+        <string>for brew_bin in /opt/homebrew/bin/brew /usr/local/bin/brew; do [ -x "$brew_bin" ] &amp;&amp; eval "$("$brew_bin" shellenv)" &amp;&amp; break; done; node_prefix="$(brew --prefix node@20 2>/dev/null)"; [ -n "$node_prefix" ] &amp;&amp; PATH="$node_prefix/bin:$PATH"; export PATH; set -a; . "$HOME/.config/pulse/frontend.env"; set +a; exec npx next start -H "$WEB_HOST" -p "$WEB_PORT"</string>
     </array>
     <key>WorkingDirectory</key>
     <string>@@HOME@@/.local/share/pulse/frontend</string>
