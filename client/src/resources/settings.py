@@ -20,6 +20,9 @@ DEFAULT_CHANNELS = ["browser", "telegram"]
 settings = {
     "telegram": {"bot_token": "", "chat_id": ""},
     "notifications": {"idle_timeout_seconds": DEFAULT_TIMEOUT, "channels": list(DEFAULT_CHANNELS)},
+    # Empty string = auto-detect (see _resolve_vscode_binary in routes/terminal.py).
+    # When set, the user's explicit path wins over auto-detection.
+    "editor": {"binary_override": ""},
 }
 
 
@@ -60,6 +63,7 @@ def load_settings():
 
     tele = data.get("telegram", {})
     notif = data.get("notifications", {})
+    editor = data.get("editor", {})
     with _lock:
         settings["telegram"]["bot_token"] = tele.get("bot_token", "") or ""
         settings["telegram"]["chat_id"] = tele.get("chat_id", "") or ""
@@ -73,6 +77,7 @@ def load_settings():
             settings["notifications"]["channels"] = _normalize_channels(notif.get("channels"))
         else:
             settings["notifications"]["channels"] = list(DEFAULT_CHANNELS)
+        settings["editor"]["binary_override"] = str(editor.get("binary_override", "") or "").strip()
     logger.info(f"Loaded settings (telegram configured: {bool(settings['telegram']['bot_token'])})")
 
 
@@ -86,6 +91,9 @@ def get_public_settings():
             "notifications": {
                 "idle_timeout_seconds": settings["notifications"]["idle_timeout_seconds"],
                 "channels": list(settings["notifications"]["channels"]),
+            },
+            "editor": {
+                "binary_override": settings["editor"]["binary_override"],
             },
         }
 
@@ -131,3 +139,15 @@ def get_idle_timeout():
 def get_channels():
     with _lock:
         return list(settings["notifications"]["channels"])
+
+
+def get_editor_override():
+    with _lock:
+        return settings["editor"]["binary_override"]
+
+
+def update_editor(binary_override=None):
+    with _lock:
+        if binary_override is not None:
+            settings["editor"]["binary_override"] = str(binary_override or "").strip()
+        save_settings()

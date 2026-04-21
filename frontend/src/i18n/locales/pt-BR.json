@@ -288,7 +288,9 @@
     "project_name_too_long": "Nome do projeto deve ter no máximo {max} caracteres",
     "project_name_taken": "Já existe um projeto com esse nome",
     "project_not_empty": "Projeto não está vazio",
-    "project_default_protected": "O projeto padrão não pode ser deletado"
+    "project_default_protected": "O projeto padrão não pode ser deletado",
+    "editor_binary_not_found": "Binário do editor não encontrado no host. Instale VSCode / Cursor / VSCodium, ou defina o caminho em Configurações → Editor.",
+    "editor_binary_not_executable": "Caminho não é executável: {path}"
   },
   "success": {
     "group_created": "Grupo criado",
@@ -343,7 +345,27 @@
     "tabs": {
       "servers": "Servidores",
       "telegram": "Telegram",
-      "notifications": "Notificações"
+      "notifications": "Notificações",
+      "editor": "Editor"
+    },
+    "editor": {
+      "title": "Editor",
+      "subtitle": "Escolha qual editor abre ao clicar em \"Abrir no VSCode\" numa sessão. Deixe em branco para autodetectar.",
+      "pathLabel": "Caminho do binário do editor (override)",
+      "pathPlaceholder": "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code",
+      "pathHint": "Caminho absoluto para o binário da CLI. Funciona com VSCode, Cursor, VSCodium, Windsurf — qualquer editor que aceite uma pasta como argumento.",
+      "clear": "Limpar",
+      "clearOverride": "Limpa o override e volta para autodetecção",
+      "autoDetect": "Detectar automaticamente",
+      "detecting": "Detectando...",
+      "detected": "Detectado: {path}",
+      "detectedTitle": "Usaria",
+      "useDetected": "Usar esse",
+      "source": {
+        "override": "Do seu override salvo.",
+        "path": "Encontrado no PATH do serviço.",
+        "fallback": "Encontrado num local de instalação conhecido."
+      }
     },
     "serverSelector": {
       "label": "Servidor"

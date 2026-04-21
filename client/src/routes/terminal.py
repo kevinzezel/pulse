@@ -164,22 +164,54 @@ def get_cwd(request: Request, session_id: str):
     return build_i18n_response(request, 200, {"detail_key": "status.ok", "cwd": cwd})
 
 
-VSCODE_FALLBACK_BINARIES = (
+EDITOR_FALLBACK_BINARIES = (
+    # Linux — most common distro installs and Flatpak/Snap.
     "/usr/bin/code",
     "/snap/bin/code",
     "/usr/share/code/code",
     "/opt/visual-studio-code/code",
     "/var/lib/flatpak/exports/bin/com.visualstudio.code",
+    # macOS — VSCode, VSCode Insiders, Cursor, VSCodium.
+    # Each app ships a CLI wrapper at <App>/Contents/Resources/app/bin/<binary>.
+    "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code",
+    "/Applications/Visual Studio Code - Insiders.app/Contents/Resources/app/bin/code",
+    "/Applications/Cursor.app/Contents/Resources/app/bin/cursor",
+    "/Applications/Cursor.app/Contents/Resources/app/bin/code",
+    "/Applications/VSCodium.app/Contents/Resources/app/bin/codium",
+    "/Applications/Windsurf.app/Contents/Resources/app/bin/windsurf",
+    # macOS — brew cask symlinks (when the user ran `Shell Command: Install 'code' command in PATH`).
+    "/opt/homebrew/bin/code",
+    "/usr/local/bin/code",
+    "/opt/homebrew/bin/cursor",
+    "/usr/local/bin/cursor",
 )
+
+# Common PATH names for editor CLIs — checked via shutil.which before the fallback list.
+EDITOR_PATH_NAMES = ("code", "cursor", "codium", "code-insiders", "windsurf")
 
 
 def _resolve_vscode_binary(env):
-    path = shutil.which("code", path=env.get("PATH"))
-    if path:
-        return path
-    for candidate in VSCODE_FALLBACK_BINARIES:
+    # 1. User override from settings wins, if it points to an executable.
+    from resources.settings import get_editor_override
+    override = get_editor_override()
+    if override:
+        if os.path.isfile(override) and os.access(override, os.X_OK):
+            return override
+        # Fall through to auto-detect if the override is broken — the user
+        # gets a clear error anyway, and an older stale path shouldn't block
+        # a freshly-installed editor.
+
+    # 2. Any known editor CLI on PATH.
+    for name in EDITOR_PATH_NAMES:
+        path = shutil.which(name, path=env.get("PATH"))
+        if path:
+            return path
+
+    # 3. Known absolute install paths across distros and macOS.
+    for candidate in EDITOR_FALLBACK_BINARIES:
         if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
             return candidate
+
     return None
 
 

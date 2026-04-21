@@ -2,16 +2,18 @@
 
 import { Suspense, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Settings as SettingsIcon, Server, Bell, MessageCircle } from 'lucide-react';
+import { Settings as SettingsIcon, Server, Bell, MessageCircle, Folder } from 'lucide-react';
 import { useTranslation } from '@/providers/I18nProvider';
 import ServersTab from '@/components/settings/ServersTab';
 import TelegramTab from '@/components/settings/TelegramTab';
 import NotificationsTab from '@/components/settings/NotificationsTab';
+import EditorTab from '@/components/settings/EditorTab';
 
 const TABS = [
   { id: 'servers', icon: Server, labelKey: 'settings.tabs.servers' },
   { id: 'telegram', icon: MessageCircle, labelKey: 'settings.tabs.telegram' },
   { id: 'notifications', icon: Bell, labelKey: 'settings.tabs.notifications' },
+  { id: 'editor', icon: Folder, labelKey: 'settings.tabs.editor' },
 ];
 
 function SettingsContent() {
@@ -57,6 +59,7 @@ function SettingsContent() {
         {activeTab === 'servers' && <ServersTab initialEditId={editParam} />}
         {activeTab === 'telegram' && <TelegramTab />}
         {activeTab === 'notifications' && <NotificationsTab />}
+        {activeTab === 'editor' && <EditorTab />}
       </div>
     </div>
   );

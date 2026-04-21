@@ -466,6 +466,17 @@ export function discoverChatId(serverId, botToken) {
   });
 }
 
+export function updateEditorSettings(serverId, { binaryOverride }) {
+  return request(serverId, '/api/settings/editor', {
+    method: 'PUT',
+    body: JSON.stringify({ binary_override: binaryOverride || '' }),
+  });
+}
+
+export function resolveEditor(serverId) {
+  return request(serverId, '/api/settings/editor/resolve', { method: 'POST' });
+}
+
 export async function saveImageToTemp(compositeIdOrServerId, blob) {
   let serverId = compositeIdOrServerId;
   if (typeof compositeIdOrServerId === 'string' && compositeIdOrServerId.includes(SESSION_ID_SEP)) {

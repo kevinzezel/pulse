@@ -141,16 +141,25 @@ node_ok() {
 }
 
 ensure_node() {
+    # On macOS the launchd PATH can't see nvm / fnm / asdf — so even if the
+    # user's shell has a modern node, the dashboard service (via launchd)
+    # won't. Always install node@20 via brew there, regardless of what `node`
+    # reports in the installer's shell.
+    if [ "$PULSE_PM" = brew ]; then
+        if ! brew list --formula node@20 >/dev/null 2>&1; then
+            log "installing node@20 via brew (launchd can't see nvm/fnm/asdf)"
+            brew install node@20
+        fi
+        brew link --overwrite --force node@20 2>/dev/null || true
+        return 0
+    fi
+    # Linux / apt: skip reinstall if the system node is already recent enough.
     node_ok && return 0
     case "$PULSE_PM" in
         apt)
             log "installing Node.js 20 via NodeSource"
             curl -fsSL https://deb.nodesource.com/setup_20.x | $PULSE_SUDO -E bash -
             $PULSE_SUDO DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends nodejs
-            ;;
-        brew)
-            brew install node@20
-            brew link --overwrite --force node@20 2>/dev/null || true
             ;;
     esac
     node_ok || die "Node.js 18.18+ installation failed"
