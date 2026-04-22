@@ -14,6 +14,7 @@ import { getServerById, useServers } from '@/providers/ServersProvider';
 import { useNotifications } from '@/providers/NotificationsProvider';
 import { isLocalHost } from '@/utils/host';
 import NewTerminalModal from './NewTerminalModal';
+import RenameSessionModal from './RenameSessionModal';
 import ClipboardGallery from './ClipboardGallery';
 import AttachImageButton from './AttachImageButton';
 import ServerTag from './ServerTag';
@@ -53,8 +54,8 @@ export default function Sidebar({
   const [creating, setCreating] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [copiedId, setCopiedId] = useState(null);
-  const [editingId, setEditingId] = useState(null);
-  const [editName, setEditName] = useState('');
+  const [renameSessionId, setRenameSessionId] = useState(null);
+  const [renaming, setRenaming] = useState(false);
   const [confirmKillId, setConfirmKillId] = useState(null);
   const [openingEditorId, setOpeningEditorId] = useState(null);
   const [openingRemoteId, setOpeningRemoteId] = useState(null);
@@ -159,21 +160,18 @@ export default function Sidebar({
 
   function startEditing(e, session) {
     e.stopPropagation();
-    setEditingId(session.id);
-    setEditName(session.name);
+    setRenameSessionId(session.id);
   }
 
-  function handleRenameSubmit(e) {
-    e.preventDefault();
-    const currentName = sessions.find(s => s.id === editingId)?.name;
-    if (editName.trim() && editName.trim() !== currentName) {
-      onRenameSession(editingId, editName.trim());
+  async function handleRenameSubmit(newName) {
+    if (!renameSessionId) return;
+    setRenaming(true);
+    try {
+      await onRenameSession(renameSessionId, newName);
+      setRenameSessionId(null);
+    } finally {
+      setRenaming(false);
     }
-    setEditingId(null);
-  }
-
-  function handleRenameKeyDown(e) {
-    if (e.key === 'Escape') setEditingId(null);
   }
 
   async function handleSync() {
@@ -286,28 +284,12 @@ export default function Sidebar({
             <div className="w-1.5 h-1.5 rounded-full bg-primary flex-shrink-0" />
           )}
           <div className="min-w-0 flex-1">
-            {editingId === session.id ? (
-              <form onSubmit={handleRenameSubmit} className="flex">
-                <input
-                  type="text"
-                  value={editName}
-                  onChange={(e) => setEditName(e.target.value)}
-                  onBlur={handleRenameSubmit}
-                  onKeyDown={handleRenameKeyDown}
-                  maxLength={50}
-                  autoFocus
-                  onClick={(e) => e.stopPropagation()}
-                  className="w-full text-sm bg-input border border-ring rounded px-1 py-0 text-foreground focus:outline-none"
-                />
-              </form>
-            ) : (
-              <p className={`text-sm truncate flex items-center gap-1 ${isVisible ? 'text-primary' : 'text-foreground'}`}>
-                {session.notify_on_idle && (
-                  <Bell size={10} className="text-primary flex-shrink-0" />
-                )}
-                <span className="truncate">{session.name}</span>
-              </p>
-            )}
+            <p className={`text-sm truncate flex items-center gap-1 ${isVisible ? 'text-primary' : 'text-foreground'}`}>
+              {session.notify_on_idle && (
+                <Bell size={10} className="text-primary flex-shrink-0" />
+              )}
+              <span className="truncate">{session.name}</span>
+            </p>
             <p className="text-[10px] text-muted-foreground truncate">
               {(() => {
                 const { sessionId: backendId } = splitSessionId(session.id);
@@ -325,15 +307,11 @@ export default function Sidebar({
           showActions ? 'max-h-8 opacity-100' : 'max-h-0 opacity-0 group-hover:max-h-8 group-hover:opacity-100 group-hover:pb-1.5'
         }`} style={!showActions ? { paddingBottom: 0 } : undefined}>
           <button
-            onClick={(e) => editingId === session.id ? handleRenameSubmit(e) : startEditing(e, session)}
-            className={`p-1 transition-colors ${
-              editingId === session.id
-                ? 'text-success hover:opacity-80'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-            title={editingId === session.id ? t('sidebar.save') : t('sidebar.rename')}
+            onClick={(e) => startEditing(e, session)}
+            className="p-1 text-muted-foreground hover:text-foreground transition-colors"
+            title={t('sidebar.rename')}
           >
-            {editingId === session.id ? <Check size={13} /> : <Pencil size={12} />}
+            <Pencil size={12} />
           </button>
           <button
             onClick={(e) => openAssignPopover(e, session.id)}
@@ -695,7 +673,7 @@ export default function Sidebar({
                   className="p-2 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors disabled:opacity-40 disabled:pointer-events-none"
                   title={t('sidebar.compose')}
                 >
-                  {composeLoadingId === activeTerminalId ? <Loader size={16} className="animate-spin" /> : <Keyboard size={16} />}
+                  {activeTerminalId && composeLoadingId === activeTerminalId ? <Loader size={16} className="animate-spin" /> : <Keyboard size={16} />}
                 </button>
               </div>
             )}
@@ -713,6 +691,19 @@ export default function Sidebar({
           defaultGroupId={defaultCreateGroupId}
         />
       )}
+
+      {renameSessionId && (() => {
+        const session = allSessions.find(s => s.id === renameSessionId);
+        if (!session) return null;
+        return (
+          <RenameSessionModal
+            session={session}
+            onClose={() => !renaming && setRenameSessionId(null)}
+            onSubmit={handleRenameSubmit}
+            loading={renaming}
+          />
+        );
+      })()}
 
       {confirmKillId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-overlay/60">

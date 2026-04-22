@@ -203,6 +203,14 @@
       "cancel": "Cancel",
       "confirm": "Close"
     },
+    "renameSession": {
+      "title": "Rename session",
+      "nameLabel": "Name",
+      "placeholder": "e.g. dev server",
+      "save": "Save",
+      "saving": "Saving...",
+      "cancel": "Cancel"
+    },
     "newFlow": {
       "title": "New Flow",
       "nameLabel": "Name (optional)",

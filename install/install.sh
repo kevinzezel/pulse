@@ -407,6 +407,113 @@ prompt_password() {
     printf '%s' "$pw"
 }
 
+detect_lan_ip() {
+    # Best-effort LAN IP detection. Returns empty string on failure — caller
+    # decides what to do (prompt the user, or die with a clear message).
+    # One method per OS, no silent fallback between methods.
+    case "$PULSE_OS" in
+        linux)
+            # `hostname -I` ships with the `hostname` package — present on every
+            # apt-based distro Pulse v1 supports. First entry = primary LAN IP.
+            hostname -I 2>/dev/null | awk '{print $1}'
+            ;;
+        macos)
+            # Two-step: find the default-route iface, then ask ipconfig for its IPv4.
+            iface="$(route -n get default 2>/dev/null | awk '/interface:/ {print $2}')"
+            [ -n "$iface" ] && ipconfig getifaddr "$iface" 2>/dev/null
+            ;;
+    esac
+}
+
+prompt_line() {
+    # prompt_line "Label" "default" -> echoes user input or default
+    _pl_label="$1"; _pl_default="$2"
+    if [ -n "$_pl_default" ]; then
+        printf "  %b%s%b [%s]: " "$BOLD" "$_pl_label" "$NC" "$_pl_default" > /dev/tty
+    else
+        printf "  %b%s%b: " "$BOLD" "$_pl_label" "$NC" > /dev/tty
+    fi
+    read -r _pl_val < /dev/tty
+    [ -n "$_pl_val" ] || _pl_val="$_pl_default"
+    printf '%s' "$_pl_val"
+}
+
+read_env_value() {
+    # Extract KEY=value from an env file. Empty output if file or key is missing.
+    _re_file="$1"; _re_key="$2"
+    [ -f "$_re_file" ] || return 0
+    grep -E "^${_re_key}=" "$_re_file" 2>/dev/null | head -n 1 | cut -d= -f2-
+}
+
+prompt_network() {
+    # Load existing values (upgrade path preserves these regardless of prompts).
+    existing_api_host="$(read_env_value "$CONFIG_ROOT/client.env"   API_HOST)"
+    existing_api_port="$(read_env_value "$CONFIG_ROOT/client.env"   API_PORT)"
+    existing_web_host="$(read_env_value "$CONFIG_ROOT/frontend.env" WEB_HOST)"
+    existing_web_port="$(read_env_value "$CONFIG_ROOT/frontend.env" WEB_PORT)"
+
+    # Env-var overrides (scripted installs). If a value is already set via env,
+    # it takes precedence over both existing and default.
+    PULSE_API_HOST="${PULSE_API_HOST:-${existing_api_host:-0.0.0.0}}"
+    PULSE_API_PORT="${PULSE_API_PORT:-${existing_api_port:-$PULSE_CLIENT_PORT}}"
+    PULSE_WEB_HOST="${PULSE_WEB_HOST:-${existing_web_host:-0.0.0.0}}"
+    PULSE_WEB_PORT="${PULSE_WEB_PORT:-${existing_web_port:-$PULSE_DASHBOARD_PORT}}"
+
+    # PULSE_SERVER_HOST = the IP the dashboard will use to reach the client
+    # (written into servers.json). Not derivable from .env — fresh every install
+    # unless overridden or prompted.
+    if [ -z "${PULSE_SERVER_HOST:-}" ]; then
+        PULSE_SERVER_HOST_DETECTED="$(detect_lan_ip)"
+    fi
+
+    # Interactive path: only prompt on a fresh install (no existing env files)
+    # and only if stdin is a TTY and PULSE_NO_INTERACT is off.
+    needs_prompt=0
+    [ "$PULSE_DASHBOARD_ONLY" = 0 ] && [ -z "$existing_api_host" ] && needs_prompt=1
+    [ "$PULSE_CLIENT_ONLY"    = 0 ] && [ -z "$existing_web_host" ] && needs_prompt=1
+    [ "$PULSE_CLIENT_ONLY"    = 0 ] && [ -z "${PULSE_SERVER_HOST:-}" ] && needs_prompt=1
+
+    if [ "$needs_prompt" = 1 ] && [ "$PULSE_NO_INTERACT" != 1 ] && [ -r /dev/tty ] && [ -w /dev/tty ]; then
+        printf "\n" > /dev/tty
+        printf "  %b┌────────────────────────────────────────────────────────────────┐%b\n" "$BLUE" "$NC" > /dev/tty
+        printf "  %b│  Network binding                                                │%b\n" "$BLUE" "$NC" > /dev/tty
+        printf "  %b└────────────────────────────────────────────────────────────────┘%b\n" "$BLUE" "$NC" > /dev/tty
+        printf "  Pulse services bind to these hosts. Default is %b0.0.0.0%b so phones\n" "$BOLD" "$NC" > /dev/tty
+        printf "  and other machines on your network can reach the dashboard.\n" > /dev/tty
+        printf "\n" > /dev/tty
+        printf "  %b⚠  WARNING:%b 0.0.0.0 exposes Pulse on your LAN. You are protected\n" "$YELLOW" "$NC" > /dev/tty
+        printf "     by a password, but if you only need local access, type %b127.0.0.1%b —\n" "$BOLD" "$NC" > /dev/tty
+        printf "     in that case you won't be able to reach it from other devices.\n" > /dev/tty
+        printf "\n" > /dev/tty
+
+        if [ "$PULSE_CLIENT_ONLY" = 0 ] && [ -z "$existing_web_host" ]; then
+            PULSE_WEB_HOST="$(prompt_line "Dashboard host"   "$PULSE_WEB_HOST")"
+            PULSE_WEB_PORT="$(prompt_line "Dashboard port"   "$PULSE_WEB_PORT")"
+        fi
+        if [ "$PULSE_DASHBOARD_ONLY" = 0 ] && [ -z "$existing_api_host" ]; then
+            PULSE_API_HOST="$(prompt_line "Client host   "   "$PULSE_API_HOST")"
+            PULSE_API_PORT="$(prompt_line "Client port   "   "$PULSE_API_PORT")"
+        fi
+        if [ "$PULSE_CLIENT_ONLY" = 0 ] && [ -z "${PULSE_SERVER_HOST:-}" ]; then
+            printf "\n" > /dev/tty
+            printf "  %bServer URL%b is the IP the dashboard uses to reach the client —\n" "$BOLD" "$NC" > /dev/tty
+            printf "  set to your LAN IP so phones/other machines can connect.\n" > /dev/tty
+            PULSE_SERVER_HOST="$(prompt_line "Server URL    " "${PULSE_SERVER_HOST_DETECTED:-}")"
+        fi
+        printf "\n" > /dev/tty
+    fi
+
+    # Final validation — dashboard needs a server host to seed servers.json.
+    if [ "$PULSE_CLIENT_ONLY" = 0 ] && [ -z "${PULSE_SERVER_HOST:-}" ]; then
+        # Fresh install, dashboard-only or full install without detected IP and no env override.
+        if [ -z "$existing_web_host" ]; then
+            # Seed of servers.json is required and we have nothing to write.
+            die "Server URL is required but LAN IP detection failed. Re-run with PULSE_SERVER_HOST=<your-lan-ip> (e.g., 192.168.1.20)."
+        fi
+        # Upgrade path: servers.json already exists and is preserved, so PULSE_SERVER_HOST is unused anyway.
+    fi
+}
+
 seed_client_env() {
     [ "$PULSE_DASHBOARD_ONLY" = 1 ] && return 0
     env_file="$CONFIG_ROOT/client.env"
@@ -418,8 +525,8 @@ seed_client_env() {
     cat > "$env_file" <<EOF
 COMPOSE_PROJECT_NAME=pulse
 VERSION=$PULSE_INSTALLED_VERSION
-API_HOST=$PULSE_BIND_HOST
-API_PORT=$PULSE_CLIENT_PORT
+API_HOST=$PULSE_API_HOST
+API_PORT=$PULSE_API_PORT
 API_KEY=$api_key
 EOF
     chmod 600 "$env_file"
@@ -438,8 +545,8 @@ seed_frontend_env() {
     auth_password="$(prompt_password)"
     auth_secret="$(hex_secret)"
     cat > "$env_file" <<EOF
-WEB_HOST=$PULSE_BIND_HOST
-WEB_PORT=$PULSE_DASHBOARD_PORT
+WEB_HOST=$PULSE_WEB_HOST
+WEB_PORT=$PULSE_WEB_PORT
 AUTH_PASSWORD=$auth_password
 AUTH_JWT_SECRET=$auth_secret
 AUTH_COOKIE_SECURE=false
@@ -463,6 +570,10 @@ seed_servers_json() {
         ok "wrote empty servers.json (dashboard-only install)"
         return 0
     fi
+    # PULSE_SERVER_HOST is set by prompt_network() (interactive) or env var
+    # (scripted). The dashboard-seed path is only reached on fresh installs,
+    # so by the time we're here it must have a value.
+    [ -n "${PULSE_SERVER_HOST:-}" ] || die "internal: PULSE_SERVER_HOST unset at seed_servers_json"
     api_key="$(grep -E '^API_KEY=' "$CONFIG_ROOT/client.env" | cut -d= -f2-)"
     now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     server_id="srv-$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid 2>/dev/null || od -xN 16 /dev/urandom | head -1 | awk '{OFS="-"; print $2$3,$4,$5,$6,$7$8$9}')"
@@ -473,8 +584,8 @@ seed_servers_json() {
       "id": "$server_id",
       "name": "localhost",
       "protocol": "http",
-      "host": "127.0.0.1",
-      "port": $PULSE_CLIENT_PORT,
+      "host": "$PULSE_SERVER_HOST",
+      "port": $PULSE_API_PORT,
       "apiKey": "$api_key",
       "color": null,
       "createdAt": "$now"
@@ -574,10 +685,22 @@ print_success() {
     printf "%b╚════════════════════════════════════════════════════════════════════╝%b\n" "$GREEN" "$NC"
     printf "\n"
     if [ "$PULSE_CLIENT_ONLY" = 0 ]; then
-        printf "  %bDashboard:%b http://localhost:%s\n" "$BOLD" "$NC" "$PULSE_DASHBOARD_PORT"
+        # If bound to 0.0.0.0 / ::, localhost works locally and the LAN IP works from other devices.
+        # If bound to 127.0.0.1, only localhost works.
+        dash_port="${PULSE_WEB_PORT:-$PULSE_DASHBOARD_PORT}"
+        printf "  %bDashboard:%b http://localhost:%s\n" "$BOLD" "$NC" "$dash_port"
+        case "${PULSE_WEB_HOST:-}" in
+            0.0.0.0|::|'')
+                if [ -n "${PULSE_SERVER_HOST:-}" ] && [ "${PULSE_SERVER_HOST:-}" != "127.0.0.1" ] && [ "${PULSE_SERVER_HOST:-}" != "localhost" ]; then
+                    printf "             http://%s:%s  (from phone/LAN)\n" "$PULSE_SERVER_HOST" "$dash_port"
+                fi
+                ;;
+        esac
     fi
     if [ "$PULSE_DASHBOARD_ONLY" = 0 ]; then
-        printf "  %bClient API:%b http://127.0.0.1:%s\n" "$BOLD" "$NC" "$PULSE_CLIENT_PORT"
+        api_port="${PULSE_API_PORT:-$PULSE_CLIENT_PORT}"
+        api_reach="${PULSE_SERVER_HOST:-127.0.0.1}"
+        printf "  %bClient API:%b http://%s:%s\n" "$BOLD" "$NC" "$api_reach" "$api_port"
     fi
     printf "\n"
     printf "  %bCommands:%b\n" "$BOLD" "$NC"
@@ -637,16 +760,6 @@ main() {
     detect_platform
     setup_sudo
 
-    # Default bind host. WSL2 localhostForwarding only reflects 0.0.0.0 bindings
-    # from the Linux VM to the Windows host — 127.0.0.1 inside WSL stays invisible
-    # to the Windows browser (different network namespaces). Native Linux/macOS
-    # share one loopback, so 127.0.0.1 is safe and preferred.
-    if [ "$PULSE_IS_WSL" = 1 ]; then
-        PULSE_BIND_HOST="0.0.0.0"
-    else
-        PULSE_BIND_HOST="127.0.0.1"
-    fi
-
     if [ "$PULSE_CLIENT_ONLY" = 1 ] && [ "$PULSE_DASHBOARD_ONLY" = 1 ]; then
         die "PULSE_CLIENT_ONLY and PULSE_DASHBOARD_ONLY cannot both be set"
     fi
@@ -657,6 +770,7 @@ main() {
     ensure_runtime_deps
     download_and_extract
     install_files
+    prompt_network
     seed_client_env
     seed_frontend_env
     seed_servers_json

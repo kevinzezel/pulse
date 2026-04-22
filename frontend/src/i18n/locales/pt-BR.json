@@ -203,6 +203,14 @@
       "cancel": "Cancelar",
       "confirm": "Encerrar"
     },
+    "renameSession": {
+      "title": "Renomear sessão",
+      "nameLabel": "Nome",
+      "placeholder": "ex: dev server",
+      "save": "Salvar",
+      "saving": "Salvando...",
+      "cancel": "Cancelar"
+    },
     "newFlow": {
       "title": "Novo Fluxo",
       "nameLabel": "Nome (opcional)",

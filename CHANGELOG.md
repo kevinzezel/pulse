@@ -6,6 +6,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [1.4.12] — 2026-04-22
+
+### Added
+
+- **Interactive network prompts in the installer.** `install/install.sh` now asks for dashboard/client host + port and the LAN IP the dashboard will use to reach the client, with auto-filled defaults the user can accept with Enter. The LAN IP is auto-detected (`hostname -I` on Linux, `route -n get default` + `ipconfig getifaddr` on macOS); if detection fails, the prompt is shown empty and the user must type a value — no silent fallback. `PULSE_NO_INTERACT=1` still works via `PULSE_API_HOST`/`PULSE_API_PORT`/`PULSE_WEB_HOST`/`PULSE_WEB_PORT`/`PULSE_SERVER_HOST` env vars. Upgrade path preserves existing `.env` values untouched (no re-prompting).
+- **Modal for renaming sessions.** The pencil button in the sidebar now opens a dedicated modal with a single name field, matching the pattern of `NewTerminalModal`. Replaces the previous inline input that required careful blur/Enter/Escape handling.
+
+### Changed
+
+- **Default bind host is now `0.0.0.0` on every OS.** Previously native Linux and macOS defaulted to `127.0.0.1` and only WSL used `0.0.0.0`. The installer now shows a warning about LAN exposure before prompting, letting the user opt into `127.0.0.1` if they only need local access. This aligns with the Windows installer's existing default and makes mobile-browser access work out of the box.
+- **`install/install.sh:seed_servers_json` uses the detected LAN IP** (or the user-provided value) instead of a hardcoded `127.0.0.1`. The dashboard stores this as the server's `host`, so a browser on another device in the LAN can actually reach the client. Previously a phone connecting to the dashboard would see the client as permanently offline because `127.0.0.1` resolved to the phone itself.
+
+### Fixed
+
+- **New tmux sessions opened in `$INSTALL_ROOT/client`** (the systemd/launchd `WorkingDirectory`) because the client inherited it and tmux inherits from the client. `client/src/resources/terminal.py:create_session_request` now defaults `cwd` to `os.path.expanduser("~")` when the payload omits it, so new terminals start in `$HOME` on Linux/macOS/Windows.
+- **Mobile sidebar keyboard button showed a permanent spinner** when no terminal was open. The condition `composeLoadingId === activeTerminalId` in `Sidebar.jsx:698` evaluated `null === null` as true, flipping the icon to `Loader`. Now guarded by `activeTerminalId && …` so the `Keyboard` icon stays rendered when there's no active terminal (the button remains disabled via the existing `disabled` prop).
+- **Settings tabs hid overflow on mobile.** `frontend/src/app/(main)/settings/page.js` used `overflow-x-auto` with the scrollbar hidden, so phone users had no way to know they could scroll right to reach the fourth tab. The tab row now uses `flex-wrap` on mobile (four tabs break into two rows of two) and keeps the horizontal-scroll behavior on `sm:` and up.
+
 ## [1.4.11] — 2026-04-22
 
 ### Fixed
@@ -214,7 +232,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.4.11...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.4.12...HEAD
+[1.4.12]: https://github.com/kevinzezel/pulse/releases/tag/v1.4.12
 [1.4.11]: https://github.com/kevinzezel/pulse/releases/tag/v1.4.11
 [1.4.10]: https://github.com/kevinzezel/pulse/releases/tag/v1.4.10
 [1.4.9]: https://github.com/kevinzezel/pulse/releases/tag/v1.4.9

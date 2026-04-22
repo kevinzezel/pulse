@@ -203,6 +203,14 @@
       "cancel": "Cancelar",
       "confirm": "Cerrar"
     },
+    "renameSession": {
+      "title": "Renombrar sesión",
+      "nameLabel": "Nombre",
+      "placeholder": "ej: dev server",
+      "save": "Guardar",
+      "saving": "Guardando...",
+      "cancel": "Cancelar"
+    },
     "newFlow": {
       "title": "Nuevo Flujo",
       "nameLabel": "Nombre (opcional)",

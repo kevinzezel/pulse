@@ -150,8 +150,13 @@ def create_session_request(payload):
     group_id = payload.get("group_id")
     project_id = payload.get("project_id") or DEFAULT_PROJECT_ID
     cwd = payload.get("cwd")
+    # Default new terminals to $HOME regardless of where the client process runs
+    # (systemd/launchd spawn us under INSTALL_ROOT, which would otherwise leak
+    # into every new session via tmux's CWD inheritance).
+    if not isinstance(cwd, str) or not cwd:
+        cwd = os.path.expanduser("~")
 
-    create_session(session_id, start_directory=cwd if isinstance(cwd, str) else None)
+    create_session(session_id, start_directory=cwd)
 
     if name != session_id:
         set_custom_name(session_id, name)

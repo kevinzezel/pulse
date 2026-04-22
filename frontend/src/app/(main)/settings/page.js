@@ -36,7 +36,7 @@ function SettingsContent() {
         </header>
 
         <div
-          className="flex items-center gap-1 mb-6 border-b overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
+          className="flex flex-wrap sm:flex-nowrap items-center gap-1 mb-6 border-b sm:overflow-x-auto sm:[&::-webkit-scrollbar]:hidden sm:[-ms-overflow-style:none] sm:[scrollbar-width:none]"
           style={{ borderColor: 'hsl(var(--border))' }}
         >
           {TABS.map(tab => {
@@ -46,7 +46,7 @@ function SettingsContent() {
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium transition-colors border-b-2 -mb-px whitespace-nowrap flex-shrink-0 ${
+                className={`inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium transition-colors border-b-2 -mb-px sm:whitespace-nowrap sm:flex-shrink-0 ${
                   active
                     ? 'border-primary text-primary'
                     : 'border-transparent text-muted-foreground hover:text-foreground'
