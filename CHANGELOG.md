@@ -6,6 +6,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [1.4.9] — 2026-04-22
+
+### Fixed
+
+- `frontend/data/*.json` files (sessions, notes, prompts, flows, layouts, servers, compose-drafts) weren't being persisted in production installs, even though everything worked in `./start.sh` dev. Root cause: `jsonStore.readJsonFile` / `writeJsonFileAtomic` resolved paths against `process.cwd()`, and under systemd/launchd the process that actually handles writes doesn't always share the unit's `WorkingDirectory` with every internal worker Next spawns. Writes happened silently against a different path; no error, no log entry, the real file on disk just never changed. Fix: the dashboard unit/plist now set `PULSE_FRONTEND_ROOT=%h/.local/share/pulse/frontend` and `jsonStore` prefers that env var over `cwd`. Dev runs keep working via the `process.cwd()` fallback. `writeJsonFileAtomic` also now logs the failed absolute path on any exception so `pulse logs dashboard` can surface permission / path issues.
+- **`pulse restart` was still killing tmux sessions.** v1.4.7 made the installer's `stop_services_if_running` use `systemctl kill --kill-who=main` (which signals only the main PID regardless of `KillMode`), so `pulse upgrade` stopped wiping tmux — but the companion change on the systemd unit template (`KillMode=process`) never made it into the commit. Any other `systemctl --user stop|restart pulse-client.service` — including `pulse restart` — still followed the default `KillMode=control-group` and took the tmux daemon down with it. The unit template now ships with `KillMode=process` as originally intended; `pulse restart` preserves live sessions.
+
+### Changed
+
+- `install/systemd/pulse.service.tmpl` picks up `PULSE_FRONTEND_ROOT`; `install/launchd/sh.pulse.dashboard.plist.tmpl` adds the same in `EnvironmentVariables`. Upgrading to 1.4.9 re-installs both so the next `pulse upgrade` / fresh install gets them without manual action.
+
 ## [1.4.8] — 2026-04-22
 
 ### Fixed
@@ -175,7 +186,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.4.8...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.4.9...HEAD
+[1.4.9]: https://github.com/kevinzezel/pulse/releases/tag/v1.4.9
 [1.4.8]: https://github.com/kevinzezel/pulse/releases/tag/v1.4.8
 [1.4.7]: https://github.com/kevinzezel/pulse/releases/tag/v1.4.7
 [1.4.6]: https://github.com/kevinzezel/pulse/releases/tag/v1.4.6

@@ -33,6 +33,9 @@
         <string>production</string>
         <key>PATH</key>
         <string>@@HOME@@/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <!-- Pin the jsonStore base dir; process.cwd() is unreliable under launchd workers. -->
+        <key>PULSE_FRONTEND_ROOT</key>
+        <string>@@HOME@@/.local/share/pulse/frontend</string>
     </dict>
     <key>RunAtLoad</key>
     <true/>

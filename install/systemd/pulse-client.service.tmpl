@@ -19,6 +19,15 @@ RestartSec=5
 StandardOutput=journal
 StandardError=journal
 
+# Kill only the main uvicorn process on stop/restart — not the whole cgroup.
+# The client spawns `tmux new-session -d`, which daemonises but stays in this
+# unit's cgroup under systemd (fork doesn't escape cgroups v2). With the
+# default KillMode=control-group, every `systemctl stop pulse-client` — which
+# `pulse upgrade` runs — would take the tmux server down with it, wiping all
+# live sessions. `KillMode=process` leaves the tmux daemon running so sessions
+# survive upgrades, restarts, and crashes; recover_sessions() reattaches on boot.
+KillMode=process
+
 # Security hardening (user unit — most of this is no-op for user units but set for discipline).
 NoNewPrivileges=true
 PrivateTmp=true

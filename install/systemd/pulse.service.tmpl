@@ -11,6 +11,10 @@ WorkingDirectory=%h/.local/share/pulse/frontend
 EnvironmentFile=%h/.config/pulse/frontend.env
 Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
 Environment=NODE_ENV=production
+# Explicit root for jsonStore reads/writes. process.cwd() is unreliable under
+# systemd when Next spawns internal workers; pinning the path guarantees
+# sessions.json / notes.json / etc. land in the right directory.
+Environment=PULSE_FRONTEND_ROOT=%h/.local/share/pulse/frontend
 ExecStart=/bin/sh -c 'exec npx next start -H "$WEB_HOST" -p "$WEB_PORT"'
 Restart=on-failure
 RestartSec=5
