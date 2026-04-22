@@ -47,9 +47,16 @@ function Show-Banner {
 # `return ,@($arr)` is critical on PS 5.1: without it, single-element arrays
 # degrade to a bare [string], and indexing with [0] returns [char] — which
 # has no .Trim() and reproduces the original crash.
+#
+# Uses the automatic $args variable instead of a typed [string[]] param with
+# ValueFromRemainingArguments. On PS 5.1, the typed param tries to bind tokens
+# that start with `-` (like `-d` in `Invoke-Wsl -d Ubuntu ...`) as parameter
+# names, silently swallows them when no match is found, and only the remaining
+# positional args reach WslArgs. The caller's `wsl -d Ubuntu -- sh -c '...'`
+# ended up as `wsl.exe Ubuntu -- sh -c '...'` with `-d` dropped, and bash then
+# tried to execute "Ubuntu" as a command.
 function Invoke-Wsl {
-    param([Parameter(ValueFromRemainingArguments=$true)][string[]]$WslArgs)
-    $raw = & wsl.exe @WslArgs 2>$null
+    $raw = & wsl.exe @args 2>$null
     if ($null -eq $raw) { return ,@() }
     $arr = @($raw) | ForEach-Object {
         $s = [string]$_

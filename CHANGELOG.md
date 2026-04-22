@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [1.4.4] — 2026-04-21
+
+### Fixed
+
+- Windows installer (`install/install.ps1`) crashing in `Invoke-Wsl` on Windows PowerShell 5.1 with `/bin/bash: line 1: Ubuntu: command not found`. Regression introduced in v1.4.3: the helper declared `param([Parameter(ValueFromRemainingArguments=$true)][string[]]$WslArgs)`, and on PS 5.1 that param binder treated tokens starting with `-` (like `-d` in `Invoke-Wsl -d Ubuntu ...`) as parameter-name attempts. No match was found, PS silently dropped the `-d`, and only the remaining args reached the binder — so `wsl -d Ubuntu -- sh -c '...'` executed as `wsl.exe Ubuntu -- sh -c '...'`, which asked WSL to run "Ubuntu" as a bash command. Switched the helper to the automatic `$args` variable, which bypasses the binder entirely and passes every token through verbatim.
+
 ## [1.4.3] — 2026-04-21
 
 ### Fixed
@@ -129,7 +135,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.4.3...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.4.4...HEAD
+[1.4.4]: https://github.com/kevinzezel/pulse/releases/tag/v1.4.4
 [1.4.3]: https://github.com/kevinzezel/pulse/releases/tag/v1.4.3
 [1.4.2]: https://github.com/kevinzezel/pulse/releases/tag/v1.4.2
 [1.4.1]: https://github.com/kevinzezel/pulse/releases/tag/v1.4.1
