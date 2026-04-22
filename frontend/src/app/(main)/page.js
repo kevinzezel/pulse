@@ -61,6 +61,7 @@ function Dashboard() {
   const [hydratedGroups, setHydratedGroups] = useState(false);
   const [hydratedSessions, setHydratedSessions] = useState(false);
   const [sessionsProjectId, setSessionsProjectId] = useState(null);
+  const [groupsProjectId, setGroupsProjectId] = useState(null);
   const [savedLayout, setSavedLayout] = useState(null);
   const layoutsSaveTimer = useRef(null);
   const snapshotDebounceRef = useRef(null);
@@ -156,12 +157,13 @@ function Dashboard() {
 
   useEffect(() => {
     if (!hydrated || !hydratedGroups) return;
+    if (groupsProjectId !== activeProjectId) return;
     if (selectedGroupId === null) return;
     const match = groups.find(g => g.id === selectedGroupId);
     if (!match || match.hidden) {
       setSelectedGroupId(null);
     }
-  }, [groups, selectedGroupId, hydrated, hydratedGroups]);
+  }, [groups, selectedGroupId, hydrated, hydratedGroups, groupsProjectId, activeProjectId, setSelectedGroupId]);
 
   const sessionsInSelectedGroup = useMemo(() => {
     const validGroupIds = new Set(groups.map(g => g.id));
@@ -172,7 +174,9 @@ function Dashboard() {
   }, [sessions, groups, selectedGroupId]);
 
   const groupKey = `${activeProjectId}::${selectedGroupId ?? '__none__'}`;
-  const mosaicLayout = sessionsProjectId === activeProjectId ? (mosaicLayouts[groupKey] ?? null) : null;
+  const mosaicLayout = (sessionsProjectId === activeProjectId && groupsProjectId === activeProjectId)
+    ? (mosaicLayouts[groupKey] ?? null)
+    : null;
 
   const setMosaicLayout = useCallback((updater) => {
     setMosaicLayouts(prev => {
@@ -187,9 +191,15 @@ function Dashboard() {
   const mobileOpenIds = useMemo(() => Array.from(getVisibleSessionIds(mosaicLayout)), [mosaicLayout]);
 
   useEffect(() => {
-    if (!hydratedLayouts || !hydratedSessions) return;
+    if (!hydratedLayouts || !hydratedSessions || !hydratedGroups) return;
     if (sessionsProjectId !== activeProjectId) return;
-    const validIds = new Set(sessions.map(s => s.id));
+    if (groupsProjectId !== activeProjectId) return;
+    const validGroupIds = new Set(groups.map(g => g.id));
+    const sessionGroupMap = new Map();
+    for (const s of sessions) {
+      const gid = s.group_id && validGroupIds.has(s.group_id) ? s.group_id : null;
+      sessionGroupMap.set(s.id, gid);
+    }
     setMosaicLayouts(prev => {
       let changed = false;
       const next = {};
@@ -199,16 +209,23 @@ function Dashboard() {
           next[k] = v;
           continue;
         }
-        const cleaned = v ? validateTree(v, validIds) : v;
+        const groupOfKey = k.split('::')[1];
+        const targetGroup = groupOfKey === '__none__' ? null : groupOfKey;
+        const keyValidIds = new Set();
+        for (const [sid, gid] of sessionGroupMap) {
+          if (gid === targetGroup) keyValidIds.add(sid);
+        }
+        const cleaned = v ? validateTree(v, keyValidIds) : v;
         next[k] = cleaned;
         if (cleaned !== v) changed = true;
       }
       return changed ? next : prev;
     });
-  }, [sessions, hydratedLayouts, hydratedSessions, activeProjectId, sessionsProjectId]);
+  }, [sessions, groups, hydratedLayouts, hydratedSessions, hydratedGroups, activeProjectId, sessionsProjectId, groupsProjectId]);
 
   useEffect(() => {
     if (!hydratedLayouts || !hydratedGroups) return;
+    if (groupsProjectId !== activeProjectId) return;
     const validKeys = new Set([
       `${activeProjectId}::__none__`,
       ...groups.map((g) => `${activeProjectId}::${g.id}`),
@@ -228,7 +245,7 @@ function Dashboard() {
       }
       return changed ? next : prev;
     });
-  }, [groups, hydratedLayouts, hydratedGroups, activeProjectId]);
+  }, [groups, hydratedLayouts, hydratedGroups, activeProjectId, groupsProjectId]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -288,6 +305,7 @@ function Dashboard() {
   const fetchGroups = useCallback(async () => {
     if (servers.length === 0) {
       setGroups([]);
+      setGroupsProjectId(activeProjectId);
       setHydratedGroups(true);
       return;
     }
@@ -298,6 +316,7 @@ function Dashboard() {
     } catch (err) {
       showError(err);
     } finally {
+      setGroupsProjectId(activeProjectId);
       setHydratedGroups(true);
     }
   }, [servers.length, showError, activeProjectId]);

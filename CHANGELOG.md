@@ -6,6 +6,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [1.4.18] — 2026-04-22
+
+### Fixed
+
+- **Group-scoped layouts of the active project were deleted after switching away and coming back**, even though the per-session purge guard was now race-safe. A *third* validator effect at `frontend/src/app/(main)/page.js:226-248` — responsible for pruning layout keys whose group id no longer exists in `groups` — was also running with stale `groups` (holding the previous project's list). With `groups=[]` from the previous project and `activeProjectId` already flipped to the new one, none of the current project's group ids validated, so the effect called `delete` on every `<activeProject>::<group_id>` key. The key didn't just go `null`, it vanished entirely. Applied the same `groupsProjectId !== activeProjectId` guard here as in the two previous fixes; now all three validation effects (session-tree prune, orphan-group-key prune, selected-group reset) wait for both `sessions` and `groups` to match the active project before running.
+- **Selected group was reset to `null` every time the user returned to the Terminals page**, dropping them into the "Sem grupo" tab even though the previous session was inside a named group. Same class of bug as the earlier session/layout wipe: when `activeProjectId` flipped (or the Dashboard component re-mounted after navigating between routes), the `selectedGroupId` validator effect at `frontend/src/app/(main)/page.js:157-164` ran with `groups` still holding the *previous* project's list — the current selected group wasn't found in that stale list, so the effect called `setSelectedGroupId(null)`, which persisted through `ViewStateProvider` and wiped the per-project group key in `data/view-state.json`. Fixed with a dedicated `groupsProjectId` state that is only set after `setGroups(list)` completes, with the `activeProjectId` that was in effect when the fetch ran. The validator now bails out with `if (groupsProjectId !== activeProjectId) return;`, so it only runs once `groups` matches the active project. The `mosaicLayout` derivation also gates on `groupsProjectId === activeProjectId` to avoid rendering with a stale group list (which would otherwise produce an empty `sessionsInSelectedGroup` for ~100ms after a project switch).
+- **Terminals stayed in the mosaic layout of their old group after being moved to a new group.** Assigning a session to a different group only updated its `group_id` on the session object; `validateTree` in `page.js` only checked whether session ids existed in `sessions` at all, not whether they belonged to the group of the layout key being validated. So after moving `term-13` from "Sem grupo" to "Teste", `proj-default::__none__` still referenced `term-13`, and adding the terminal into the Teste mosaic left it duplicated in both layouts. `validateTree` is now called per-key with a scoped `validIds` set that only contains session ids whose *effective* group id matches the group encoded in the layout key (with the same "group_id pointing at a deleted group falls back to null" logic that `sessionsInSelectedGroup` already used). Moving a terminal between groups now correctly removes it from the old group's layout on the next render.
+
 ## [1.4.17] — 2026-04-22
 
 ### Added
@@ -283,7 +291,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.4.17...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.4.18...HEAD
+[1.4.18]: https://github.com/kevinzezel/pulse/releases/tag/v1.4.18
 [1.4.17]: https://github.com/kevinzezel/pulse/releases/tag/v1.4.17
 [1.4.16]: https://github.com/kevinzezel/pulse/releases/tag/v1.4.16
 [1.4.15]: https://github.com/kevinzezel/pulse/releases/tag/v1.4.15
