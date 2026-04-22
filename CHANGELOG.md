@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [1.4.6] — 2026-04-22
+
+### Fixed
+
+- Telegram notifications from the client were shipped with pt-BR strings hardcoded in Python (`está aguardando há Ns`, `teste de notificação`), which bypassed the i18n catalog and ignored the user's locale. The browser channel had always respected i18n via the frontend `idleTitle` key — but the Telegram payload is composed inside the client's async `notification_watcher` loop, which has no incoming HTTP request to read `Accept-Language` from. Both strings are now in English, matching the project convention that external-facing messages default to English. Affected paths: `client/src/resources/notifications.py` (idle message) and `client/src/routes/settings.py` (test send button).
+
 ## [1.4.5] — 2026-04-21
 
 ### Fixed
@@ -147,7 +153,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.4.5...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.4.6...HEAD
+[1.4.6]: https://github.com/kevinzezel/pulse/releases/tag/v1.4.6
 [1.4.5]: https://github.com/kevinzezel/pulse/releases/tag/v1.4.5
 [1.4.4]: https://github.com/kevinzezel/pulse/releases/tag/v1.4.4
 [1.4.3]: https://github.com/kevinzezel/pulse/releases/tag/v1.4.3

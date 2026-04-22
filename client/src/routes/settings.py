@@ -113,7 +113,7 @@ def test_telegram(request: Request):
     ok, detail = send_telegram_message(
         bot_token,
         chat_id,
-        "🔔 <b>Pulse</b> — teste de notificação",
+        "🔔 <b>Pulse</b> — test notification",
     )
     if not ok:
         raise AppException(

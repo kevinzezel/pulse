@@ -130,7 +130,7 @@ async def notification_watcher():
                     msg = (
                         f"⏸️ <b>{_html_escape(name)}</b> "
                         f"(<code>{_html_escape(sid)}</code>) "
-                        f"está aguardando há {int(idle_seconds)}s"
+                        f"has been idle for {int(idle_seconds)}s"
                     )
                     if snippet:
                         msg += f"\n<pre>{_html_escape(snippet)}</pre>"
