@@ -211,6 +211,14 @@
       "saving": "Salvando...",
       "cancel": "Cancelar"
     },
+    "renameFlow": {
+      "title": "Renomear fluxo",
+      "nameLabel": "Nome",
+      "placeholder": "ex: arquitetura do serviço",
+      "save": "Salvar",
+      "saving": "Salvando...",
+      "cancel": "Cancelar"
+    },
     "newFlow": {
       "title": "Novo Fluxo",
       "nameLabel": "Nome (opcional)",

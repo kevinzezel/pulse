@@ -254,6 +254,17 @@ export async function setLayouts(layouts) {
   });
 }
 
+export async function getViewState() {
+  return localRequest('/api/view-state');
+}
+
+export async function setViewState(viewState) {
+  return localRequest('/api/view-state', {
+    method: 'PUT',
+    body: JSON.stringify({ view_state: viewState }),
+  });
+}
+
 export function getSessionsSnapshot() {
   return localRequest('/api/sessions');
 }

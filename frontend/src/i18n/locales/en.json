@@ -211,6 +211,14 @@
       "saving": "Saving...",
       "cancel": "Cancel"
     },
+    "renameFlow": {
+      "title": "Rename flow",
+      "nameLabel": "Name",
+      "placeholder": "e.g. service architecture",
+      "save": "Save",
+      "saving": "Saving...",
+      "cancel": "Cancel"
+    },
     "newFlow": {
       "title": "New Flow",
       "nameLabel": "Name (optional)",

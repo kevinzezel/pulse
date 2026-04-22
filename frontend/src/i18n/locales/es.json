@@ -211,6 +211,14 @@
       "saving": "Guardando...",
       "cancel": "Cancelar"
     },
+    "renameFlow": {
+      "title": "Renombrar flujo",
+      "nameLabel": "Nombre",
+      "placeholder": "ej: arquitectura del servicio",
+      "save": "Guardar",
+      "saving": "Guardando...",
+      "cancel": "Cancelar"
+    },
     "newFlow": {
       "title": "Nuevo Flujo",
       "nameLabel": "Nombre (opcional)",

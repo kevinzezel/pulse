@@ -6,6 +6,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [1.4.17] — 2026-04-22
+
+### Added
+
+- **Selected group and selected flow are now persisted per-project on the backend**, so navigating between projects (or closing the browser, or opening the dashboard on a different machine) restores the exact same view you left each project in. Implemented via a new `/api/view-state` endpoint (`frontend/src/app/api/view-state/route.js`, `data/view-state.json`) that stores `{ "<project_id>::group": "group-id", "<project_id>::flow": "flow-id" }` behind `withAuth` and `withFileLock`, mirrored by a `ViewStateProvider` (`frontend/src/providers/ViewStateProvider.jsx`) that both `app/(main)/page.js` and `app/(main)/flows/page.js` consume. The provider debounces writes by 400 ms (same as layouts). Switching projects no longer resets the selected group to `null`; each project keeps its own last-selected group, and the sidebar's `GroupSelector` lands on it automatically on hydration. **First load note**: the pre-existing `localStorage` keys `rt:selectedGroupId` and `rt:selectedFlowId` (single global values) are not migrated — since they weren't per-project, there's no safe way to associate them with a specific project, so the first v1.4.17 load drops them and you re-select once per project. This is one-time only.
+
+### Changed
+
+- **Flow rename is now a dedicated modal** instead of an inline sidebar input. The old `RenameInput` sub-component in `frontend/src/components/Flows/FlowsSidebar.jsx` (inline textbox that committed on blur/Enter and cancelled on Escape) had the usual pitfalls of click-away-to-cancel behaviors — accidental blur during scrolling, no clear save/cancel affordance, and inconsistent with every other rename surface in the app. Replaced by `frontend/src/components/Flows/RenameFlowModal.jsx`, a centered overlay modeled on `RenameSessionModal`: explicit Save/Cancel buttons, Esc to close, disabled inputs + spinner while the PATCH is in flight, and auto-focus on the name field. New i18n keys `modal.renameFlow.*` added to `en`, `pt-BR`, and `es`.
+- **Active flow card in the sidebar now keeps its action row expanded**, mirroring how a session card stays expanded while it's visible in the mosaic. Previously the rename/duplicate/delete buttons on the selected flow only appeared on hover (identical to every other row), forcing an extra mouse dance to edit the flow you're currently working on. `FlowsSidebar.jsx` now passes `alwaysExpanded={isSelected}` through to `SidebarCard` — the prop already existed in the shared card but was never wired up by any caller. Non-selected flows still auto-hide their actions and reveal them on hover.
+
+### Fixed
+
+- **Mosaic layouts were silently wiped every time the user switched projects**, so coming back to a project showed a blank dashboard instead of the 1×2/2×2 layout that was left open. Fixed in two layers in `frontend/src/app/(main)/page.js`: (1) the `validateTree` useEffect used to iterate every `<project>::<group>` key in `mosaicLayouts` and purge any session id not in the current in-memory `sessions` array — but `fetchSessions` only loads sessions for the *active* project (filters by `activeProjectId`), so every other project's session ids were treated as invalid and their layouts collapsed to `null`. The effect now skips keys belonging to other projects (matching the sibling group-validation effect at L211-232 that already got this right). (2) Even scoped to the active project, there was still a race: when `activeProjectId` flipped to a new project, React's commit order meant the validation effect ran *first* with `activeProjectId` already pointing at the new project while `sessions` still held the previous project's ids — and because the per-project scope guard now let the new project's key through, its tree was purged against the stale `sessions` before `fetchSessions` had a chance to replace them. Introduced a dedicated `sessionsProjectId` state that is only set *after* `setSessions(merged)` completes, with the `activeProjectId` that was in effect when the fetch was kicked off. The validation effect gains a `if (sessionsProjectId !== activeProjectId) return;` guard, so it only runs once the in-memory `sessions` match the active project. Combined, the two fixes mean the debounced save never again writes a zeroed tree to `data/layouts.json`, and cross-project round trips render the exact layout the user left.
+
 ## [1.4.16] — 2026-04-22
 
 ### Fixed
@@ -268,7 +283,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.4.16...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.4.17...HEAD
+[1.4.17]: https://github.com/kevinzezel/pulse/releases/tag/v1.4.17
 [1.4.16]: https://github.com/kevinzezel/pulse/releases/tag/v1.4.16
 [1.4.15]: https://github.com/kevinzezel/pulse/releases/tag/v1.4.15
 [1.4.14]: https://github.com/kevinzezel/pulse/releases/tag/v1.4.14

@@ -16,6 +16,7 @@ import { destroyTerminal, destroyAllTerminals, sendKey, hasDeadConnections } fro
 import { useTranslation, useErrorToast } from '@/providers/I18nProvider';
 import { useServers } from '@/providers/ServersProvider';
 import { useProjects } from '@/providers/ProjectsProvider';
+import { useViewState } from '@/providers/ViewStateProvider';
 import { useIsMobile } from '@/hooks/layout';
 import dynamic from 'next/dynamic';
 import Sidebar from '@/components/Sidebar';
@@ -48,6 +49,7 @@ function Dashboard() {
   const showError = useErrorToast();
   const { servers, loading: serversLoading } = useServers();
   const { activeProjectId } = useProjects();
+  const { getProjectGroup, setProjectGroup, hydrated: hydratedViewState } = useViewState();
   const router = useRouter();
   const searchParams = useSearchParams();
   const handledSessionRef = useRef(null);
@@ -58,6 +60,7 @@ function Dashboard() {
   const [hydratedLayouts, setHydratedLayouts] = useState(false);
   const [hydratedGroups, setHydratedGroups] = useState(false);
   const [hydratedSessions, setHydratedSessions] = useState(false);
+  const [sessionsProjectId, setSessionsProjectId] = useState(null);
   const [savedLayout, setSavedLayout] = useState(null);
   const layoutsSaveTimer = useRef(null);
   const snapshotDebounceRef = useRef(null);
@@ -72,7 +75,12 @@ function Dashboard() {
   const [hydratedComposeDrafts, setHydratedComposeDrafts] = useState(false);
   const [composeTargetId, setComposeTargetId] = useState(null);
   const [composeLoadingId, setComposeLoadingId] = useState(null);
-  const [selectedGroupId, setSelectedGroupId] = useState(null);
+
+  const selectedGroupId = hydratedViewState ? getProjectGroup(activeProjectId) : null;
+  const setSelectedGroupId = useCallback((id) => {
+    if (!activeProjectId) return;
+    setProjectGroup(activeProjectId, id);
+  }, [activeProjectId, setProjectGroup]);
 
   const isMobile = useIsMobile();
   const isMaximized = savedLayout !== null;
@@ -81,22 +89,7 @@ function Dashboard() {
     setHydrated(true);
     const stored = loadFromStorage('rt:sidebarOpen', true);
     setSidebarOpen(stored);
-    const storedGroup = loadFromStorage('rt:selectedGroupId', null);
-    setSelectedGroupId(storedGroup);
   }, []);
-
-  useEffect(() => {
-    if (hydrated) localStorage.setItem('rt:selectedGroupId', JSON.stringify(selectedGroupId));
-  }, [selectedGroupId, hydrated]);
-
-  const lastProjectRef = useRef(null);
-  useEffect(() => {
-    if (!hydrated) return;
-    if (lastProjectRef.current !== null && lastProjectRef.current !== activeProjectId) {
-      setSelectedGroupId(null);
-    }
-    lastProjectRef.current = activeProjectId;
-  }, [activeProjectId, hydrated]);
 
   useEffect(() => {
     async function run() {
@@ -179,7 +172,7 @@ function Dashboard() {
   }, [sessions, groups, selectedGroupId]);
 
   const groupKey = `${activeProjectId}::${selectedGroupId ?? '__none__'}`;
-  const mosaicLayout = mosaicLayouts[groupKey] ?? null;
+  const mosaicLayout = sessionsProjectId === activeProjectId ? (mosaicLayouts[groupKey] ?? null) : null;
 
   const setMosaicLayout = useCallback((updater) => {
     setMosaicLayouts(prev => {
@@ -195,18 +188,24 @@ function Dashboard() {
 
   useEffect(() => {
     if (!hydratedLayouts || !hydratedSessions) return;
+    if (sessionsProjectId !== activeProjectId) return;
     const validIds = new Set(sessions.map(s => s.id));
     setMosaicLayouts(prev => {
       let changed = false;
       const next = {};
       for (const [k, v] of Object.entries(prev)) {
+        const projectOfKey = k.includes('::') ? k.split('::')[0] : null;
+        if (projectOfKey !== activeProjectId) {
+          next[k] = v;
+          continue;
+        }
         const cleaned = v ? validateTree(v, validIds) : v;
         next[k] = cleaned;
         if (cleaned !== v) changed = true;
       }
       return changed ? next : prev;
     });
-  }, [sessions, hydratedLayouts, hydratedSessions]);
+  }, [sessions, hydratedLayouts, hydratedSessions, activeProjectId, sessionsProjectId]);
 
   useEffect(() => {
     if (!hydratedLayouts || !hydratedGroups) return;
@@ -250,6 +249,7 @@ function Dashboard() {
     if (servers.length === 0) {
       setSessions([]);
       setOfflineServerIds([]);
+      setSessionsProjectId(activeProjectId);
       setHydratedSessions(true);
       return;
     }
@@ -281,6 +281,7 @@ function Dashboard() {
     });
     setSessions(merged);
     setOfflineServerIds(offline);
+    setSessionsProjectId(activeProjectId);
     setHydratedSessions(true);
   }, [servers, activeProjectId]);
 

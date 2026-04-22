@@ -11,6 +11,7 @@ import {
 import { useTheme } from '@/providers/ThemeProvider';
 import { useTranslation, useErrorToast } from '@/providers/I18nProvider';
 import { useProjects } from '@/providers/ProjectsProvider';
+import { useViewState } from '@/providers/ViewStateProvider';
 import { useIsMobile } from '@/hooks/layout';
 import { SAVE_DEBOUNCE_MS } from '@/lib/flowsConfig';
 import FlowsSidebar from '@/components/Flows/FlowsSidebar';
@@ -21,7 +22,6 @@ const Excalidraw = dynamic(
   { ssr: false }
 );
 
-const SELECTED_FLOW_KEY = 'rt:selectedFlowId';
 const SIDEBAR_OPEN_KEY = 'rt:flowsSidebarOpen';
 
 function emptyScene() {
@@ -44,10 +44,10 @@ export default function FlowsPage() {
   const showError = useErrorToast();
   const isMobile = useIsMobile();
   const { activeProjectId } = useProjects();
+  const { getProjectFlow, setProjectFlow, hydrated: hydratedViewState } = useViewState();
 
   const [flows, setFlows] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [selectedFlowId, setSelectedFlowId] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -55,16 +55,20 @@ export default function FlowsPage() {
   const [toDelete, setToDelete] = useState(null);
   const [deletingFlowId, setDeletingFlowId] = useState(null);
   const [showModal, setShowModal] = useState(false);
-  const [storageHydrated, setStorageHydrated] = useState(false);
+  const [sidebarHydrated, setSidebarHydrated] = useState(false);
+  const storageHydrated = sidebarHydrated && hydratedViewState;
+
+  const selectedFlowId = hydratedViewState ? getProjectFlow(activeProjectId) : null;
+  const setSelectedFlowId = useCallback((id) => {
+    if (!activeProjectId) return;
+    setProjectFlow(activeProjectId, id);
+  }, [activeProjectId, setProjectFlow]);
 
   const pendingSceneRef = useRef({});
   const saveTimersRef = useRef({});
   const lastSceneRef = useRef({ id: null, elementsLen: 0, elementsVersion: 0, bgColor: null, filesCount: 0 });
   const userDeselectedRef = useRef(false);
 
-  // Hydrate UI state from storage synchronously on mount.
-  // First-time default: open on desktop, closed on mobile (sidebar would cover
-  // the canvas). Respects an existing stored preference either way.
   useEffect(() => {
     const storedSidebar = (() => {
       try { return localStorage.getItem(SIDEBAR_OPEN_KEY); } catch { return null; }
@@ -74,26 +78,13 @@ export default function FlowsPage() {
     } else {
       setSidebarOpen(!isMobile);
     }
-    try {
-      const storedFlow = localStorage.getItem(SELECTED_FLOW_KEY);
-      if (storedFlow) setSelectedFlowId(storedFlow);
-    } catch {}
-    setStorageHydrated(true);
+    setSidebarHydrated(true);
   }, [isMobile]);
 
-  // Persist UI state (after hydration, to avoid clobbering initial values).
   useEffect(() => {
-    if (!storageHydrated) return;
+    if (!sidebarHydrated) return;
     try { localStorage.setItem(SIDEBAR_OPEN_KEY, JSON.stringify(sidebarOpen)); } catch {}
-  }, [sidebarOpen, storageHydrated]);
-
-  useEffect(() => {
-    if (!storageHydrated || loading) return;
-    try {
-      if (selectedFlowId) localStorage.setItem(SELECTED_FLOW_KEY, selectedFlowId);
-      else localStorage.removeItem(SELECTED_FLOW_KEY);
-    } catch {}
-  }, [selectedFlowId, storageHydrated, loading]);
+  }, [sidebarOpen, sidebarHydrated]);
 
   // Fetch data after storage has been hydrated. Re-fetch on project switch.
   useEffect(() => {
@@ -248,6 +239,7 @@ export default function FlowsPage() {
       setFlows((prev) => prev.map((f) => (f.id === id ? updated : f)));
     } catch (err) {
       showError(err);
+      throw err;
     } finally {
       markSaving(id, false);
     }
