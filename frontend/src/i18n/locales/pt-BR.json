@@ -105,6 +105,7 @@
     "activate": "Ativar",
     "rename": "Renomear",
     "delete": "Deletar",
+    "dragHandle": "Arraste para reordenar",
     "active": "Ativo",
     "protected": "Protegido",
     "protectedTitle": "Não pode ser deletado",
@@ -339,7 +340,8 @@
     "project_created": "Projeto criado",
     "project_renamed": "Projeto renomeado",
     "project_deleted": "Projeto excluído",
-    "project_activated": "Projeto ativado"
+    "project_activated": "Projeto ativado",
+    "project_reordered": "Ordem dos projetos salva"
   },
   "time": {
     "now": "agora",

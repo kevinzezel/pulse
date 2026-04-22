@@ -5,8 +5,10 @@ import { usePathname } from 'next/navigation';
 import {
   getProjects, setActiveProject as apiSetActive,
   createProject as apiCreate, renameProject as apiRename, deleteProject as apiDelete,
+  reorderProjects as apiReorder,
   setActiveProjectIdInModule,
 } from '@/services/api';
+import { reorderById } from '@/utils/reorder';
 import { DEFAULT_PROJECT_ID } from '@/lib/projectScope';
 
 const STORAGE_KEY = 'rt:activeProjectId';
@@ -81,6 +83,18 @@ export function ProjectsProvider({ children }) {
     return res;
   }, [applyState]);
 
+  const reorderProject = useCallback(async (fromId, toId) => {
+    if (fromId === toId) return;
+    setProjects(prev => reorderById(prev, fromId, toId));
+    try {
+      const res = await apiReorder(fromId, toId);
+      applyState(res.state);
+    } catch (err) {
+      await refreshProjects().catch(() => {});
+      throw err;
+    }
+  }, [applyState, refreshProjects]);
+
   const activeProject = useMemo(
     () => projects.find((p) => p.id === activeProjectId) || null,
     [projects, activeProjectId]
@@ -97,7 +111,8 @@ export function ProjectsProvider({ children }) {
     createProject,
     renameProject,
     deleteProject,
-  }), [projects, activeProjectId, activeProject, loading, loaded, refreshProjects, setActiveProject, createProject, renameProject, deleteProject]);
+    reorderProject,
+  }), [projects, activeProjectId, activeProject, loading, loaded, refreshProjects, setActiveProject, createProject, renameProject, deleteProject, reorderProject]);
 
   return (
     <ProjectsContext.Provider value={value}>

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { readJsonFile, writeJsonFileAtomic } from '@/lib/jsonStore';
+import { readJsonFile, writeJsonFileAtomic, withFileLock } from '@/lib/jsonStore';
 import { withAuth } from '@/lib/auth';
 import {
   isValidColor,
@@ -8,6 +8,7 @@ import {
 } from '@/lib/notesConfig';
 
 const REL = 'data/notes.json';
+const LOCK_KEY = 'data/notes.json';
 const EMPTY = { notes: [], updated_at: null };
 
 function bad(detailKey, detail, status = 400, params = null) {
@@ -66,31 +67,36 @@ export const PATCH = withAuth(async (req, { params }) => {
   try { body = await req.json(); } catch {
     return bad('errors.invalid_body', 'Invalid JSON');
   }
-  const data = await readJsonFile(REL, EMPTY);
-  const notes = Array.isArray(data?.notes) ? data.notes : [];
-  const idx = notes.findIndex((n) => n.id === id);
-  if (idx < 0) return bad('errors.note_not_found', 'Note not found', 404);
-
-  let updated;
+  let result;
   try {
-    updated = applyPatch(notes[idx], body);
+    result = await withFileLock(LOCK_KEY, async () => {
+      const data = await readJsonFile(REL, EMPTY);
+      const notes = Array.isArray(data?.notes) ? data.notes : [];
+      const idx = notes.findIndex((n) => n.id === id);
+      if (idx < 0) return { notFound: true };
+      const updated = applyPatch(notes[idx], body);
+      notes[idx] = updated;
+      await writeJsonFileAtomic(REL, { notes, updated_at: updated.updated_at });
+      return { updated };
+    });
   } catch (err) {
     return bad(err.key || 'errors.invalid_body', err.message, err.status || 400, err.params || null);
   }
-  notes[idx] = updated;
-  const next = { notes, updated_at: updated.updated_at };
-  await writeJsonFileAtomic(REL, next);
-  return NextResponse.json(updated);
+  if (result.notFound) return bad('errors.note_not_found', 'Note not found', 404);
+  return NextResponse.json(result.updated);
 });
 
 export const DELETE = withAuth(async (req, { params }) => {
   const { id } = await params;
-  const data = await readJsonFile(REL, EMPTY);
-  const notes = Array.isArray(data?.notes) ? data.notes : [];
-  const idx = notes.findIndex((n) => n.id === id);
-  if (idx < 0) return bad('errors.note_not_found', 'Note not found', 404);
-  notes.splice(idx, 1);
-  const next = { notes, updated_at: new Date().toISOString() };
-  await writeJsonFileAtomic(REL, next);
+  const result = await withFileLock(LOCK_KEY, async () => {
+    const data = await readJsonFile(REL, EMPTY);
+    const notes = Array.isArray(data?.notes) ? data.notes : [];
+    const idx = notes.findIndex((n) => n.id === id);
+    if (idx < 0) return { notFound: true };
+    notes.splice(idx, 1);
+    await writeJsonFileAtomic(REL, { notes, updated_at: new Date().toISOString() });
+    return { ok: true };
+  });
+  if (result.notFound) return bad('errors.note_not_found', 'Note not found', 404);
   return NextResponse.json({ ok: true });
 });

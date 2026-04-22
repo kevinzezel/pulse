@@ -1,6 +1,7 @@
 import { getCurrentLocale } from '@/providers/I18nProvider';
 import { getServerById } from '@/providers/ServersProvider';
 import { DEFAULT_PROJECT_ID } from '@/lib/projectScope';
+import { reorderById } from '@/utils/reorder';
 
 export const SESSION_ID_SEP = '::';
 
@@ -650,6 +651,15 @@ export async function renameProject(projectId, name) {
   const res = await saveProjects(next);
   const updated = res.projects.find(p => p.id === projectId);
   return { project: updated, detail_key: 'success.project_renamed', state: res };
+}
+
+export async function reorderProjects(fromId, toId) {
+  const state = await getProjects();
+  const nextProjects = reorderById(state.projects, fromId, toId);
+  if (nextProjects === state.projects) return { state };
+  const next = { ...state, projects: nextProjects };
+  const res = await saveProjects(next);
+  return { detail_key: 'success.project_reordered', state: res };
 }
 
 export async function setActiveProject(projectId) {

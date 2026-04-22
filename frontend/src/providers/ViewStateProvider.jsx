@@ -20,6 +20,7 @@ export function ViewStateProvider({ children }) {
   const [hydrated, setHydrated] = useState(false);
   const saveTimer = useRef(null);
   const pendingRef = useRef(null);
+  const inFlight = useRef(Promise.resolve());
 
   useEffect(() => {
     if (pathname === '/login') { setHydrated(false); return; }
@@ -54,7 +55,10 @@ export function ViewStateProvider({ children }) {
     saveTimer.current = setTimeout(() => {
       const payload = pendingRef.current;
       if (!payload) return;
-      apiSetViewState(payload).catch(err => console.warn('[setViewState] failed', err));
+      inFlight.current = inFlight.current
+        .catch(() => {})
+        .then(() => apiSetViewState(payload))
+        .catch(err => console.warn('[setViewState] failed', err));
     }, SAVE_DEBOUNCE_MS);
   }, []);
 

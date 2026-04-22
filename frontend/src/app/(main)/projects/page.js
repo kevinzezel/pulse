@@ -3,8 +3,15 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import toast from 'react-hot-toast';
 import {
-  Plus, Search, FolderOpen, Pencil, Trash2, X, Lock, Check, Loader,
+  Plus, Search, FolderOpen, Pencil, Trash2, X, Lock, Check, Loader, GripVertical,
 } from 'lucide-react';
+import {
+  DndContext, PointerSensor, KeyboardSensor, useSensor, useSensors, closestCenter,
+} from '@dnd-kit/core';
+import {
+  SortableContext, verticalListSortingStrategy, useSortable, sortableKeyboardCoordinates,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import { useTranslation, useErrorToast } from '@/providers/I18nProvider';
 import { useProjects } from '@/providers/ProjectsProvider';
 import { getProjectStats } from '@/services/api';
@@ -171,7 +178,21 @@ function DeleteConfirmModal({ project, onClose, onConfirm }) {
   );
 }
 
-function ProjectCard({ project, isActive, stats, loadingStats, onActivate, onRename, onDelete, activating }) {
+function SortableProjectCard(props) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: props.project.id });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+  return (
+    <div ref={setNodeRef} style={style}>
+      <ProjectCard {...props} dragAttributes={attributes} dragListeners={listeners} dragEnabled={props.dragEnabled} />
+    </div>
+  );
+}
+
+function ProjectCard({ project, isActive, stats, loadingStats, onActivate, onRename, onDelete, activating, dragAttributes, dragListeners, dragEnabled }) {
   const { t, formatDate } = useTranslation();
   const total = stats
     ? stats.groups + stats.terminals + stats.notes + stats.flows + stats.prompts
@@ -188,6 +209,18 @@ function ProjectCard({ project, isActive, stats, loadingStats, onActivate, onRen
     >
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div className="flex items-start gap-3 flex-1 min-w-0">
+          {dragEnabled && (
+            <button
+              type="button"
+              aria-label={t('projects.dragHandle')}
+              title={t('projects.dragHandle')}
+              className="p-1 -ml-1 mt-1.5 rounded text-muted-foreground hover:text-foreground cursor-grab active:cursor-grabbing touch-none shrink-0"
+              {...dragAttributes}
+              {...dragListeners}
+            >
+              <GripVertical size={16} />
+            </button>
+          )}
           <div
             className={`w-10 h-10 rounded-md flex items-center justify-center shrink-0 ${
               isActive ? 'bg-primary/15 text-primary' : 'bg-muted text-muted-foreground'
@@ -286,8 +319,13 @@ export default function ProjectsPage() {
   const {
     projects, activeProjectId,
     refreshProjects, setActiveProject,
-    createProject, renameProject, deleteProject,
+    createProject, renameProject, deleteProject, reorderProject,
   } = useProjects();
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
 
   const [statsByProject, setStatsByProject] = useState({});
   const [loadingStats, setLoadingStats] = useState(true);
@@ -389,6 +427,19 @@ export default function ProjectsPage() {
     }
   }
 
+  const dragEnabled = filtered.length === projects.length && projects.length > 1;
+
+  async function handleDragEnd(event) {
+    const { active, over } = event;
+    if (!active || !over) return;
+    if (active.id === over.id) return;
+    try {
+      await reorderProject(active.id, over.id);
+    } catch (err) {
+      showError(err);
+    }
+  }
+
   return (
     <div className="h-full overflow-y-auto bg-background">
       <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
@@ -420,21 +471,45 @@ export default function ProjectsPage() {
           />
         </div>
 
-        <div className="space-y-3">
-          {filtered.map((p) => (
-            <ProjectCard
-              key={p.id}
-              project={p}
-              isActive={p.id === activeProjectId}
-              stats={statsByProject[p.id]}
-              loadingStats={loadingStats}
-              activating={activatingId === p.id}
-              onActivate={() => handleActivate(p.id)}
-              onRename={() => setRenameTarget(p)}
-              onDelete={() => handleDeleteClick(p)}
-            />
-          ))}
-        </div>
+        {dragEnabled ? (
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+            <SortableContext items={filtered.map(p => p.id)} strategy={verticalListSortingStrategy}>
+              <div className="space-y-3">
+                {filtered.map((p) => (
+                  <SortableProjectCard
+                    key={p.id}
+                    project={p}
+                    isActive={p.id === activeProjectId}
+                    stats={statsByProject[p.id]}
+                    loadingStats={loadingStats}
+                    activating={activatingId === p.id}
+                    dragEnabled={true}
+                    onActivate={() => handleActivate(p.id)}
+                    onRename={() => setRenameTarget(p)}
+                    onDelete={() => handleDeleteClick(p)}
+                  />
+                ))}
+              </div>
+            </SortableContext>
+          </DndContext>
+        ) : (
+          <div className="space-y-3">
+            {filtered.map((p) => (
+              <ProjectCard
+                key={p.id}
+                project={p}
+                isActive={p.id === activeProjectId}
+                stats={statsByProject[p.id]}
+                loadingStats={loadingStats}
+                activating={activatingId === p.id}
+                dragEnabled={false}
+                onActivate={() => handleActivate(p.id)}
+                onRename={() => setRenameTarget(p)}
+                onDelete={() => handleDeleteClick(p)}
+              />
+            ))}
+          </div>
+        )}
       </div>
 
       {creatingOpen && (

@@ -64,7 +64,11 @@ function Dashboard() {
   const [groupsProjectId, setGroupsProjectId] = useState(null);
   const [savedLayout, setSavedLayout] = useState(null);
   const layoutsSaveTimer = useRef(null);
+  const layoutsInFlight = useRef(Promise.resolve());
   const snapshotDebounceRef = useRef(null);
+  const snapshotInFlight = useRef(Promise.resolve());
+  const composeDraftsInFlight = useRef(Promise.resolve());
+  const latestLayoutsRef = useRef({});
   const restoreAttemptedRef = useRef(false);
   const [busySessionIds, setBusySessionIds] = useState(new Set());
   const [draggingId, setDraggingId] = useState(null);
@@ -148,22 +152,51 @@ function Dashboard() {
 
   useEffect(() => {
     if (!hydratedLayouts) return;
+    latestLayoutsRef.current = mosaicLayouts;
     if (layoutsSaveTimer.current) clearTimeout(layoutsSaveTimer.current);
     layoutsSaveTimer.current = setTimeout(() => {
-      setLayouts(mosaicLayouts).catch(err => console.warn('[setLayouts] failed', err));
+      layoutsSaveTimer.current = null;
+      const payload = latestLayoutsRef.current;
+      layoutsInFlight.current = layoutsInFlight.current
+        .catch(() => {})
+        .then(() => setLayouts(payload))
+        .catch(err => console.warn('[setLayouts] failed', err));
     }, 500);
     return () => { if (layoutsSaveTimer.current) clearTimeout(layoutsSaveTimer.current); };
   }, [mosaicLayouts, hydratedLayouts]);
 
   useEffect(() => {
-    if (!hydrated || !hydratedGroups) return;
-    if (groupsProjectId !== activeProjectId) return;
+    return () => {
+      if (layoutsSaveTimer.current) {
+        clearTimeout(layoutsSaveTimer.current);
+        layoutsSaveTimer.current = null;
+        const payload = latestLayoutsRef.current;
+        if (payload) {
+          layoutsInFlight.current = layoutsInFlight.current
+            .catch(() => {})
+            .then(() => setLayouts(payload))
+            .catch(err => console.warn('[setLayouts] unmount flush failed', err));
+        }
+      }
+    };
+  }, []);
+
+  // Gate every effect/derivation that mutates or reads mosaicLayouts/selectedGroupId
+  // against an inconsistent project snapshot (activeProjectId has flipped but sessions
+  // or groups haven't caught up yet). Any new effect touching layouts or group state
+  // should bail on `!projectDataReady`.
+  const projectDataReady = hydrated && hydratedLayouts && hydratedSessions && hydratedGroups
+    && sessionsProjectId === activeProjectId
+    && groupsProjectId === activeProjectId;
+
+  useEffect(() => {
+    if (!projectDataReady) return;
     if (selectedGroupId === null) return;
     const match = groups.find(g => g.id === selectedGroupId);
     if (!match || match.hidden) {
       setSelectedGroupId(null);
     }
-  }, [groups, selectedGroupId, hydrated, hydratedGroups, groupsProjectId, activeProjectId, setSelectedGroupId]);
+  }, [groups, selectedGroupId, projectDataReady, setSelectedGroupId]);
 
   const sessionsInSelectedGroup = useMemo(() => {
     const validGroupIds = new Set(groups.map(g => g.id));
@@ -174,9 +207,7 @@ function Dashboard() {
   }, [sessions, groups, selectedGroupId]);
 
   const groupKey = `${activeProjectId}::${selectedGroupId ?? '__none__'}`;
-  const mosaicLayout = (sessionsProjectId === activeProjectId && groupsProjectId === activeProjectId)
-    ? (mosaicLayouts[groupKey] ?? null)
-    : null;
+  const mosaicLayout = projectDataReady ? (mosaicLayouts[groupKey] ?? null) : null;
 
   const setMosaicLayout = useCallback((updater) => {
     setMosaicLayouts(prev => {
@@ -191,9 +222,7 @@ function Dashboard() {
   const mobileOpenIds = useMemo(() => Array.from(getVisibleSessionIds(mosaicLayout)), [mosaicLayout]);
 
   useEffect(() => {
-    if (!hydratedLayouts || !hydratedSessions || !hydratedGroups) return;
-    if (sessionsProjectId !== activeProjectId) return;
-    if (groupsProjectId !== activeProjectId) return;
+    if (!projectDataReady) return;
     const validGroupIds = new Set(groups.map(g => g.id));
     const sessionGroupMap = new Map();
     for (const s of sessions) {
@@ -221,11 +250,10 @@ function Dashboard() {
       }
       return changed ? next : prev;
     });
-  }, [sessions, groups, hydratedLayouts, hydratedSessions, hydratedGroups, activeProjectId, sessionsProjectId, groupsProjectId]);
+  }, [sessions, groups, projectDataReady, activeProjectId]);
 
   useEffect(() => {
-    if (!hydratedLayouts || !hydratedGroups) return;
-    if (groupsProjectId !== activeProjectId) return;
+    if (!projectDataReady) return;
     const validKeys = new Set([
       `${activeProjectId}::__none__`,
       ...groups.map((g) => `${activeProjectId}::${g.id}`),
@@ -245,7 +273,7 @@ function Dashboard() {
       }
       return changed ? next : prev;
     });
-  }, [groups, hydratedLayouts, hydratedGroups, activeProjectId, groupsProjectId]);
+  }, [groups, projectDataReady, activeProjectId]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -336,43 +364,45 @@ function Dashboard() {
 
   useEffect(() => {
     if (!hydratedSessions) return;
+    if (sessionsProjectId !== activeProjectId) return;
     if (servers.length === 0) return;
 
     if (snapshotDebounceRef.current) clearTimeout(snapshotDebounceRef.current);
-    snapshotDebounceRef.current = setTimeout(async () => {
-      try {
-        const current = await getSessionsSnapshot();
-        const mergedServers = { ...(current?.servers || {}) };
+    snapshotDebounceRef.current = setTimeout(() => {
+      snapshotInFlight.current = snapshotInFlight.current
+        .catch(() => {})
+        .then(async () => {
+          const current = await getSessionsSnapshot();
+          const mergedServers = { ...(current?.servers || {}) };
 
-        const liveByServer = {};
-        for (const s of sessions) {
-          const { serverId, sessionId } = splitSessionId(s.id);
-          if (!serverId) continue;
-          (liveByServer[serverId] ||= []).push({
-            id: sessionId,
-            name: s.name,
-            group_id: s.group_id || null,
-            notify_on_idle: Boolean(s.notify_on_idle),
-            cwd: s.cwd || null,
-            created_at: s.created_at,
-            project_id: s.project_id || activeProjectId,
-          });
-        }
+          const liveByServer = {};
+          for (const s of sessions) {
+            const { serverId, sessionId } = splitSessionId(s.id);
+            if (!serverId) continue;
+            (liveByServer[serverId] ||= []).push({
+              id: sessionId,
+              name: s.name,
+              group_id: s.group_id || null,
+              notify_on_idle: Boolean(s.notify_on_idle),
+              cwd: s.cwd || null,
+              created_at: s.created_at,
+              project_id: s.project_id || activeProjectId,
+            });
+          }
 
-        const offlineSet = new Set(offlineServerIds);
-        for (const srv of servers) {
-          if (offlineSet.has(srv.id)) continue;
-          const existing = Array.isArray(mergedServers[srv.id]) ? mergedServers[srv.id] : [];
-          const otherProjects = existing.filter((s) => s && s.project_id && s.project_id !== activeProjectId);
-          mergedServers[srv.id] = [...otherProjects, ...(liveByServer[srv.id] || [])];
-        }
+          const offlineSet = new Set(offlineServerIds);
+          for (const srv of servers) {
+            if (offlineSet.has(srv.id)) continue;
+            const existing = Array.isArray(mergedServers[srv.id]) ? mergedServers[srv.id] : [];
+            const otherProjects = existing.filter((s) => s && s.project_id && s.project_id !== activeProjectId);
+            mergedServers[srv.id] = [...otherProjects, ...(liveByServer[srv.id] || [])];
+          }
 
-        await setSessionsSnapshot({ servers: mergedServers });
-      } catch (err) {
-        console.warn('[sessionsSnapshot] persist failed', err);
-      }
+          await setSessionsSnapshot({ servers: mergedServers });
+        })
+        .catch(err => console.warn('[sessionsSnapshot] persist failed', err));
     }, 500);
-  }, [sessions, offlineServerIds, hydratedSessions, servers, activeProjectId]);
+  }, [sessions, offlineServerIds, hydratedSessions, servers, activeProjectId, sessionsProjectId]);
 
   useEffect(() => {
     if (!hydratedSessions) return;
@@ -408,9 +438,10 @@ function Dashboard() {
     if (!changed) return;
 
     setComposeDrafts(next);
-    putComposeDrafts({ drafts: next }).catch(err =>
-      console.warn('[setComposeDrafts] cleanup failed', err)
-    );
+    composeDraftsInFlight.current = composeDraftsInFlight.current
+      .catch(() => {})
+      .then(() => putComposeDrafts({ drafts: next }))
+      .catch(err => console.warn('[setComposeDrafts] cleanup failed', err));
   }, [sessions, offlineServerIds, servers, composeDrafts, hydratedSessions, hydratedComposeDrafts]);
 
   useEffect(() => {
@@ -837,9 +868,10 @@ function Dashboard() {
         if (cur && cur.text === text) return prev;
         next[compositeId] = { text, updated_at: new Date().toISOString() };
       }
-      putComposeDrafts({ drafts: next }).catch(err =>
-        console.warn('[setComposeDrafts] persist failed', err)
-      );
+      composeDraftsInFlight.current = composeDraftsInFlight.current
+        .catch(() => {})
+        .then(() => putComposeDrafts({ drafts: next }))
+        .catch(err => console.warn('[setComposeDrafts] persist failed', err));
       return next;
     });
   }, []);

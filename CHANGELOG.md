@@ -6,6 +6,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [1.4.19] — 2026-04-22
+
+### Added
+
+- **Mobile key bar: Shift and Tab split into two buttons with a latching Shift.** Previously the bar had a single combined `⇧Tab` key that always sent `CSI Z` (the Shift+Tab escape). To support both plain `Tab` (autocomplete) and `Shift+Tab` without the combo, `frontend/src/components/MobileKeyBar.jsx` now exposes a dedicated `⇧` button and a `Tab` button. The `⇧` button is a **latch** — tapping it toggles a visual "armed" state (primary-tinted background + `aria-pressed`) without sending anything to the terminal. The next press of `Tab` with the latch armed sends `\x1b[Z` (Shift+Tab) and disarms; any other key press also disarms the latch, so it behaves exactly like a smartphone OSK Shift. Just sending `Shift` on its own would have been a no-op (terminals don't have modifier state — Shift only exists as part of a combo), which is why the earlier "just split them" attempts broke the flow.
+- **Drag-to-reorder for projects.** The Projects page (`frontend/src/app/(main)/projects/page.js`) now shows a grip handle on the left of each card; grab it to drag a project to a new position in the list. The new order is persisted via the existing `PUT /api/projects` endpoint (which already preserves array order — no backend change) and reflected everywhere that reads `projects` from `useProjects()`, including the Header dropdown. Implementation mirrors `GroupSelector`'s existing DnD: `@dnd-kit/core` + `@dnd-kit/sortable`, `PointerSensor` with `distance: 8` activation to keep regular clicks unaffected, and `reorderById` from `utils/reorder.js` for the list shuffle. A new `reorderProjects(fromId, toId)` helper in `services/api.js` handles the read-then-write, and `ProjectsProvider` exposes `reorderProject` with optimistic local-update + rollback via `refreshProjects()` on failure. Drag is disabled while a search filter is active (wouldn't make sense to reorder a filtered view). New i18n keys `projects.dragHandle` and `success.project_reordered` in `en`, `pt-BR`, `es`.
+
+### Changed
+
+- **Serialized backend-facing writes across the frontend** to close a class of reorder-on-the-wire bugs. Previously `setLayouts`, `setViewState`, `setSessionsSnapshot`, and `setComposeDrafts` were all fired "debounce → fetch without waiting". Two debounce ticks firing 600 ms apart could still have their PUTs overlap at the network layer — the older request finishing last would overwrite the newer value. Each of these call sites now chains through an `inFlight.current = inFlight.current.catch(() => {}).then(() => apiCall(payload))` ref in `frontend/src/providers/ViewStateProvider.jsx` and `frontend/src/app/(main)/page.js`, so successive writes observe server order equal to client order. Per-item writers (`patchNote`, `patchFlow`, etc., which use independent per-id timers) were already safe and weren't touched.
+- **Backend mutations now go through `withFileLock`** for the routes that were still racing. `app/api/notes/route.js` (POST), `app/api/notes/[id]/route.js` (PATCH + DELETE), `app/api/sessions/route.js` (PUT + the cold-start migration in `readAndMigrate`), and `app/api/compose-drafts/route.js` (PUT) previously did `read → modify → atomic-write` without holding the lock. A note being edited and dragged simultaneously could lose one of the two mutations — whichever `rename()` landed last wiped the other's write. All four routes are now wrapped in `withFileLock` (same pattern `/api/flows/*` and `/api/layouts` already used), bringing every mutating JSON route onto the same safety floor. Migration paths were also serialized to avoid cold-start races between two tabs opening the app for the first time.
+- **Dashboard layouts save now flushes on component unmount.** The previous cleanup only called `clearTimeout`, so dragging a mosaic split and navigating to `/flows` within the 500 ms debounce dropped the write. Added an unmount-only effect that inspects `layoutsSaveTimer.current` and, if a timer is still pending, chains a synchronous flush through `layoutsInFlight` using the latest `mosaicLayouts` snapshot captured in `latestLayoutsRef`. Mirrors the flush-on-unmount that `flows/page.js` was already doing for scene saves.
+- **Sessions-snapshot persist now gates on `sessionsProjectId === activeProjectId`** — without this gate, the effect could fire during a project switch with the old `sessions` but the new `activeProjectId`, stamping pre-migration sessions with the wrong `project_id`. Narrow impact in practice (requires a null `project_id` in the payload), but closes the last family-B hole in the snapshot path.
+- **Consolidated the three cross-project-safety guards into a single derived `projectDataReady` flag** in `frontend/src/app/(main)/page.js`. Previously every validator effect that touches `mosaicLayouts` or `selectedGroupId` had to repeat the check `hydrated && hydratedX && sessionsProjectId === activeProjectId && groupsProjectId === activeProjectId` — three effects, three copies, one "remember to add it" human step per future effect. The new `projectDataReady` variable combines all the conditions (`hydrated && hydratedLayouts && hydratedSessions && hydratedGroups && sessionsProjectId === activeProjectId && groupsProjectId === activeProjectId`) in one place, and every validator plus the `mosaicLayout` derivation now does a single `if (!projectDataReady) return;`. Any new effect added later that mutates or reads layouts/selected-group just needs to reference `projectDataReady` to inherit the safety.
+
 ## [1.4.18] — 2026-04-22
 
 ### Fixed
@@ -291,7 +306,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.4.18...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.4.19...HEAD
+[1.4.19]: https://github.com/kevinzezel/pulse/releases/tag/v1.4.19
 [1.4.18]: https://github.com/kevinzezel/pulse/releases/tag/v1.4.18
 [1.4.17]: https://github.com/kevinzezel/pulse/releases/tag/v1.4.17
 [1.4.16]: https://github.com/kevinzezel/pulse/releases/tag/v1.4.16
