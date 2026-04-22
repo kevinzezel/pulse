@@ -384,7 +384,7 @@ seed_client_env() {
     cat > "$env_file" <<EOF
 COMPOSE_PROJECT_NAME=pulse
 VERSION=$PULSE_INSTALLED_VERSION
-API_HOST=127.0.0.1
+API_HOST=$PULSE_BIND_HOST
 API_PORT=$PULSE_CLIENT_PORT
 API_KEY=$api_key
 EOF
@@ -404,7 +404,7 @@ seed_frontend_env() {
     auth_password="$(prompt_password)"
     auth_secret="$(hex_secret)"
     cat > "$env_file" <<EOF
-WEB_HOST=127.0.0.1
+WEB_HOST=$PULSE_BIND_HOST
 WEB_PORT=$PULSE_DASHBOARD_PORT
 AUTH_PASSWORD=$auth_password
 AUTH_JWT_SECRET=$auth_secret
@@ -589,6 +589,16 @@ main() {
 
     detect_platform
     setup_sudo
+
+    # Default bind host. WSL2 localhostForwarding only reflects 0.0.0.0 bindings
+    # from the Linux VM to the Windows host — 127.0.0.1 inside WSL stays invisible
+    # to the Windows browser (different network namespaces). Native Linux/macOS
+    # share one loopback, so 127.0.0.1 is safe and preferred.
+    if [ "$PULSE_IS_WSL" = 1 ]; then
+        PULSE_BIND_HOST="0.0.0.0"
+    else
+        PULSE_BIND_HOST="127.0.0.1"
+    fi
 
     if [ "$PULSE_CLIENT_ONLY" = 1 ] && [ "$PULSE_DASHBOARD_ONLY" = 1 ]; then
         die "PULSE_CLIENT_ONLY and PULSE_DASHBOARD_ONLY cannot both be set"

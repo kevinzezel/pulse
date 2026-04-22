@@ -6,6 +6,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [1.4.5] — 2026-04-21
+
+### Fixed
+
+- Under WSL2, the installer now binds `API_HOST` and `WEB_HOST` to `0.0.0.0` instead of `127.0.0.1`. Previously, the dashboard loaded in the Windows browser but couldn't reach the client API — fetches from the browser to `127.0.0.1:8000` failed because Windows `127.0.0.1` and WSL2 `127.0.0.1` are different loopbacks (WSL2 runs in its own Hyper-V network namespace). WSL2's `localhostForwarding` feature — the thing that makes `localhost:3000` on Windows reach the Next.js server inside WSL — only reflects bindings that listen on `0.0.0.0`; `127.0.0.1` stays invisible to Windows. Native Linux and macOS are unaffected and keep `127.0.0.1` as the safe default. `install.sh` uses the existing `PULSE_IS_WSL` detection to pick per-platform.
+
+### Documentation
+
+- New README section "Networking defaults" documenting the per-platform bind-host behavior, why WSL2 needs `0.0.0.0`, and how to use `pulse config host` to open access on the LAN (or revert to loopback-only on Linux/Mac).
+- Expanded "Running the client on a remote server" into "Multiple servers — dashboard + remote clients" covering: `PULSE_CLIENT_ONLY` / `PULSE_DASHBOARD_ONLY` installs, firewall/NAT guidance for reaching remote clients, the Settings → Servers UI workflow (fields, probing, reorder), and a diagram of the typical multi-host architecture.
+- Added `assets/demo.gif` (animated product tour) and 11 in-context screenshots — dashboard hero, projects list, notifications/telegram settings, editor override, prompts library, flows/Excalidraw, servers settings panel, mobile tab layout + MobileKeyBar, an Android browser notification, and a matching Telegram alert showing the last 20 lines of pane output — replacing most of the outstanding `TODO: add ...` placeholders.
+
 ## [1.4.4] — 2026-04-21
 
 ### Fixed
@@ -135,7 +147,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.4.4...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.4.5...HEAD
+[1.4.5]: https://github.com/kevinzezel/pulse/releases/tag/v1.4.5
 [1.4.4]: https://github.com/kevinzezel/pulse/releases/tag/v1.4.4
 [1.4.3]: https://github.com/kevinzezel/pulse/releases/tag/v1.4.3
 [1.4.2]: https://github.com/kevinzezel/pulse/releases/tag/v1.4.2
