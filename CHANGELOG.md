@@ -6,6 +6,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [1.4.20] — 2026-04-22
+
+### Fixed
+
+- **Scrollback was cut off at the attach point** — scrolling up (mouse wheel on desktop, finger swipe on mobile) stopped at whatever was visible when the terminal tab was opened, even though `tmux capture-pane` (used by the "copy" modal) returned the full history. Root cause: `client/src/resources/terminal.py:websocket_terminal` starts the attach and then streams only what the pty emits *after* that moment. tmux's attach redraws the current viewport but never replays the pane's historical buffer, so xterm.js's own scrollback only ever contained the session from attach forward. Fixed by capturing the pane's history (`tmux capture-pane -p -e -S -5000 -E -1`, which excludes the current viewport so it doesn't duplicate with the attach redraw) the moment the WebSocket accepts the attach, and shipping that text as the first `output` message to the client. xterm.js processes it naturally, accumulates it in its scrollback, and the subsequent attach redraw paints the viewport on top — so scrolling up now walks through the real pane history up to 5 000 lines back.
+
+### Changed
+
+- **Mobile terminal scroll is now smooth and predictable, and fast flicks always register.** The touch-to-scroll handler in `frontend/src/components/TerminalPane.jsx` translates finger-drag pixels into tmux wheel events (`CSI < 64/65`). Two problems fixed: (1) the old `TOUCH_STEP_PX = 24` felt laggy on slow/medium drags because at ~60 Hz `touchmove` cadence each event carried ~5-15 px of delta, which frequently didn't clear the threshold and just piled into the accumulator — stuttery behaviour described as "às vezes vai, às vezes lento". Lowered to 6 so almost every event emits at least one scroll step regardless of finger velocity, and raised the per-event step cap to 40 so hard flicks aren't truncated. (2) `onTouchEnd` used to zero the accumulator unconditionally — if a fast flick's final `touchmove` hit the cap, the residual delta was silently discarded, making quick repeated flicks appear to "not respond". `onTouchEnd` now flushes any remaining accumulator (up to 100 steps as a safety bound) as scroll events before resetting. Result: scroll tracks the finger continuously and rapid-fire flicks each produce proportional scrollback movement.
+
 ## [1.4.19] — 2026-04-22
 
 ### Added
@@ -306,7 +316,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.4.19...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.4.20...HEAD
+[1.4.20]: https://github.com/kevinzezel/pulse/releases/tag/v1.4.20
 [1.4.19]: https://github.com/kevinzezel/pulse/releases/tag/v1.4.19
 [1.4.18]: https://github.com/kevinzezel/pulse/releases/tag/v1.4.18
 [1.4.17]: https://github.com/kevinzezel/pulse/releases/tag/v1.4.17

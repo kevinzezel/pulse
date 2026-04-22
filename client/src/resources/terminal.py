@@ -420,6 +420,27 @@ async def websocket_terminal(websocket: WebSocket, session_id: str):
     try:
         process, fd = attach_session(session_id)
 
+        # Inject the pane's scrollback history into the xterm.js buffer before
+        # streaming live output. Without this, xterm.js only sees the tmux
+        # redraw of the current viewport on attach — anything that scrolled off
+        # before the attach is unreachable by wheel/swipe (it lives in tmux's
+        # pane history but never enters xterm.js's own scrollback). We capture
+        # from -5000 up to -1 so the current viewport is excluded; the tmux
+        # attach itself will repaint the viewport on top of what we just sent.
+        try:
+            hist = subprocess.run(
+                ["tmux", "capture-pane", "-t", session_id, "-p", "-e", "-S", "-5000", "-E", "-1"],
+                capture_output=True, text=True, check=False, timeout=3.0,
+            )
+            if hist.returncode == 0 and hist.stdout:
+                history_text = hist.stdout.replace("\r\n", "\n").replace("\n", "\r\n")
+                await websocket.send_json({
+                    "type": "output",
+                    "data": history_text,
+                })
+        except Exception as hist_err:
+            logger.warning(f"[attach] history replay failed: {hist_err}")
+
         def on_pty_read():
             try:
                 data = os.read(fd, 65536)

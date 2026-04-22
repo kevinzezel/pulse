@@ -246,8 +246,8 @@ export default function TerminalPane({ session, onSessionEnded, isMobile = false
         });
       }
 
-      const TOUCH_STEP_PX = 24;
-      const TOUCH_MAX_STEPS_PER_MOVE = 5;
+      const TOUCH_STEP_PX = 6;
+      const TOUCH_MAX_STEPS_PER_MOVE = 40;
       let touchLastY = null;
       let touchAccumulator = 0;
 
@@ -281,6 +281,23 @@ export default function TerminalPane({ session, onSessionEnded, isMobile = false
       }
 
       function onTouchEnd() {
+        // Flush any residual accumulator before resetting. Without this, a
+        // fast flick whose final `touchmove` hit the per-event cap would
+        // leave unsent steps that vanish when the finger lifts — the user
+        // sees the flick "not respond".
+        if (ws.readyState === WebSocket.OPEN) {
+          let steps = 0;
+          while (Math.abs(touchAccumulator) >= TOUCH_STEP_PX && steps < 100) {
+            if (touchAccumulator < 0) {
+              ws.send(JSON.stringify({ type: 'input', data: '\x1b[<65;1;1M' }));
+              touchAccumulator += TOUCH_STEP_PX;
+            } else {
+              ws.send(JSON.stringify({ type: 'input', data: '\x1b[<64;1;1M' }));
+              touchAccumulator -= TOUCH_STEP_PX;
+            }
+            steps++;
+          }
+        }
         touchLastY = null;
         touchAccumulator = 0;
       }
