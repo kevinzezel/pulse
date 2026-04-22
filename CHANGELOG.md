@@ -6,6 +6,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [1.4.3] — 2026-04-21
+
+### Fixed
+
+- **Windows installer (`install/install.ps1`) completely broken on Windows PowerShell 5.1** — crashed right after the banner with `[System.Char] não contém um método denominado 'Trim'`. Two root causes: (1) `wsl.exe` emits UTF-16 LE by default, so under Windows-1252 consoles (e.g. pt-BR) embedded NUL bytes corrupted pipeline line-splitting and `$_.Trim()` blew up when `$_` became a `[char]`; (2) `Get-DefaultDistro` indexed a single-string `$distros` with `[0]`, which returns `[char]` on PS 5.1 (no `.Trim()`). The script now forces UTF-8 on the console, sets `WSL_UTF8=1`, and routes all `wsl.exe` reads through an `Invoke-Wsl` helper that coerces to `[string]`, strips NUL/BOM, and always returns an array (uses `return ,@($arr)` — the leading comma is essential on PS 5.1 to preserve array shape for single-item results).
+- Windows installer — additional Windows↔WSL interop hardening shipped in the same patch:
+  - Abort clearly if the default WSL distro is WSL1 (was silently crashing minutes later in `systemctl --user`) or a container-engine VM like `docker-desktop`/`rancher-desktop` (minimal distro without `apt` — install.sh would fail).
+  - Pass `PULSE_AUTH_PASSWORD` and the other `PULSE_*` env vars to WSL via `$WSLENV` (the native Windows↔WSL env bridge) instead of shell-interpolating into `bash -c "VAR='...' curl ..."`. Previously, passwords containing `'`, `` ` ``, `$`, `%`, or `"` were silently mangled — user set "my`pass" but got stored as "mypass".
+  - Abort upfront if systemd is not enabled inside the WSL distro, with step-by-step instructions for `/etc/wsl.conf` + `wsl --shutdown`. Previously crashed deep inside `install.sh` with a cryptic `systemctl: command not found`.
+  - `pulse.cmd` now quotes the distro name in the `wsl -d "..."` call (survives distros with spaces in the name) and is written with `Set-Content -Encoding OEM` instead of `ASCII` (survives non-ASCII distro names — ASCII was turning them into `?`).
+  - `WEB_PORT` read from `frontend.env` now validates the value is numeric before using it; the fallback to `3000` no longer masks a silent parse failure.
+  - User PATH deduplicates correctly on reinstall via trailing-backslash normalization — previously the same folder could be added multiple times.
+  - Dashboard Start Menu shortcut and `pulse.cmd` are skipped when `PULSE_CLIENT_ONLY=1` (previously created a useless broken shortcut pointing at a nonexistent dashboard).
+  - Validate `LOCALAPPDATA` is set before writing `pulse.cmd` instead of silently creating a relative-path file in the current directory.
+
 ## [1.4.2] — 2026-04-21
 
 ### Added
@@ -114,7 +129,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.4.2...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.4.3...HEAD
+[1.4.3]: https://github.com/kevinzezel/pulse/releases/tag/v1.4.3
 [1.4.2]: https://github.com/kevinzezel/pulse/releases/tag/v1.4.2
 [1.4.1]: https://github.com/kevinzezel/pulse/releases/tag/v1.4.1
 [1.4.0]: https://github.com/kevinzezel/pulse/releases/tag/v1.4.0
