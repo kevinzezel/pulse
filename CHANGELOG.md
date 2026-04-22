@@ -6,6 +6,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [1.4.14] — 2026-04-22
+
+### Fixed
+
+- **Installer accepted garbage input from arrow keys during interactive prompts.** Pressing a Right/Left/Up/Down arrow at the `Dashboard host`, `Client host`, `Server URL`, or port prompts fed the terminal's raw escape sequence (e.g. `^[[C` for Right) straight into `read -r` — POSIX `sh` has no line-editing. The bogus value was then written to `~/.config/pulse/frontend.env` as `WEB_HOST=^[[C` and the dashboard service crashed on bind. `install/install.sh` now validates every host (IPv4 dotted-decimal or literal `localhost`) and every port (integer 1–65535) with `is_valid_host` / `is_valid_port`. Interactive prompts reprompt in a loop on invalid input with a hint that arrow keys aren't supported; non-interactive / env-var / upgrade paths all hit a final-pass validation that dies with a clear message telling the user which file to fix.
+
+### Changed
+
+- The same validators run against values loaded from existing `~/.config/pulse/client.env` and `frontend.env` during upgrades. Upgrading a Pulse install that already has a corrupt host or port (from a v1.4.12/1.4.13 prompt mishap) now fails fast with an actionable error instead of silently reinstalling with the broken value.
+
 ## [1.4.13] — 2026-04-22
 
 ### Changed
@@ -239,7 +249,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.4.13...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.4.14...HEAD
+[1.4.14]: https://github.com/kevinzezel/pulse/releases/tag/v1.4.14
 [1.4.13]: https://github.com/kevinzezel/pulse/releases/tag/v1.4.13
 [1.4.12]: https://github.com/kevinzezel/pulse/releases/tag/v1.4.12
 [1.4.11]: https://github.com/kevinzezel/pulse/releases/tag/v1.4.11

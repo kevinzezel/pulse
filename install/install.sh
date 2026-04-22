@@ -438,6 +438,74 @@ prompt_line() {
     printf '%s' "$_pl_val"
 }
 
+# Validation helpers (used by both interactive prompts and final-pass checks).
+# POSIX-only primitives (case globs + basic arithmetic) so this keeps working
+# under /bin/sh on all supported distros.
+
+is_valid_host() {
+    # Accepts IPv4 dotted-decimal, or the literal "localhost".
+    _h="$1"
+    [ -n "$_h" ] || return 1
+    # Reject any control character (arrow keys land here: \x1B[C = ^[[C, etc.)
+    # or whitespace.
+    case "$_h" in
+        *[[:cntrl:]]*|*' '*|*'	'*) return 1 ;;
+    esac
+    [ "$_h" = "localhost" ] && return 0
+    # Structural IPv4: only digits + dots, exactly 3 dots.
+    case "$_h" in
+        *[!0-9.]*) return 1 ;;
+    esac
+    _dots=$(printf '%s' "$_h" | tr -cd '.' | wc -c | tr -d ' ')
+    [ "$_dots" = 3 ] || return 1
+    # Each of the 4 octets must be 0-255 and non-empty.
+    _old_ifs="$IFS"
+    IFS='.'
+    for _oct in $_h; do
+        case "$_oct" in
+            ''|*[!0-9]*) IFS="$_old_ifs"; return 1 ;;
+        esac
+        if [ "$_oct" -gt 255 ]; then
+            IFS="$_old_ifs"; return 1
+        fi
+    done
+    IFS="$_old_ifs"
+    return 0
+}
+
+is_valid_port() {
+    _p="$1"
+    case "$_p" in
+        ''|*[!0-9]*) return 1 ;;
+    esac
+    [ "$_p" -ge 1 ] 2>/dev/null && [ "$_p" -le 65535 ] 2>/dev/null
+}
+
+prompt_host_loop() {
+    # Keeps reprompting until a valid host lands in stdout.
+    _phl_label="$1"; _phl_default="$2"
+    while :; do
+        _phl_val="$(prompt_line "$_phl_label" "$_phl_default")"
+        if is_valid_host "$_phl_val"; then
+            printf '%s' "$_phl_val"
+            return 0
+        fi
+        printf "    %b⚠ invalid host%b — enter IPv4 (e.g. 0.0.0.0, 127.0.0.1, 192.168.1.20) or 'localhost'. Arrow keys aren't supported here, retype if you hit one.\n" "$YELLOW" "$NC" > /dev/tty
+    done
+}
+
+prompt_port_loop() {
+    _ppl_label="$1"; _ppl_default="$2"
+    while :; do
+        _ppl_val="$(prompt_line "$_ppl_label" "$_ppl_default")"
+        if is_valid_port "$_ppl_val"; then
+            printf '%s' "$_ppl_val"
+            return 0
+        fi
+        printf "    %b⚠ invalid port%b — must be a whole number between 1 and 65535.\n" "$YELLOW" "$NC" > /dev/tty
+    done
+}
+
 read_env_value() {
     # Extract KEY=value from an env file. Empty output if file or key is missing.
     _re_file="$1"; _re_key="$2"
@@ -487,30 +555,47 @@ prompt_network() {
         printf "\n" > /dev/tty
 
         if [ "$PULSE_CLIENT_ONLY" = 0 ] && [ -z "$existing_web_host" ]; then
-            PULSE_WEB_HOST="$(prompt_line "Dashboard host"   "$PULSE_WEB_HOST")"
-            PULSE_WEB_PORT="$(prompt_line "Dashboard port"   "$PULSE_WEB_PORT")"
+            PULSE_WEB_HOST="$(prompt_host_loop "Dashboard host" "$PULSE_WEB_HOST")"
+            PULSE_WEB_PORT="$(prompt_port_loop "Dashboard port" "$PULSE_WEB_PORT")"
         fi
         if [ "$PULSE_DASHBOARD_ONLY" = 0 ] && [ -z "$existing_api_host" ]; then
-            PULSE_API_HOST="$(prompt_line "Client host   "   "$PULSE_API_HOST")"
-            PULSE_API_PORT="$(prompt_line "Client port   "   "$PULSE_API_PORT")"
+            PULSE_API_HOST="$(prompt_host_loop "Client host   " "$PULSE_API_HOST")"
+            PULSE_API_PORT="$(prompt_port_loop "Client port   " "$PULSE_API_PORT")"
         fi
         if [ "$PULSE_CLIENT_ONLY" = 0 ] && [ -z "${PULSE_SERVER_HOST:-}" ]; then
             printf "\n" > /dev/tty
             printf "  %bServer URL%b is the IP the dashboard uses to reach the client —\n" "$BOLD" "$NC" > /dev/tty
             printf "  set to your LAN IP so phones/other machines can connect.\n" > /dev/tty
-            PULSE_SERVER_HOST="$(prompt_line "Server URL    " "${PULSE_SERVER_HOST_DETECTED:-}")"
+            PULSE_SERVER_HOST="$(prompt_host_loop "Server URL    " "${PULSE_SERVER_HOST_DETECTED:-}")"
         fi
         printf "\n" > /dev/tty
     fi
 
-    # Final validation — dashboard needs a server host to seed servers.json.
-    if [ "$PULSE_CLIENT_ONLY" = 0 ] && [ -z "${PULSE_SERVER_HOST:-}" ]; then
-        # Fresh install, dashboard-only or full install without detected IP and no env override.
-        if [ -z "$existing_web_host" ]; then
-            # Seed of servers.json is required and we have nothing to write.
-            die "Server URL is required but LAN IP detection failed. Re-run with PULSE_SERVER_HOST=<your-lan-ip> (e.g., 192.168.1.20)."
+    # Final validation — runs for every code path (fresh install, upgrade,
+    # non-interactive with env vars). Catches:
+    #   1. Existing .env files that accumulated garbage from earlier bad
+    #      installs (e.g. WEB_HOST=^[[C from an arrow-key keystroke during
+    #      a v1.4.12/1.4.13 prompt).
+    #   2. PULSE_* env vars passed to the installer with typos/junk.
+    #   3. Defensive: anything that slipped past the interactive loops.
+    # Better to die here with a clear message than to write a broken
+    # .env that crashes uvicorn/next on startup with a cryptic error.
+    if [ "$PULSE_DASHBOARD_ONLY" = 0 ]; then
+        is_valid_host "$PULSE_API_HOST" || die "invalid API_HOST: '$PULSE_API_HOST'. Edit $CONFIG_ROOT/client.env (or set PULSE_API_HOST) to a valid IPv4 like 0.0.0.0, 127.0.0.1 or your LAN IP."
+        is_valid_port "$PULSE_API_PORT" || die "invalid API_PORT: '$PULSE_API_PORT'. Edit $CONFIG_ROOT/client.env to a number between 1 and 65535."
+    fi
+    if [ "$PULSE_CLIENT_ONLY" = 0 ]; then
+        is_valid_host "$PULSE_WEB_HOST" || die "invalid WEB_HOST: '$PULSE_WEB_HOST'. Edit $CONFIG_ROOT/frontend.env (or set PULSE_WEB_HOST) to a valid IPv4 like 0.0.0.0, 127.0.0.1 or your LAN IP."
+        is_valid_port "$PULSE_WEB_PORT" || die "invalid WEB_PORT: '$PULSE_WEB_PORT'. Edit $CONFIG_ROOT/frontend.env to a number between 1 and 65535."
+        if [ -z "${PULSE_SERVER_HOST:-}" ]; then
+            # Upgrade path: servers.json already exists and is preserved, so PULSE_SERVER_HOST is unused.
+            # Fresh install: we need a value and don't have one.
+            if [ ! -f "$INSTALL_ROOT/frontend/data/servers.json" ]; then
+                die "Server URL is required but LAN IP detection failed. Re-run with PULSE_SERVER_HOST=<your-lan-ip> (e.g., 192.168.1.20)."
+            fi
+        else
+            is_valid_host "$PULSE_SERVER_HOST" || die "invalid PULSE_SERVER_HOST: '$PULSE_SERVER_HOST'. Must be a valid IPv4 address (e.g. 192.168.1.20)."
         fi
-        # Upgrade path: servers.json already exists and is preserved, so PULSE_SERVER_HOST is unused anyway.
     fi
 }
 
