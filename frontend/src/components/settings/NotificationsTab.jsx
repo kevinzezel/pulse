@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
-import { Bell, Check, Loader, Copy, Monitor, Volume2, VolumeX, Send } from 'lucide-react';
+import { Bell, Check, Loader, Copy, Monitor, Volume2, VolumeX, Send, AlertTriangle } from 'lucide-react';
 import { getSettings, updateNotificationsSettings } from '@/services/api';
 import { useTranslation, useErrorToast } from '@/providers/I18nProvider';
 import { useServers } from '@/providers/ServersProvider';
@@ -46,7 +46,9 @@ export default function NotificationsTab() {
   const { t } = useTranslation();
   const showError = useErrorToast();
   const { servers } = useServers();
-  const { supported: notifySupported, permission: notifyPermission, requestBrowserPermission, muted, setMuted } = useNotifications();
+  const { supported: notifySupported, permission: notifyPermission, permissionReason: notifyPermissionReason, requestBrowserPermission, muted, setMuted } = useNotifications();
+  const insecureOrigin = typeof window !== 'undefined' ? window.location.origin : '';
+  const insecurePort = typeof window !== 'undefined' ? window.location.port : '';
 
   const [serverId, setServerId] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -65,7 +67,11 @@ export default function NotificationsTab() {
       if (result === 'granted') {
         toast.success(t('notifications.permissionGrantedToast'));
       } else if (result === 'denied') {
-        toast.error(t('notifications.permissionDeniedToast'));
+        if (notifyPermissionReason === 'insecure-context') {
+          toast.error(t('notifications.insecureContextToast', { origin: insecureOrigin }), { duration: 7000 });
+        } else {
+          toast.error(t('notifications.permissionDeniedToast'));
+        }
       }
     } finally {
       setRequestingPermission(false);
@@ -150,6 +156,26 @@ export default function NotificationsTab() {
         <h2 className="text-base font-semibold text-foreground">{t('notifications.browserSection')}</h2>
       </div>
       <p className="text-xs text-muted-foreground">{t('notifications.browserSectionHint')}</p>
+
+      {notifyPermissionReason === 'insecure-context' && (
+        <div className="flex items-start gap-2 rounded-md px-3 py-2.5 text-xs border" style={{ background: 'hsl(var(--destructive) / 0.08)', borderColor: 'hsl(var(--destructive) / 0.35)' }}>
+          <AlertTriangle size={14} className="text-destructive flex-shrink-0 mt-0.5" />
+          <div className="flex flex-col gap-1.5 min-w-0">
+            <span className="font-semibold text-destructive">{t('notifications.insecureContextBannerTitle')}</span>
+            <span className="text-muted-foreground leading-relaxed">
+              {t('notifications.insecureContextBannerBody', { origin: insecureOrigin, port: insecurePort || '3000' })}
+            </span>
+            <a
+              href="https://developer.mozilla.org/en-US/docs/Web/Security/Secure_Contexts"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-primary hover:underline w-fit"
+            >
+              {t('notifications.insecureContextLearnMore')} ↗
+            </a>
+          </div>
+        </div>
+      )}
 
       {!notifySupported ? (
         <p className="text-xs text-destructive">{t('notifications.unsupported')}</p>

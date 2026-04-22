@@ -16,6 +16,18 @@ function getSupported() {
   return typeof window !== 'undefined' && 'Notification' in window;
 }
 
+// Browsers require a "secure context" (HTTPS or localhost) for the
+// Notifications API. In insecure contexts (plain HTTP on a non-localhost
+// origin — the typical Pulse-over-LAN setup), requestPermission() either
+// rejects or the API is undefined entirely. We detect that up front so
+// the UI can explain *why* instead of just saying "denied".
+export function isInsecureLan() {
+  if (typeof window === 'undefined') return false;
+  if (window.isSecureContext) return false;
+  const h = window.location.hostname;
+  return h !== 'localhost' && h !== '127.0.0.1' && h !== '::1';
+}
+
 function readInitialMute() {
   if (typeof window === 'undefined') return false;
   try {
@@ -74,6 +86,9 @@ export function NotificationsProvider({ children }) {
 
   const [supported, setSupported] = useState(false);
   const [permission, setPermission] = useState('default');
+  // 'insecure-context' means the browser won't even offer the permission
+  // prompt (non-HTTPS / non-localhost). Everything else leaves it null.
+  const [permissionReason, setPermissionReason] = useState(null);
   const [muted, setMutedState] = useState(false);
 
   const connectionsRef = useRef(new Map());
@@ -88,6 +103,10 @@ export function NotificationsProvider({ children }) {
     if (getSupported()) {
       setPermission(Notification.permission);
     }
+    if (isInsecureLan()) {
+      setPermission('denied');
+      setPermissionReason('insecure-context');
+    }
     setMutedState(readInitialMute());
   }, []);
 
@@ -100,8 +119,14 @@ export function NotificationsProvider({ children }) {
 
   const requestBrowserPermission = useCallback(async () => {
     if (!getSupported()) return 'unsupported';
+    if (isInsecureLan()) {
+      setPermission('denied');
+      setPermissionReason('insecure-context');
+      return 'denied';
+    }
     if (Notification.permission === 'granted') {
       setPermission('granted');
+      setPermissionReason(null);
       return 'granted';
     }
     if (Notification.permission === 'denied') {
@@ -111,6 +136,7 @@ export function NotificationsProvider({ children }) {
     try {
       const result = await Notification.requestPermission();
       setPermission(result);
+      if (result !== 'denied') setPermissionReason(null);
       return result;
     } catch {
       return 'default';
@@ -276,6 +302,7 @@ export function NotificationsProvider({ children }) {
   const value = {
     supported,
     permission,
+    permissionReason,
     requestBrowserPermission,
     muted,
     setMuted,

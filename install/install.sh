@@ -732,6 +732,12 @@ enable_services() {
                 $PULSE_SUDO loginctl enable-linger "$USER" 2>/dev/null \
                     || warn "could not enable linger — services won't start at boot until you log in"
             fi
+            # Import the user's graphical session env into the systemd user
+            # manager so PassEnvironment= in the unit can reach it. Most DMs
+            # (GDM/SDDM) do this on login; this covers the gap when they
+            # don't, so the "open editor" button works right after install
+            # without a reboot. No-op outside a graphical session (harmless).
+            systemctl --user import-environment DISPLAY WAYLAND_DISPLAY XAUTHORITY DBUS_SESSION_BUS_ADDRESS XDG_RUNTIME_DIR XDG_SESSION_TYPE XDG_CURRENT_DESKTOP 2>/dev/null || true
             units=""
             [ "$PULSE_DASHBOARD_ONLY" = 0 ] && units="$units pulse-client.service"
             [ "$PULSE_CLIENT_ONLY"    = 0 ] && units="$units pulse.service"

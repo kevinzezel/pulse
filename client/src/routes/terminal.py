@@ -1,3 +1,4 @@
+import logging
 import os
 import shutil
 import subprocess
@@ -5,6 +6,8 @@ import tempfile
 import time
 
 from fastapi import APIRouter, Body, WebSocket, WebSocketDisconnect, UploadFile, File, Request
+
+logger = logging.getLogger(__name__)
 from resources.terminal import create_session_request, list_sessions_request, kill_session_request, rename_session_request, sync_sessions_request, clone_session_request, websocket_terminal, sessions, set_session_notify_request, restore_sessions_request, _sessions_lock
 from resources.notification_broadcast import register as register_notification_client, unregister as unregister_notification_client
 from tools.tmux import get_pane_cwd, send_text_to_session, set_group_id
@@ -164,7 +167,7 @@ def get_cwd(request: Request, session_id: str):
     return build_i18n_response(request, 200, {"detail_key": "status.ok", "cwd": cwd})
 
 
-CAPTURE_LINES_DEFAULT = 500
+CAPTURE_LINES_DEFAULT = 5000
 CAPTURE_LINES_MAX = 50000
 
 
@@ -258,15 +261,49 @@ def open_editor(request: Request, session_id: str):
     inside_vscode = bool(ipc) and os.path.exists(ipc)
 
     if not inside_vscode:
+        uid = os.getuid()
+        # DISPLAY / WAYLAND_DISPLAY: prefer Wayland when a compositor socket exists,
+        # fall back to X11 :0 (the convention for single-seat systems).
         if not env.get("DISPLAY") and not env.get("WAYLAND_DISPLAY"):
-            env["DISPLAY"] = ":0"
+            if os.path.exists(f"/run/user/{uid}/wayland-0"):
+                env["WAYLAND_DISPLAY"] = "wayland-0"
+            else:
+                env["DISPLAY"] = ":0"
         if not env.get("XDG_RUNTIME_DIR"):
-            env["XDG_RUNTIME_DIR"] = f"/run/user/{os.getuid()}"
+            env["XDG_RUNTIME_DIR"] = f"/run/user/{uid}"
+        # D-Bus user session bus — Electron/VSCode uses it for single-instance IPC,
+        # secret-service, shell inhibitors. systemd-user always exposes it at
+        # /run/user/<uid>/bus when a graphical session is active.
+        if not env.get("DBUS_SESSION_BUS_ADDRESS"):
+            dbus_sock = f"/run/user/{uid}/bus"
+            if os.path.exists(dbus_sock):
+                env["DBUS_SESSION_BUS_ADDRESS"] = f"unix:path={dbus_sock}"
+        # XAUTHORITY — X server rejects MIT-MAGIC-COOKIE connections without it.
+        # GDM stashes in /run/user/<uid>/gdm/Xauthority; most others use ~/.Xauthority.
+        if not env.get("XAUTHORITY"):
+            home = os.environ.get("HOME", "")
+            for cand in (f"/run/user/{uid}/gdm/Xauthority",
+                         f"{home}/.Xauthority" if home else ""):
+                if cand and os.path.exists(cand):
+                    env["XAUTHORITY"] = cand
+                    break
 
     binary = _resolve_vscode_binary(env)
     if not binary:
         raise AppException(key="errors.editor_binary_not_found", status_code=500)
 
+    # Log the GUI env state so future "button does nothing" reports can be
+    # diagnosed from `journalctl --user -u pulse-client.service` without repro.
+    logger.info(
+        "launching editor: binary=%s cwd=%s DISPLAY=%s WAYLAND_DISPLAY=%s "
+        "DBUS=%s XAUTHORITY=%s XDG_RUNTIME_DIR=%s",
+        binary, cwd,
+        env.get("DISPLAY") or "-",
+        env.get("WAYLAND_DISPLAY") or "-",
+        "set" if env.get("DBUS_SESSION_BUS_ADDRESS") else "-",
+        "set" if env.get("XAUTHORITY") else "-",
+        env.get("XDG_RUNTIME_DIR") or "-",
+    )
     subprocess.Popen([binary, cwd], env=env, start_new_session=True,
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     return build_i18n_response(request, 200, {

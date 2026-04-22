@@ -139,6 +139,19 @@ export default function TerminalPane({ session, onSessionEnded, isMobile = false
         theme: getXtermTheme(theme),
       });
 
+      // Defense-in-depth for ED3 (CSI 3 J — "Erase scrollback"). Even with
+      // tmux's terminal-overrides E3@, anything that emits ED3 directly will
+      // otherwise trigger xterm.js's default handler which trims scrollback
+      // down to exactly the viewport height of lines (InputHandler.ts:1228).
+      // Return true marks it as handled (no-op) so user history survives
+      // Claude Code / compact / similar redraws. ED0/1/2 pass through so
+      // plain `clear`, vim-style repaints, etc. keep working normally.
+      terminal.parser.registerCsiHandler({ final: 'J' }, (params) => {
+        const p = params[0];
+        const code = Array.isArray(p) ? p[0] : p;
+        return code === 3;
+      });
+
       const fitAddon = new FitAddon();
       terminal.loadAddon(fitAddon);
       terminal.open(container);

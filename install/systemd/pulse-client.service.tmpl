@@ -10,9 +10,20 @@ StartLimitBurst=5
 Type=exec
 WorkingDirectory=%h/.local/share/pulse/client/src
 EnvironmentFile=%h/.config/pulse/client.env
-Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+# /snap/bin covers snap-installed VSCode/Cursor (Ubuntu default).
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin:/snap/bin
 # tmux attach-session refuses to run without TERM; systemd units inherit no TERM.
 Environment=TERM=xterm-256color
+# Import the user's graphical session env so the editor-open handler
+# (routes/terminal.py:open_editor → subprocess.Popen of VSCode) can reach
+# the X server / Wayland compositor / D-Bus user session. Most display
+# managers (GDM, SDDM, LightDM with modern setups) run
+# `systemctl --user import-environment` on login, populating these in the
+# user manager. PassEnvironment= then lets them reach the unit's exec env.
+# ExecStartPre is a safety net for distros/setups where the import never
+# happened — cheap to re-run, failure is ignored.
+PassEnvironment=DISPLAY WAYLAND_DISPLAY XAUTHORITY DBUS_SESSION_BUS_ADDRESS XDG_RUNTIME_DIR XDG_SESSION_TYPE XDG_CURRENT_DESKTOP
+ExecStartPre=/bin/sh -c '/usr/bin/systemctl --user import-environment DISPLAY WAYLAND_DISPLAY XAUTHORITY DBUS_SESSION_BUS_ADDRESS XDG_RUNTIME_DIR 2>/dev/null || true'
 ExecStart=%h/.local/share/pulse/client/.venv/bin/uvicorn service:app --host ${API_HOST} --port ${API_PORT}
 Restart=on-failure
 RestartSec=5
@@ -29,8 +40,11 @@ StandardError=journal
 KillMode=process
 
 # Security hardening (user unit — most of this is no-op for user units but set for discipline).
+# PrivateTmp is intentionally NOT set: the editor-open handler needs access to
+# /tmp/.X11-unix/X0 (X server socket) to spawn GUI apps like VSCode, and
+# PrivateTmp=true bind-mounts /tmp to a private per-unit dir where that socket
+# doesn't exist.
 NoNewPrivileges=true
-PrivateTmp=true
 
 [Install]
 WantedBy=default.target

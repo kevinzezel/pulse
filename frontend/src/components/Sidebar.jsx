@@ -49,7 +49,7 @@ export default function Sidebar({
   const { t } = useTranslation();
   const showError = useErrorToast();
   const { save: saveServers } = useServers();
-  const { supported: notifySupported, permission: notifyPermission, requestBrowserPermission } = useNotifications();
+  const { supported: notifySupported, permission: notifyPermission, permissionReason: notifyPermissionReason, requestBrowserPermission } = useNotifications();
   const [showModal, setShowModal] = useState(false);
   const [creating, setCreating] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -326,15 +326,24 @@ export default function Sidebar({
               const willEnable = !session.notify_on_idle;
               onToggleNotify?.(session.id, willEnable);
               if (!willEnable || !notifySupported) return;
+              const deniedToast = () => {
+                if (notifyPermissionReason === 'insecure-context') {
+                  toast.error(t('notifications.insecureContextToast', {
+                    origin: window.location.origin,
+                  }), { duration: 7000 });
+                } else {
+                  toast.error(t('notifications.permissionDeniedToast'));
+                }
+              };
               if (notifyPermission === 'default') {
                 const result = await requestBrowserPermission();
                 if (result === 'granted') {
                   toast.success(t('notifications.permissionGrantedToast'));
                 } else if (result === 'denied') {
-                  toast.error(t('notifications.permissionDeniedToast'));
+                  deniedToast();
                 }
               } else if (notifyPermission === 'denied') {
-                toast.error(t('notifications.permissionDeniedToast'));
+                deniedToast();
               }
             }}
             className={`p-1 transition-colors ${session.notify_on_idle ? 'text-primary' : 'text-muted-foreground hover:text-primary'}`}

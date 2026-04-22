@@ -10,16 +10,28 @@ logger = logging.getLogger(__name__)
 
 
 def ensure_tmux_config():
-    # Disable outer-terminal alt-screen passthrough so xterm.js keeps its
-    # normal buffer on attach — lets the mouse wheel scroll the browser's
-    # scrollback instead of getting translated to ↑/↓ arrow keys (which
-    # navigate shell history by accident). Apps inside tmux still use
-    # alt-screen at the tmux level, and their content rolls off into
-    # xterm.js's scrollback naturally as they repaint.
-    # -ga = global + append, preserving user overrides in ~/.tmux.conf.
+    # Apply Pulse's server-wide tmux options. Silently becomes a no-op if no
+    # tmux server is running (set-option -ga without a server prints
+    # "no server running on …" and exits 1). That's fine because
+    # create_session() also calls this right after `tmux new-session`, which
+    # is the first reliable moment to write to the server — at client
+    # startup there may be no server yet, but as soon as a session is
+    # created (or recovered) the server is up.
+    #
+    #   smcup@ / rmcup@ — tmux doesn't put outer terminal in alt-screen on
+    #                     attach. Mouse wheel scrolls xterm.js scrollback
+    #                     natively instead of being translated to ↑/↓ arrow
+    #                     keys (which would navigate shell history).
+    #   E3@            — tmux doesn't forward the terminfo "clear scrollback"
+    #                     entry (ESC [ 3 J / ED3) to outer. Claude Code's
+    #                     startup fires this via tmux and otherwise wipes
+    #                     xterm.js's scrollback down to exactly rows of
+    #                     viewport height. See anthropics/claude-code#16310.
+    #
+    # -ga = global + append, so any user overrides in ~/.tmux.conf survive.
     try:
         subprocess.run(
-            ['tmux', 'set-option', '-ga', 'terminal-overrides', ',*:smcup@:rmcup@'],
+            ['tmux', 'set-option', '-ga', 'terminal-overrides', ',*:smcup@:rmcup@:E3@'],
             capture_output=True, check=False,
         )
     except FileNotFoundError:
@@ -31,6 +43,11 @@ def create_session(session_id, cols=80, rows=24, start_directory=None):
     if start_directory and os.path.isabs(start_directory) and os.path.isdir(start_directory):
         cmd.extend(['-c', start_directory])
     subprocess.run(cmd, check=True)
+    # Now that we've just guaranteed a tmux server exists, persist our
+    # terminal-overrides. On cold starts this is the first time the set-option
+    # call has a server to write to — the recover_sessions() call at client
+    # startup silently fails if there's no server yet.
+    ensure_tmux_config()
     subprocess.run(
         ['tmux', 'set-option', '-t', session_id, 'status', 'off'],
         check=True
