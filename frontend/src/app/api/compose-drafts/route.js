@@ -5,7 +5,7 @@ import { withAuth } from '@/lib/auth';
 const REL = 'data/compose-drafts.json';
 const EMPTY = { drafts: {}, updated_at: null };
 
-const KEY_RE = /^srv-[A-Za-z0-9_-]+::[A-Za-z0-9_-]+$/;
+const KEY_RE = /^[A-Za-z0-9_-]+::[A-Za-z0-9_-]+$/;
 
 function normalizeDraft(raw) {
   if (!raw || typeof raw !== 'object') return null;

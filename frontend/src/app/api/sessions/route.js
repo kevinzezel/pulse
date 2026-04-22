@@ -49,7 +49,7 @@ function normalizePayload(raw) {
   const serversIn = raw.servers && typeof raw.servers === 'object' ? raw.servers : {};
   const servers = {};
   for (const [serverId, list] of Object.entries(serversIn)) {
-    if (typeof serverId !== 'string' || !serverId.startsWith('srv-')) continue;
+    if (typeof serverId !== 'string' || !serverId) continue;
     if (!Array.isArray(list)) continue;
     servers[serverId] = list.map(normalizeSession).filter(Boolean);
   }

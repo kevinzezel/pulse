@@ -6,6 +6,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [1.4.10] — 2026-04-22
+
+### Fixed
+
+- **`sessions.json` (and `compose-drafts.json`) silently stayed empty in install mode.** On a fresh Linux install the dashboard appeared to work — terminals opened, the UI listed them — but `~/.local/share/pulse/frontend/data/sessions.json` never grew past `{ "servers": {}, "updated_at": "…" }`, which also meant auto-restore after reboot had nothing to replay. The v1.4.9 `PULSE_FRONTEND_ROOT` fix was a red herring here: the file was being written to the correct path, just with an empty payload. Root cause was a mismatch between the installer and the API: `install/install.sh:seed_servers_json` seeded `data/servers.json` with `"id": "localhost"`, while `frontend/src/app/api/sessions/route.js` (and `frontend/src/app/api/compose-drafts/route.js`) only accepted server ids that started with `srv-` — a convention the UI's `POST /api/servers` satisfies (`srv-${randomUUID()}`) but the installer didn't. Every PUT from the snapshot effect matched no key, was silently normalized to `{}`, and returned 200. Dev mode (`./start.sh`) escaped the bug because it doesn't seed `servers.json` at all — the user creates the server from Settings → Servidores, where the id is generated in the right shape. Fix: the installer now generates a real UUID (`srv-$(uuidgen || /proc/sys/kernel/random/uuid)`) so new installs converge with the UI-created shape, and both API routes drop the `srv-` prefix requirement (the prefix was convention, not validation — the id is an object key, not a filesystem path, so any non-empty string is safe). Existing installs with `"id": "localhost"` keep working without migration.
+
+### Changed
+
+- `frontend/src/app/api/sessions/route.js` PUT accepts any non-empty server id string. `frontend/src/app/api/compose-drafts/route.js` regex no longer requires the `srv-` prefix (`^[A-Za-z0-9_-]+::[A-Za-z0-9_-]+$`). `install/install.sh:seed_servers_json` generates `srv-<uuid>` instead of the literal `localhost`.
+
 ## [1.4.9] — 2026-04-22
 
 ### Fixed
@@ -186,7 +196,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.4.9...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.4.10...HEAD
+[1.4.10]: https://github.com/kevinzezel/pulse/releases/tag/v1.4.10
 [1.4.9]: https://github.com/kevinzezel/pulse/releases/tag/v1.4.9
 [1.4.8]: https://github.com/kevinzezel/pulse/releases/tag/v1.4.8
 [1.4.7]: https://github.com/kevinzezel/pulse/releases/tag/v1.4.7

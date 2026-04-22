@@ -460,11 +460,12 @@ seed_servers_json() {
     fi
     api_key="$(grep -E '^API_KEY=' "$CONFIG_ROOT/client.env" | cut -d= -f2-)"
     now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    server_id="srv-$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid 2>/dev/null || od -xN 16 /dev/urandom | head -1 | awk '{OFS="-"; print $2$3,$4,$5,$6,$7$8$9}')"
     cat > "$servers_file" <<EOF
 {
   "servers": [
     {
-      "id": "localhost",
+      "id": "$server_id",
       "name": "localhost",
       "protocol": "http",
       "host": "127.0.0.1",
