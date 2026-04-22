@@ -63,14 +63,23 @@ export default function FlowsPage() {
   const userDeselectedRef = useRef(false);
 
   // Hydrate UI state from storage synchronously on mount.
+  // First-time default: open on desktop, closed on mobile (sidebar would cover
+  // the canvas). Respects an existing stored preference either way.
   useEffect(() => {
-    setSidebarOpen(loadFromStorage(SIDEBAR_OPEN_KEY, true));
+    const storedSidebar = (() => {
+      try { return localStorage.getItem(SIDEBAR_OPEN_KEY); } catch { return null; }
+    })();
+    if (storedSidebar != null) {
+      try { setSidebarOpen(JSON.parse(storedSidebar)); } catch { setSidebarOpen(!isMobile); }
+    } else {
+      setSidebarOpen(!isMobile);
+    }
     try {
       const storedFlow = localStorage.getItem(SELECTED_FLOW_KEY);
       if (storedFlow) setSelectedFlowId(storedFlow);
     } catch {}
     setStorageHydrated(true);
-  }, []);
+  }, [isMobile]);
 
   // Persist UI state (after hydration, to avoid clobbering initial values).
   useEffect(() => {
@@ -281,9 +290,14 @@ export default function FlowsPage() {
   const excalidrawInitialData = useMemo(() => {
     if (!selectedFlow) return null;
     const scene = selectedFlow.scene || emptyScene();
+    // Default viewBackgroundColor to `transparent` so the Excalidraw canvas
+    // inherits the themed container background (hsl(var(--background))) below.
+    // Users who explicitly set a custom bg color for a flow keep that choice —
+    // the spread after preserves scene.appState.viewBackgroundColor if present.
     return {
       elements: Array.isArray(scene.elements) ? scene.elements : [],
       appState: {
+        viewBackgroundColor: 'transparent',
         ...(scene.appState || {}),
         collaborators: new Map(),
       },

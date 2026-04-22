@@ -282,8 +282,21 @@ install_files() {
     stop_services_if_running
 
     if [ "$PULSE_DASHBOARD_ONLY" = 0 ]; then
+        # Preserve user data (settings.json with Telegram config, session state, etc.)
+        # across upgrades — mirrors the frontend/data handling below.
+        client_data_backup=""
+        if [ -d "$INSTALL_ROOT/client/data" ]; then
+            client_data_backup="$TEMP_DIR/client-data-backup"
+            log "preserving existing client/data for upgrade"
+            mv "$INSTALL_ROOT/client/data" "$client_data_backup"
+        fi
         rm -rf "$INSTALL_ROOT/client"
         cp -R "$EXTRACTED/client" "$INSTALL_ROOT/client"
+        if [ -n "$client_data_backup" ] && [ -d "$client_data_backup" ]; then
+            rm -rf "$INSTALL_ROOT/client/data"
+            mv "$client_data_backup" "$INSTALL_ROOT/client/data"
+            log "restored client/data"
+        fi
         log "setting up Python environment for client (this may take a minute)"
         # uv sync requires pyproject.toml which we don't ship (would need to commit one).
         # Use uv venv + uv pip instead — works off the existing requirements.txt.

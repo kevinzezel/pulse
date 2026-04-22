@@ -390,8 +390,8 @@ export default function ProjectsPage() {
   }
 
   return (
-    <div className="flex-1 overflow-y-auto bg-background">
-      <div className="max-w-5xl mx-auto px-6 py-8">
+    <div className="h-full overflow-y-auto bg-background">
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
         <div className="flex items-start justify-between mb-8 gap-4 flex-wrap">
           <div>
             <h1 className="text-2xl font-semibold">{t('projects.pageTitle')}</h1>

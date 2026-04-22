@@ -35,7 +35,10 @@ function SettingsContent() {
           <p className="text-sm text-muted-foreground">{t('settings.pageSubtitle')}</p>
         </header>
 
-        <div className="flex items-center gap-1 mb-6 border-b" style={{ borderColor: 'hsl(var(--border))' }}>
+        <div
+          className="flex items-center gap-1 mb-6 border-b overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
+          style={{ borderColor: 'hsl(var(--border))' }}
+        >
           {TABS.map(tab => {
             const Icon = tab.icon;
             const active = activeTab === tab.id;
@@ -43,7 +46,7 @@ function SettingsContent() {
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium transition-colors border-b-2 -mb-px ${
+                className={`inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium transition-colors border-b-2 -mb-px whitespace-nowrap flex-shrink-0 ${
                   active
                     ? 'border-primary text-primary'
                     : 'border-transparent text-muted-foreground hover:text-foreground'
