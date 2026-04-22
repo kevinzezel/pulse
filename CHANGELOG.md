@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [1.4.16] — 2026-04-22
+
+### Fixed
+
+- **Typing in a note card was silently dropped when the note belonged to a project the user had created** (any project other than the built-in `proj-default`). Each keystroke flipped the footer to "saving…" but no character rendered in the textarea, and in most cases only the first keystroke's value ever made it to disk — looked at first like a Linux install-mode issue but reproduced on macOS and Windows too, once a non-default project was in use. Root cause was a stale-closure chain in `frontend/src/providers/NotesProvider.jsx`: `setNotes` closed over `activeProjectId` and filtered `allNotes` by it on every write (`prev.filter((n) => n.project_id === activeProjectId)`), re-memoized via `useCallback([activeProjectId])`. The callbacks that used it — `updateNoteLocal`, `flushPatch`, `patchNoteImmediate`, `createNote`, `deleteNote`, `closeOrDeleteIfEmpty` — were all memoized without `setNotes` (or `activeProjectId`) in their deps, so they captured the initial `setNotes` from first render, when `activeProjectId` was still `'proj-default'`. Once the `ProjectsProvider` hydrated and switched the active project to a user-created one, every `updateNoteLocal` call filtered by the wrong id, missed the note entirely, and returned `allNotes` unchanged. The debounced PATCH still fired via `pendingPatches` (a ref, immune to the closure) and the server saved correctly — but the local state never reflected it, so React kept syncing the textarea DOM back to its old empty value. Fixed by dropping the project-scope filter from `setNotes` entirely — it now updates `allNotes` as-is, and the existing `notes = useMemo(() => allNotes.filter(...))` continues to scope the visible list on read. `setNotes` is now memoized with `[]`, so nothing about it ever goes stale, regardless of which project is active.
+
 ## [1.4.15] — 2026-04-22
 
 ### Fixed
@@ -262,7 +268,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.4.15...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.4.16...HEAD
+[1.4.16]: https://github.com/kevinzezel/pulse/releases/tag/v1.4.16
 [1.4.15]: https://github.com/kevinzezel/pulse/releases/tag/v1.4.15
 [1.4.14]: https://github.com/kevinzezel/pulse/releases/tag/v1.4.14
 [1.4.13]: https://github.com/kevinzezel/pulse/releases/tag/v1.4.13

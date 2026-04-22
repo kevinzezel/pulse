@@ -33,12 +33,10 @@ export function NotesProvider({ children }) {
 
   const setNotes = useCallback((updater) => {
     setAllNotes((prev) => {
-      const next = typeof updater === 'function' ? updater(prev.filter((n) => n.project_id === activeProjectId)) : updater;
-      const others = prev.filter((n) => n.project_id !== activeProjectId);
-      const nextArr = Array.isArray(next) ? next : [];
-      return [...others, ...nextArr];
+      if (typeof updater !== 'function') return Array.isArray(updater) ? updater : [];
+      return updater(prev);
     });
-  }, [activeProjectId]);
+  }, []);
 
   const zCounter = useRef({ top: BASE_Z, pinnedTop: PINNED_BASE_Z });
   const debounceTimers = useRef({});
