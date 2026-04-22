@@ -68,7 +68,7 @@ write_env_with_key() {
     key="$1"
     cat > .env <<EOF
 COMPOSE_PROJECT_NAME=pulse
-VERSION=1.2.0
+VERSION=1.4.2
 API_HOST=$API_HOST
 API_PORT=$API_PORT
 
@@ -142,29 +142,22 @@ fi
 ensure_env
 [ "$INSTALL_MODE" = "only" ] && exit 0
 
-if pulse_need_cmd uv; then
-    pulse_log "running via uv at http://$API_HOST:$API_PORT"
-    cd src
-    exec uv run uvicorn service:app --host "$API_HOST" --port "$API_PORT" $RELOAD
-fi
+pulse_need_cmd uv || pulse_die "uv not on PATH. Run without --no-install, or install manually: curl -LsSf https://astral.sh/uv/install.sh | sh"
 
-# uv fallback: manual venv (should never happen — ensure_uv installs uv)
 VENV="$SCRIPT_DIR/.venv"
-if [ ! -d "$VENV" ]; then
-    pulse_log "creating venv at $VENV"
-    python3 -m venv "$VENV"
-fi
-# shellcheck disable=SC1091
-. "$VENV/bin/activate"
+STAMP="$VENV/.pulse-requirements.stamp"
+py_version="$(tr -d '[:space:]' < "$SCRIPT_DIR/.python-version")"
 
-STAMP="$VENV/.requirements.stamp"
-if [ ! -f "$STAMP" ] || [ "requirements.txt" -nt "$STAMP" ]; then
-    pulse_log "installing python deps"
-    pip install --quiet --upgrade pip
-    pip install --quiet -r requirements.txt
+if [ ! -d "$VENV" ]; then
+    pulse_log "creating .venv at $VENV (python $py_version) via uv"
+    uv venv "$VENV" --python "$py_version" --quiet
+fi
+if [ ! -f "$STAMP" ] || [ "$SCRIPT_DIR/requirements.txt" -nt "$STAMP" ]; then
+    pulse_log "installing python deps into .venv via uv pip"
+    uv pip install --python "$VENV/bin/python" --quiet -r "$SCRIPT_DIR/requirements.txt"
     touch "$STAMP"
 fi
 
 pulse_log "uvicorn at http://$API_HOST:$API_PORT"
 cd src
-exec uvicorn service:app --host "$API_HOST" --port "$API_PORT" $RELOAD
+exec "$VENV/bin/uvicorn" service:app --host "$API_HOST" --port "$API_PORT" $RELOAD
