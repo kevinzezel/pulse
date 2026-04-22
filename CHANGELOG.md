@@ -6,6 +6,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [1.4.13] — 2026-04-22
+
+### Changed
+
+- **Mouse wheel now scrolls the browser's native scrollback in Pulse terminals.** On fresh installs, the wheel used to act as `↑`/`↓` arrow keys navigating shell history instead of revealing previous output — a symptom of tmux claiming the outer terminal's alt-screen on attach, which leaves xterm.js with no scrollback in the active buffer. Pulse's client now applies `tmux set-option -ga terminal-overrides ',*:smcup@:rmcup@'` at startup (in `client/src/tools/tmux.py:ensure_tmux_config`, called from `recover_sessions`). This tells tmux the outer terminal lacks `smcup`/`rmcup`, so tmux keeps xterm.js in the normal buffer on attach — the wheel rolls real scrollback, and output from apps like `vim`/`less`/Claude Code stays in history as they repaint instead of vanishing on exit. Apps inside tmux still get alt-screen semantics at the tmux level, so their UX is preserved. `-ga` appends, so any manual `terminal-overrides` the user has in `~/.tmux.conf` stays intact. Effective on new client attaches; existing attached sessions keep the old behavior until closed and reopened.
+- **Terminal scrollback bumped from 10 000 → 50 000 lines** in `frontend/src/components/TerminalPane.jsx`. At ~256 B per line inside xterm.js's internal representation, that's roughly 12 MB per open terminal — plenty of room for long build logs, `tail -f`, etc, without being wasteful. Applies to new terminals; existing tabs keep the old limit until reloaded.
+
 ## [1.4.12] — 2026-04-22
 
 ### Added
@@ -232,7 +239,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.4.12...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.4.13...HEAD
+[1.4.13]: https://github.com/kevinzezel/pulse/releases/tag/v1.4.13
 [1.4.12]: https://github.com/kevinzezel/pulse/releases/tag/v1.4.12
 [1.4.11]: https://github.com/kevinzezel/pulse/releases/tag/v1.4.11
 [1.4.10]: https://github.com/kevinzezel/pulse/releases/tag/v1.4.10

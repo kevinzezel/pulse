@@ -9,6 +9,23 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def ensure_tmux_config():
+    # Disable outer-terminal alt-screen passthrough so xterm.js keeps its
+    # normal buffer on attach — lets the mouse wheel scroll the browser's
+    # scrollback instead of getting translated to ↑/↓ arrow keys (which
+    # navigate shell history by accident). Apps inside tmux still use
+    # alt-screen at the tmux level, and their content rolls off into
+    # xterm.js's scrollback naturally as they repaint.
+    # -ga = global + append, preserving user overrides in ~/.tmux.conf.
+    try:
+        subprocess.run(
+            ['tmux', 'set-option', '-ga', 'terminal-overrides', ',*:smcup@:rmcup@'],
+            capture_output=True, check=False,
+        )
+    except FileNotFoundError:
+        logger.warning("tmux not found while applying Pulse tmux config")
+
+
 def create_session(session_id, cols=80, rows=24, start_directory=None):
     cmd = ['tmux', 'new-session', '-d', '-s', session_id, '-x', str(cols), '-y', str(rows)]
     if start_directory and os.path.isabs(start_directory) and os.path.isdir(start_directory):

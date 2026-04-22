@@ -134,7 +134,7 @@ export default function TerminalPane({ session, onSessionEnded, isMobile = false
         cursorBlink: true,
         fontSize: isMobileRef.current ? 12 : 14,
         fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', Menlo, monospace",
-        scrollback: 10000,
+        scrollback: 50000,
         lineHeight: 1.1,
         theme: getXtermTheme(theme),
       });

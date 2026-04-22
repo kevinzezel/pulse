@@ -19,6 +19,7 @@ from tools.tmux import (
     get_group_id, set_group_id,
     get_project_id, set_project_id,
     get_notify_on_idle, set_notify_on_idle,
+    ensure_tmux_config,
 )
 
 DEFAULT_PROJECT_ID = "proj-default"
@@ -52,6 +53,7 @@ def _next_id():
 
 def recover_sessions():
     global _counter
+    ensure_tmux_config()
     tmux_sessions = list_sessions()
     with _sessions_lock:
         for s in tmux_sessions:
