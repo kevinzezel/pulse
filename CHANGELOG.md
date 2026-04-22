@@ -6,6 +6,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [1.4.11] — 2026-04-22
+
+### Fixed
+
+- **`pulse config host` / `config password` / `config secure` silently failed to restart services after mutating `.env`.** The CLI called a `warn` helper that was never defined — only `log`/`err`/`die` existed in `install/pulse.sh`. Under `set -eu`, the undefined command returned 127 and killed the script *before* `cmd_restart` could run. On the user side it looked like `0.0.0.0: warn: not found`, the env file was updated, but the service kept binding the old host until the user ran `pulse restart` by hand. Now `warn()` is defined alongside `log/err/die` and writes to stderr in yellow, matching `install.sh`. Fixes the five affected call sites (`config host --client`, `config host --dashboard`, `config password` on failed restart, `config secure off`, and a stray `warn` inside `install.sh`'s `npm prune` branch).
+- **`pulse version` and `pulse check-updates` showed the pre-upgrade version forever.** Version was stored in `~/.config/pulse/client.env:VERSION`, but `seed_client_env` early-returns when the file already has an `API_KEY=` (to preserve user edits across upgrades), so the `VERSION=` line was never refreshed after the first install. `pulse version` also reported "not installed" for `--dashboard-only` installs because `client.env` doesn't exist there. Single source of truth is now `$INSTALL_ROOT/VERSION`, rewritten on every `install.sh` run, read by both CLI commands. Legacy `client.env:VERSION` kept as a fallback for installs that predate this fix.
+- **`pulse keys regen` and `pulse config ports --client` stopped updating `servers.json` on 1.4.10+ installs.** Both used `if s.get('id') == 'localhost'` to find the seeded local server, but 1.4.10 changed the installer to generate `srv-<uuid>` ids (to align with the UI flow and fix the silent sessions.json bug). Match is now by `host == API_HOST && port == API_PORT` (values read from `client.env`), with the old `id == 'localhost'` kept as a legacy fallback. Without this, regenerating the API key or changing the client port would leave the dashboard still calling the old values.
+- **`pulse config paths` didn't mention `client/data` at all** — the directory holding Telegram bot config and persisted client-side state (the one `install.sh` already backs up across upgrades since 1.4.7). Now `paths` lists both `data (dashboard): .../frontend/data` and `data (client): .../client/data`. On Linux the `logs:` line now honestly points to journalctl (the actual log sink) instead of an empty `$STATE_ROOT/logs` that only macOS uses.
+- **`pulse config open logs` on Linux tried to open `$STATE_ROOT/logs`, which is an empty directory** (logs live in the systemd journal). Replaced with a short hint pointing to `pulse logs` / `pulse logs -f` so users don't walk away thinking nothing is being logged.
+- **`pulse logs` defaulted to `client` only, with no way to merge both services.** Now defaults to `all` (consistent with `start`/`stop`/`restart`) and uses `journalctl -u pulse-client.service -u pulse.service` so entries interleave by timestamp. macOS `all` target uses `tail -F` across both log files. Explicit `client` and `dashboard` still work.
+- **`pulse open` hardcoded `http://localhost:$WEB_PORT`** regardless of `WEB_HOST`. When the dashboard is bound to a specific LAN IP (not `0.0.0.0`, not `127.0.0.1`), localhost may not be listening at all and the browser tab errors out. Now reads `WEB_HOST` and uses the bound host verbatim; `0.0.0.0`/`::`/empty collapse to `localhost` (bind-any answers there too).
+- **macOS `pulse uninstall` didn't stop services before deleting plists**, so clients could keep running until reboot. Now `launchctl unload` runs before `rm -f`, mirroring the Linux side's `systemctl disable` flow.
+
+### Changed
+
+- `pulse config open` gains `data-client` as a first-class target and renames `data` to `data-dashboard` (old name kept as an alias — scripts that used `pulse config open data` keep working).
+- Help text for `pulse logs` and `pulse config open` updated to reflect the new targets and default.
+
 ## [1.4.10] — 2026-04-22
 
 ### Fixed
@@ -196,7 +214,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.4.10...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.4.11...HEAD
+[1.4.11]: https://github.com/kevinzezel/pulse/releases/tag/v1.4.11
 [1.4.10]: https://github.com/kevinzezel/pulse/releases/tag/v1.4.10
 [1.4.9]: https://github.com/kevinzezel/pulse/releases/tag/v1.4.9
 [1.4.8]: https://github.com/kevinzezel/pulse/releases/tag/v1.4.8

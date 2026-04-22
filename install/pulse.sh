@@ -26,8 +26,9 @@ else
     YELLOW=''; GREEN=''; RED=''; BLUE=''; BOLD=''; DIM=''; NC=''
 fi
 
-log()  { printf "%b[pulse]%b %s\n" "$GREEN" "$NC" "$*"; }
-err()  { printf "%b[pulse]%b %s\n" "$RED"   "$NC" "$*" 1>&2; }
+log()  { printf "%b[pulse]%b %s\n" "$GREEN"  "$NC" "$*"; }
+warn() { printf "%b[pulse]%b %s\n" "$YELLOW" "$NC" "$*" 1>&2; }
+err()  { printf "%b[pulse]%b %s\n" "$RED"    "$NC" "$*" 1>&2; }
 die()  { err "$*"; exit 1; }
 
 need_cmd() { command -v "$1" >/dev/null 2>&1; }
@@ -137,30 +138,42 @@ cmd_logs() {
     target=""
     while [ "$#" -gt 0 ]; do
         case "$1" in
-            -f|--follow) follow="1"; shift ;;
-            client|dashboard) target="$1"; shift ;;
-            *) die "unknown arg: $1 (use: [client|dashboard] [-f])" ;;
+            -f|--follow)          follow="1"; shift ;;
+            client|dashboard|all) target="$1"; shift ;;
+            *) die "unknown arg: $1 (use: [client|dashboard|all] [-f])" ;;
         esac
     done
-    target="${target:-client}"
+    target="${target:-all}"
     case "$PULSE_OS" in
         linux)
-            unit="pulse-client.service"
-            [ "$target" = "dashboard" ] && unit="pulse.service"
+            # journalctl natively merges multiple -u flags by timestamp.
+            case "$target" in
+                client)    units="-u pulse-client.service" ;;
+                dashboard) units="-u pulse.service" ;;
+                all)       units="-u pulse-client.service -u pulse.service" ;;
+            esac
             if [ -n "$follow" ]; then
-                journalctl --user -u "$unit" -f
+                # shellcheck disable=SC2086
+                journalctl --user $units -f
             else
-                journalctl --user -u "$unit" --no-pager -n 100
+                # shellcheck disable=SC2086
+                journalctl --user $units --no-pager -n 100
             fi
             ;;
         macos)
-            log_file="$STATE_ROOT/logs/client.log"
-            [ "$target" = "dashboard" ] && log_file="$STATE_ROOT/logs/dashboard.log"
-            [ -f "$log_file" ] || die "log file not found: $log_file"
+            case "$target" in
+                client)    files="$STATE_ROOT/logs/client.log" ;;
+                dashboard) files="$STATE_ROOT/logs/dashboard.log" ;;
+                all)       files="$STATE_ROOT/logs/client.log $STATE_ROOT/logs/dashboard.log" ;;
+            esac
+            # shellcheck disable=SC2086
+            for f in $files; do [ -f "$f" ] || die "log file not found: $f"; done
             if [ -n "$follow" ]; then
-                tail -f "$log_file"
+                # shellcheck disable=SC2086
+                tail -F $files
             else
-                tail -n 100 "$log_file"
+                # shellcheck disable=SC2086
+                tail -n 100 $files
             fi
             ;;
     esac
@@ -170,7 +183,14 @@ cmd_open() {
     env_file="$CONFIG_ROOT/frontend.env"
     [ -f "$env_file" ] || die "dashboard not installed (no frontend.env)"
     port="$(grep -E '^WEB_PORT=' "$env_file" | cut -d= -f2-)"
-    url="http://localhost:$port"
+    host="$(grep -E '^WEB_HOST=' "$env_file" | cut -d= -f2-)"
+    # Bind-any hosts answer on localhost too — prefer the friendly name.
+    # A concrete LAN IP (e.g. 192.168.1.20) means localhost probably isn't
+    # listening, so keep the bound host verbatim.
+    case "$host" in
+        ''|0.0.0.0|::|'[::]') host="localhost" ;;
+    esac
+    url="http://$host:$port"
     log "opening $url"
     case "$PULSE_OS" in
         linux)
@@ -227,6 +247,9 @@ cmd_uninstall() {
             systemctl --user daemon-reload
             ;;
         macos)
+            for plist in "$HOME/Library/LaunchAgents/sh.pulse.client.plist" "$HOME/Library/LaunchAgents/sh.pulse.dashboard.plist"; do
+                [ -f "$plist" ] && launchctl unload "$plist" 2>/dev/null || true
+            done
             rm -f "$HOME/Library/LaunchAgents/sh.pulse.client.plist" "$HOME/Library/LaunchAgents/sh.pulse.dashboard.plist"
             ;;
     esac
@@ -255,16 +278,27 @@ cmd_keys() {
             awk -v k="$new" 'BEGIN{updated=0} /^API_KEY=/{print "API_KEY="k; updated=1; next}1 END{if(!updated) print "API_KEY="k}' "$env_file" > "$tmp" && mv "$tmp" "$env_file"
             # Update servers.json if present — match the wrapper schema {"servers": [...]}
             # and pass values via env vars to avoid shell-quoting issues in the python.
+            # We can't match by id anymore (post-1.4.10 the seeded local server is
+            # srv-<uuid>, not "localhost"), so match by host+port against client.env.
             servers_file="$INSTALL_ROOT/frontend/data/servers.json"
+            api_host="$(grep -E '^API_HOST=' "$env_file" | cut -d= -f2-)"
+            api_port="$(grep -E '^API_PORT=' "$env_file" | cut -d= -f2-)"
             if [ -f "$servers_file" ] && need_cmd python3; then
-                SERVERS_FILE="$servers_file" NEW_KEY="$new" python3 <<'PY'
+                SERVERS_FILE="$servers_file" NEW_KEY="$new" \
+                API_HOST="$api_host" API_PORT="$api_port" python3 <<'PY'
 import json, os
 p = os.environ['SERVERS_FILE']
 with open(p) as f:
     data = json.load(f)
 changed = False
+want_host = os.environ['API_HOST']
+want_port = int(os.environ['API_PORT'])
 for s in (data.get('servers') or []):
-    if s.get('id') == 'localhost':
+    if s.get('host') == want_host and int(s.get('port', 0)) == want_port:
+        s['apiKey'] = os.environ['NEW_KEY']
+        changed = True
+    # Legacy fallback: installs before 1.4.10 used id="localhost".
+    elif s.get('id') == 'localhost':
         s['apiKey'] = os.environ['NEW_KEY']
         changed = True
 if changed:
@@ -529,15 +563,22 @@ cmd_config_ports() {
         log "client API_PORT: ${cur_client:-?} → $new_client"
         restart_client=1
         servers_file="$INSTALL_ROOT/frontend/data/servers.json"
+        # Match by (host, old_port) instead of id — id is srv-<uuid> after 1.4.10.
+        cur_api_host="$(grep -E '^API_HOST=' "$client_env" | cut -d= -f2-)"
         if [ -f "$servers_file" ] && need_cmd python3; then
-            SERVERS_FILE="$servers_file" NEW_PORT="$new_client" python3 <<'PY'
+            SERVERS_FILE="$servers_file" NEW_PORT="$new_client" \
+            API_HOST="$cur_api_host" OLD_PORT="$cur_client" python3 <<'PY'
 import json, os
 p = os.environ['SERVERS_FILE']
 with open(p) as f:
     data = json.load(f)
 changed = False
+want_host = os.environ['API_HOST']
+old_port = int(os.environ['OLD_PORT']) if os.environ['OLD_PORT'] else None
 for s in (data.get('servers') or []):
-    if s.get('id') == 'localhost':
+    match = s.get('host') == want_host and (old_port is None or int(s.get('port', 0)) == old_port)
+    # Legacy fallback: installs before 1.4.10 used id="localhost".
+    if match or s.get('id') == 'localhost':
         s['port'] = int(os.environ['NEW_PORT'])
         changed = True
 if changed:
@@ -545,7 +586,7 @@ if changed:
         json.dump(data, f, indent=2)
         f.write('\n')
 PY
-            log "updated localhost port in servers.json"
+            log "updated local server port in servers.json"
             restart_dash=1
         fi
     fi
@@ -564,26 +605,45 @@ PY
 cmd_config_paths() {
     bin_path="$(command -v pulse 2>/dev/null || printf '%s' "$HOME/.local/bin/pulse")"
     printf "%bPulse paths:%b\n" "$BOLD" "$NC"
-    printf "  %binstall:%b  %s\n" "$DIM" "$NC" "$INSTALL_ROOT"
-    printf "  %bconfig:%b   %s\n" "$DIM" "$NC" "$CONFIG_ROOT"
-    printf "  %blogs:%b     %s\n" "$DIM" "$NC" "$STATE_ROOT/logs"
-    printf "  %bdata:%b     %s\n" "$DIM" "$NC" "$INSTALL_ROOT/frontend/data"
-    printf "  %bbinary:%b   %s\n" "$DIM" "$NC" "$bin_path"
+    printf "  %binstall:%b            %s\n" "$DIM" "$NC" "$INSTALL_ROOT"
+    printf "  %bconfig:%b             %s\n" "$DIM" "$NC" "$CONFIG_ROOT"
     case "$PULSE_OS" in
-        linux) printf "  %bunits:%b    %s/pulse*.service\n" "$DIM" "$NC" "$HOME/.config/systemd/user" ;;
-        macos) printf "  %bplists:%b   %s/sh.pulse.*.plist\n" "$DIM" "$NC" "$HOME/Library/LaunchAgents" ;;
+        linux) printf "  %blogs:%b               journalctl --user -u pulse-client.service -u pulse.service\n" "$DIM" "$NC" ;;
+        macos) printf "  %blogs:%b               %s\n" "$DIM" "$NC" "$STATE_ROOT/logs" ;;
+    esac
+    printf "  %bdata (dashboard):%b   %s\n" "$DIM" "$NC" "$INSTALL_ROOT/frontend/data"
+    printf "  %bdata (client):%b      %s\n" "$DIM" "$NC" "$INSTALL_ROOT/client/data"
+    printf "  %bbinary:%b             %s\n" "$DIM" "$NC" "$bin_path"
+    case "$PULSE_OS" in
+        linux) printf "  %bunits:%b              %s/pulse*.service\n" "$DIM" "$NC" "$HOME/.config/systemd/user" ;;
+        macos) printf "  %bplists:%b             %s/sh.pulse.*.plist\n" "$DIM" "$NC" "$HOME/Library/LaunchAgents" ;;
     esac
 }
 
 cmd_config_open() {
     target="${1:-}"
+    # `data` kept as a retrocompat alias for `data-dashboard`.
     case "$target" in
-        config)  dir="$CONFIG_ROOT" ;;
-        install) dir="$INSTALL_ROOT" ;;
-        logs)    dir="$STATE_ROOT/logs" ;;
-        data)    dir="$INSTALL_ROOT/frontend/data" ;;
-        ''|-h|--help|help) die "usage: pulse config open <config|install|logs|data>" ;;
-        *)       die "unknown target: '$target' (use: config, install, logs, data)" ;;
+        config)            dir="$CONFIG_ROOT" ;;
+        install)           dir="$INSTALL_ROOT" ;;
+        logs)
+            case "$PULSE_OS" in
+                linux)
+                    # No log dir on Linux — logs go to journald. Point the user
+                    # at `pulse logs` instead of opening an empty directory.
+                    printf "  On Linux, logs live in the systemd journal, not on disk.\n"
+                    printf "  Use: %bpulse logs%b         (last 100 lines from both services)\n" "$BOLD" "$NC"
+                    printf "       %bpulse logs -f%b      (follow)\n"                            "$BOLD" "$NC"
+                    printf "       %bpulse logs client%b  (only client)\n"                       "$BOLD" "$NC"
+                    return 0
+                    ;;
+                macos) dir="$STATE_ROOT/logs" ;;
+            esac
+            ;;
+        data|data-dashboard) dir="$INSTALL_ROOT/frontend/data" ;;
+        data-client)         dir="$INSTALL_ROOT/client/data" ;;
+        ''|-h|--help|help) die "usage: pulse config open <config|install|logs|data-dashboard|data-client>" ;;
+        *)                 die "unknown target: '$target' (use: config, install, logs, data-dashboard, data-client)" ;;
     esac
     [ -d "$dir" ] || die "directory not found: $dir"
     log "opening $dir"
@@ -623,7 +683,7 @@ ${BOLD}Subcommands:${NC}
   secure <on|off>               toggle AUTH_COOKIE_SECURE (on = behind HTTPS, off = dev)
   rotate-jwt [-y|--yes]         regenerate AUTH_JWT_SECRET (logs everyone out)
   paths                         print install / config / logs / data paths
-  open <config|install|logs|data>
+  open <config|install|logs|data-dashboard|data-client>
                                 open the relevant directory in your file manager
 EOF
             ;;
@@ -631,9 +691,24 @@ EOF
     esac
 }
 
-cmd_version() {
+# Reads the installed version. Preference order:
+#   1. $INSTALL_ROOT/VERSION — written by install.sh on every run (source of truth)
+#   2. $CONFIG_ROOT/client.env:VERSION — legacy fallback for pre-1.4.11 installs
+# Prints the bare version string (e.g. "1.4.11") or empty string if unknown.
+resolve_installed_version() {
+    if [ -f "$INSTALL_ROOT/VERSION" ]; then
+        v="$(head -n1 "$INSTALL_ROOT/VERSION" | tr -d '[:space:]')"
+        [ -n "$v" ] && { printf '%s' "$v"; return 0; }
+    fi
     if [ -f "$CONFIG_ROOT/client.env" ]; then
         v="$(grep -E '^VERSION=' "$CONFIG_ROOT/client.env" | cut -d= -f2-)"
+        [ -n "$v" ] && { printf '%s' "$v"; return 0; }
+    fi
+    return 1
+}
+
+cmd_version() {
+    if v="$(resolve_installed_version)" && [ -n "$v" ]; then
         printf "Pulse %s\n" "$v"
     else
         printf "Pulse (not installed via install.sh)\n"
@@ -645,8 +720,8 @@ cmd_check_updates() {
     latest="$(curl -fsSL "https://api.github.com/repos/$GITHUB_REPO/releases/latest" | grep '"tag_name":' | head -1 | cut -d '"' -f 4)"
     [ -n "$latest" ] || die "could not query latest version"
     current=""
-    if [ -f "$CONFIG_ROOT/client.env" ]; then
-        current="v$(grep -E '^VERSION=' "$CONFIG_ROOT/client.env" | cut -d= -f2-)"
+    if v="$(resolve_installed_version)" && [ -n "$v" ]; then
+        current="v$v"
     fi
     printf "  installed: %s\n" "${current:-unknown}"
     printf "  latest:    %s\n" "$latest"
@@ -668,7 +743,7 @@ ${BOLD}Service commands:${NC}
   start    [target]     start services (target: client, dashboard, all — default all)
   stop     [target]     stop services
   restart  [target]     restart services
-  logs     [target] [-f]  show/follow logs
+  logs     [target] [-f]  show/follow logs (target: client, dashboard, all — default all)
 
 ${BOLD}Dashboard:${NC}
   open                  open the dashboard in your browser
@@ -691,7 +766,7 @@ ${BOLD}Config:${NC}
   config secure <on|off>                toggle AUTH_COOKIE_SECURE
   config rotate-jwt                     rotate AUTH_JWT_SECRET (logs everyone out)
   config paths                          print install / config / logs paths
-  config open <config|install|logs|data>
+  config open <config|install|logs|data-dashboard|data-client>
                                         open that directory in your file manager
 
 ${BOLD}Links:${NC}

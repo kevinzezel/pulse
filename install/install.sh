@@ -365,6 +365,11 @@ install_files() {
 
     cp "$EXTRACTED/install/pulse.sh" "$BIN_ROOT/pulse"
     chmod +x "$BIN_ROOT/pulse"
+    # Single source of truth for `pulse version` / `pulse check-updates`.
+    # Written every install & upgrade so the CLI sees the fresh value even
+    # when client.env is preserved (which is what was silently freezing
+    # `pulse version` at the pre-upgrade release).
+    printf '%s\n' "$PULSE_INSTALLED_VERSION" > "$INSTALL_ROOT/VERSION"
     ok "files installed"
 }
 
