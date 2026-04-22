@@ -6,16 +6,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
-## [1.4.6] — 2026-04-22
+## [1.4.7] — 2026-04-22
 
 ### Fixed
 
-- **`pulse upgrade` was wiping client-side user data** — Telegram bot/chat-id config, persisted session state, and anything else in `~/.local/share/pulse/client/data/` vanished on every upgrade. Notes, prompts, and flows (in `frontend/data/`) survived because `install_files()` already had backup/restore logic for that directory, but the matching block for the client was missing the same treatment — it just did `rm -rf $INSTALL_ROOT/client` and recopied. `install/install.sh:install_files` now mirrors the frontend's behavior for the client: move `client/data/` to `$TEMP_DIR` before wiping, then move it back after the fresh copy. Users on any earlier version should treat upgrades as data-destructive for client-side state until they're on 1.4.6+.
-- Telegram notifications from the client were shipped with pt-BR strings hardcoded in Python (`está aguardando há Ns`, `teste de notificação`), which bypassed the i18n catalog and ignored the user's locale. The browser channel had always respected i18n via the frontend `idleTitle` key — but the Telegram payload is composed inside the client's async `notification_watcher` loop, which has no incoming HTTP request to read `Accept-Language` from. Both strings are now in English, matching the project convention that external-facing messages default to English. Affected paths: `client/src/resources/notifications.py` (idle message) and `client/src/routes/settings.py` (test send button).
+- **`pulse upgrade` was wiping client-side user data** — Telegram bot/chat-id config, persisted session state, and anything else in `~/.local/share/pulse/client/data/` vanished on every upgrade. Notes, prompts, and flows (in `frontend/data/`) survived because `install_files()` already had backup/restore logic for that directory, but the matching block for the client was missing the same treatment — it just did `rm -rf $INSTALL_ROOT/client` and recopied. `install/install.sh:install_files` now mirrors the frontend's behavior for the client: move `client/data/` to `$TEMP_DIR` before wiping, then move it back after the fresh copy. Users on any earlier version should treat upgrades as data-destructive for client-side state until they're on 1.4.7+.
 - Projects page couldn't scroll vertically on mobile (and anywhere the content was taller than the viewport) — the root container used `flex-1 overflow-y-auto`, but the parent `<main>` element is block-level, not a flex container, so `flex-1` had no effect and the div grew beyond the viewport without an overflow reference height. Switched to `h-full overflow-y-auto`, matching the Prompts and Settings pages.
 - Settings tab bar (Servers / Telegram / Notifications / Editor) overflowed the viewport on narrow phones, triggering horizontal scroll on the whole page. The tab bar now scrolls horizontally inside itself (scrollbar hidden) with `whitespace-nowrap flex-shrink-0` on the buttons, so labels stay readable and the page stops stretching.
 - Flows canvas background ignored the active theme on dark modes (Excalidraw's default `viewBackgroundColor` is `#ffffff`, which didn't match any of the 16 themed dark palettes). Newly created flows now default to `viewBackgroundColor: 'transparent'`, so the canvas inherits the themed container's `hsl(var(--background))`. Existing flows that had a user-chosen background color keep it (spread order preserves explicit scene state).
 - Flows sidebar opened by default on mobile, covering the canvas. It now defaults to closed on mobile (open on desktop) on first visit; the user's explicit open/close preference is still persisted in `rt:flowsSidebarOpen` and respected on subsequent visits.
+
+## [1.4.6] — 2026-04-22
+
+### Fixed
+
+- Telegram notifications from the client were shipped with pt-BR strings hardcoded in Python (`está aguardando há Ns`, `teste de notificação`), which bypassed the i18n catalog and ignored the user's locale. The browser channel had always respected i18n via the frontend `idleTitle` key — but the Telegram payload is composed inside the client's async `notification_watcher` loop, which has no incoming HTTP request to read `Accept-Language` from. Both strings are now in English, matching the project convention that external-facing messages default to English. Affected paths: `client/src/resources/notifications.py` (idle message) and `client/src/routes/settings.py` (test send button).
 
 ## [1.4.5] — 2026-04-21
 
@@ -158,7 +163,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.4.6...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.4.7...HEAD
+[1.4.7]: https://github.com/kevinzezel/pulse/releases/tag/v1.4.7
 [1.4.6]: https://github.com/kevinzezel/pulse/releases/tag/v1.4.6
 [1.4.5]: https://github.com/kevinzezel/pulse/releases/tag/v1.4.5
 [1.4.4]: https://github.com/kevinzezel/pulse/releases/tag/v1.4.4
