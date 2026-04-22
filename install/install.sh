@@ -265,7 +265,23 @@ download_and_extract() {
 stop_services_if_running() {
     case "$PULSE_OS" in
         linux)
-            systemctl --user stop pulse.service pulse-client.service 2>/dev/null || true
+            # Stop only the main process, not the whole cgroup. The client
+            # spawns `tmux new-session -d`, which daemonises but stays in the
+            # unit's cgroup (fork doesn't escape cgroups v2). A regular
+            # `systemctl stop` with the default KillMode=control-group would
+            # also take the tmux daemon with it, wiping every live session on
+            # every upgrade. `kill --kill-who=main` signals only the main PID
+            # regardless of KillMode — works even when the installed unit file
+            # hasn't picked up the newer KillMode=process yet. Ordering matters:
+            # send TERM first, give uvicorn time to exit cleanly, only then
+            # install_files() starts overwriting disk.
+            for unit in pulse-client.service pulse.service; do
+                if systemctl --user is-active --quiet "$unit" 2>/dev/null; then
+                    systemctl --user kill --kill-who=main --signal=TERM "$unit" 2>/dev/null || true
+                fi
+            done
+            # Give uvicorn / next a beat to shut down before we rm -rf the install dir.
+            sleep 2
             ;;
         macos)
             launchctl unload "$HOME/Library/LaunchAgents/sh.pulse.client.plist"    2>/dev/null || true
@@ -559,11 +575,23 @@ print_success() {
     fi
     printf "\n"
     printf "  %bCommands:%b\n" "$BOLD" "$NC"
-    printf "    %bpulse status%b           — show service status\n"  "$DIM" "$NC"
-    printf "    %bpulse logs client%b      — tail client logs\n"     "$DIM" "$NC"
-    printf "    %bpulse open%b             — open dashboard in browser\n" "$DIM" "$NC"
-    printf "    %bpulse upgrade%b          — upgrade to latest\n"    "$DIM" "$NC"
-    printf "    %bpulse uninstall%b        — remove everything\n"    "$DIM" "$NC"
+    printf "    %bpulse status%b                service health (client + dashboard)\n"           "$DIM" "$NC"
+    printf "    %bpulse start%b / %bstop%b / %brestart%b     control services\n"                 "$DIM" "$NC" "$DIM" "$NC" "$DIM" "$NC"
+    printf "    %bpulse logs client -f%b        follow client logs (or 'dashboard')\n"           "$DIM" "$NC"
+    printf "    %bpulse open%b                  open the dashboard in the browser\n"             "$DIM" "$NC"
+    printf "    %bpulse upgrade%b               fetch the latest release and reinstall\n"        "$DIM" "$NC"
+    printf "    %bpulse uninstall%b             remove everything\n"                             "$DIM" "$NC"
+    printf "    %bpulse keys show%b / %bregen%b      show or rotate the client API_KEY\n"        "$DIM" "$NC" "$DIM" "$NC"
+    printf "    %bpulse config password%b       change the dashboard password\n"                 "$DIM" "$NC"
+    printf "    %bpulse config ports%b          show / change client + dashboard ports\n"        "$DIM" "$NC"
+    printf "    %bpulse config host%b           show / change bind hosts (0.0.0.0 for LAN)\n"    "$DIM" "$NC"
+    printf "    %bpulse config secure on%b      AUTH_COOKIE_SECURE=true (HTTPS / reverse proxy)\n" "$DIM" "$NC"
+    printf "    %bpulse config rotate-jwt%b     regenerate AUTH_JWT_SECRET (kicks every login)\n"  "$DIM" "$NC"
+    printf "    %bpulse config paths%b          print install / config / logs paths\n"          "$DIM" "$NC"
+    printf "    %bpulse config open %b<dir>     open a pulse dir in the file manager\n"         "$DIM" "$NC"
+    printf "    %bpulse config edit %b<target>  open a .env file in \$EDITOR\n"                  "$DIM" "$NC"
+    printf "\n"
+    printf "  Run %bpulse help%b anytime for the full command list and options.\n" "$BOLD" "$NC"
     printf "\n"
     # If ~/.local/bin is already on PATH, nothing to do.
     case ":$PATH:" in

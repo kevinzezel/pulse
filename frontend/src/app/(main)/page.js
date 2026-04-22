@@ -404,7 +404,6 @@ function Dashboard() {
     if (serversLoading) return;
     if (!servers || servers.length === 0) return;
     if (!hydratedSessions) return;
-    restoreAttemptedRef.current = true;
 
     (async () => {
       let snapshot;
@@ -422,10 +421,14 @@ function Dashboard() {
         (liveByServer[serverId] ||= new Set()).add(sessionId);
       }
 
-      const offlineSet = new Set(offlineServerIds);
+      // Don't gate the restore on `offlineServerIds` — on fresh boot, the very
+      // first `fetchSessions` races the client booting up and can mark the
+      // server offline even though the client is seconds from being ready.
+      // The catch below turns a still-offline restore into a no-op; the win
+      // is that users coming back after a reboot see their sessions reappear
+      // at the same cwd as soon as the client is listening.
       const restorePromises = [];
       for (const [serverId, snapList] of Object.entries(snapshot.servers)) {
-        if (offlineSet.has(serverId)) continue;
         if (!servers.some(srv => srv.id === serverId)) continue;
         const liveSet = liveByServer[serverId] || new Set();
         const missing = snapList.filter(s => !liveSet.has(s.id));
@@ -436,12 +439,25 @@ function Dashboard() {
             .catch(err => ({ serverId, err }))
         );
       }
-      if (restorePromises.length === 0) return;
+      if (restorePromises.length === 0) {
+        // Nothing to restore — consider the attempt done so we don't keep re-running.
+        restoreAttemptedRef.current = true;
+        return;
+      }
 
       const results = await Promise.all(restorePromises);
       const totalRestored = results.reduce(
         (sum, r) => sum + (r.res?.restored?.length || 0), 0
       );
+      // Only mark the attempt complete when every request actually reached the
+      // client. If any failed (usually because the client was still booting on
+      // fresh reboot), leave the ref false — the effect is gated on deps that
+      // include `offlineServerIds`, so the next successful fetchSessions will
+      // retrigger this and the restore eventually goes through.
+      const anyFailed = results.some(r => r.err);
+      if (!anyFailed) {
+        restoreAttemptedRef.current = true;
+      }
       if (totalRestored > 0) {
         toast.success(t('toast.sessions_auto_restored', { count: totalRestored }));
         fetchSessions();
@@ -625,6 +641,11 @@ function Dashboard() {
       const data = await createSession(serverId, name, groupId);
       const session = decorateSession(data.session, serverId);
       setSessions(prev => [...prev, session]);
+      // A successful mutation proves the server is online — if it had been
+      // marked offline by an earlier race-y fetch, the snapshot effect would
+      // otherwise skip this server and sessions.json would never record the
+      // new session (it skips every srv in offlineServerIds).
+      setOfflineServerIds(prev => prev.filter(id => id !== serverId));
       setMosaicLayout(prev => {
         if (!prev) return session.id;
         return {
@@ -667,6 +688,8 @@ function Dashboard() {
       const data = await cloneSession(sourceSessionId);
       const session = decorateSession(data.session, serverId);
       setSessions(prev => [...prev, session]);
+      // Successful clone = server is online (see handleCreate for rationale).
+      setOfflineServerIds(prev => prev.filter(id => id !== serverId));
       setMosaicLayout(prev =>
         replaceInTree(prev, sourceSessionId, {
           type: 'split',

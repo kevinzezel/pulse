@@ -6,10 +6,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [1.4.8] — 2026-04-22
+
+### Fixed
+
+- `frontend/data/sessions.json` (the dashboard's per-server session metadata cache) wasn't being updated after creating or splitting a session when the server had been flagged offline by an earlier race. Sequence: dashboard loads → first `fetchSessions` hits the client while it's still booting → request fails → `offlineServerIds` keeps the server id. Moments later the client is up and `createSession` / `cloneSession` succeeds, so `sessions` state and the UI update — but the debounced snapshot effect still skipped the server because `offlineServerIds` was stale (`if (offlineSet.has(srv.id)) continue;`). The JSON file stayed at `{ "servers": {}, ... }` forever. Now `handleCreate` and `handleSplit` remove the server from `offlineServerIds` on success, so the next snapshot persists correctly.
+- Auto-restore after reboot wasn't firing reliably. After a reboot tmux is gone, so the dashboard's startup flow — compare the sessions.json snapshot against live sessions and `POST /api/sessions/restore` any missing one (which runs `tmux new-session -c <cwd>` on the client) — is the only way sessions come back at the right path. Two issues made it miss: (a) the restore loop also gated on `offlineServerIds`, so a client that booted a second behind the dashboard never got its sessions restored; (b) `restoreAttemptedRef` flipped to true on the first try regardless of outcome, so even after the client came online a few seconds later, no retry ever happened. The gate is gone, and the ref now stays false until a request actually reaches the client — when `fetchSessions` later clears `offlineServerIds`, the effect re-fires and the restore goes through. Sessions come back at the same `cwd` they were in before the reboot.
+
+### Changed
+
+- Post-install summary now lists the full command set organized by purpose (service control, logs, keys, and every `pulse config` subcommand — password, ports, host, secure, rotate-jwt, paths, open, edit) instead of only five commands. Ends with a pointer to `pulse help` for the complete reference. Users no longer have to guess which subcommands exist — they're all printed right after installation.
+
 ## [1.4.7] — 2026-04-22
 
 ### Fixed
 
+- **`pulse upgrade` was killing every live tmux session on Linux/WSL2.** The systemd user unit for the client didn't set `KillMode`, so the default (`control-group`) applied: `systemctl stop pulse-client.service` SIGTERMed the entire cgroup, taking the tmux server daemon down with it. The client spawns `tmux new-session -d`, which daemonises but — under cgroups v2 — stays in the unit's cgroup (fork doesn't escape the cgroup). Two fixes combined: (1) the unit template now declares `KillMode=process` so only the uvicorn PID gets signaled on future stops; (2) the installer's `stop_services_if_running` no longer uses `systemctl stop` — it uses `systemctl kill --kill-who=main --signal=TERM` instead, which signals only the main PID regardless of KillMode. That second change matters for *this* upgrade too: the installed unit file on disk still has the old KillMode default until after the upgrade finishes, and the new kill path sidesteps it. macOS/launchd was never affected (launchd terminates only the configured program, not a cgroup tree). `recover_sessions()` reattaches on next start.
 - **`pulse upgrade` was wiping client-side user data** — Telegram bot/chat-id config, persisted session state, and anything else in `~/.local/share/pulse/client/data/` vanished on every upgrade. Notes, prompts, and flows (in `frontend/data/`) survived because `install_files()` already had backup/restore logic for that directory, but the matching block for the client was missing the same treatment — it just did `rm -rf $INSTALL_ROOT/client` and recopied. `install/install.sh:install_files` now mirrors the frontend's behavior for the client: move `client/data/` to `$TEMP_DIR` before wiping, then move it back after the fresh copy. Users on any earlier version should treat upgrades as data-destructive for client-side state until they're on 1.4.7+.
 - Projects page couldn't scroll vertically on mobile (and anywhere the content was taller than the viewport) — the root container used `flex-1 overflow-y-auto`, but the parent `<main>` element is block-level, not a flex container, so `flex-1` had no effect and the div grew beyond the viewport without an overflow reference height. Switched to `h-full overflow-y-auto`, matching the Prompts and Settings pages.
 - Settings tab bar (Servers / Telegram / Notifications / Editor) overflowed the viewport on narrow phones, triggering horizontal scroll on the whole page. The tab bar now scrolls horizontally inside itself (scrollbar hidden) with `whitespace-nowrap flex-shrink-0` on the buttons, so labels stay readable and the page stops stretching.
@@ -163,7 +175,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.4.7...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.4.8...HEAD
+[1.4.8]: https://github.com/kevinzezel/pulse/releases/tag/v1.4.8
 [1.4.7]: https://github.com/kevinzezel/pulse/releases/tag/v1.4.7
 [1.4.6]: https://github.com/kevinzezel/pulse/releases/tag/v1.4.6
 [1.4.5]: https://github.com/kevinzezel/pulse/releases/tag/v1.4.5
