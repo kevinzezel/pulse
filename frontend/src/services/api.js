@@ -178,9 +178,23 @@ export function updateSessionScopeNames(compositeId, { projectName = undefined, 
 
 // Fire-and-forget: propagate a renamed project/group down to every live session
 // on every configured server, so future idle notifications carry the fresh
-// label. Errors are swallowed — if a server is offline now, the next tmux-side
-// recovery will still have the previous label, and the next user-driven action
-// on that session will re-sync it.
+// label. Each target is retried up to 3x with exponential backoff (1s/2s/4s)
+// to survive momentary server-flaps during the rename. Final failures are
+// logged to console — the client watcher reconciles tmux options per tick as
+// a second line of defense against stale labels, so a permanent failure here
+// doesn't doom the label forever (as long as the tmux option was eventually
+// set some other way, the watcher picks it up).
+async function retryUpdateScopeName(compositeId, patch, attempts = 3) {
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await updateSessionScopeNames(compositeId, patch);
+    } catch (err) {
+      if (i === attempts - 1) throw err;
+      await new Promise((r) => setTimeout(r, 1000 * Math.pow(2, i)));
+    }
+  }
+}
+
 async function propagateScopeName(filterFn, patch) {
   try {
     const { servers } = await getLocalServers();
@@ -190,11 +204,17 @@ async function propagateScopeName(filterFn, patch) {
         const data = await getSessions(srv.id);
         const targets = (data?.sessions || []).filter(filterFn);
         await Promise.allSettled(targets.map((s) =>
-          updateSessionScopeNames(composeSessionId(srv.id, s.id), patch)
+          retryUpdateScopeName(composeSessionId(srv.id, s.id), patch).catch((err) => {
+            console.warn('propagateScopeName: session', s.id, 'on', srv.id, 'failed:', err);
+          })
         ));
-      } catch {}
+      } catch (err) {
+        console.warn('propagateScopeName: server', srv.id, 'unreachable:', err);
+      }
     }));
-  } catch {}
+  } catch (err) {
+    console.warn('propagateScopeName: global failure:', err);
+  }
 }
 
 export function sendTextToSession(compositeId, text, sendEnter = false) {
@@ -394,6 +414,28 @@ export async function deleteGroup(groupId) {
     err.detail_key = 'errors.group_not_found';
     throw err;
   }
+  // Antes de remover o grupo do store local, limpa @group_id/@group_name
+  // dos terminais órfãos em todos os servers. Sem isso, a notificação idle
+  // deles continuaria com "...› NomeDoGrupoDeletado › ..." no título, pois
+  // as tmux options sobrevivem até a sessão ser destruída. Fire-and-forget:
+  // se algum server falhar, os órfãos ficam com labels antigas, mas o
+  // watcher per-tick reconcilia e se o frontend nunca mais puxar esse
+  // grupo, o título apenas mostra nome desatualizado no pior caso.
+  try {
+    const { servers } = await getLocalServers();
+    if (Array.isArray(servers) && servers.length > 0) {
+      await Promise.allSettled(servers.map(async (srv) => {
+        try {
+          const data = await getSessions(srv.id);
+          const orphans = (data?.sessions || []).filter((s) => s.group_id === groupId);
+          await Promise.allSettled(orphans.map((s) =>
+            assignSessionGroup(composeSessionId(srv.id, s.id), null, null).catch(() => {})
+          ));
+        } catch {}
+      }));
+    }
+  } catch {}
+
   const nextGroups = groups.filter(g => g.id !== groupId);
   await localRequest('/api/groups', {
     method: 'PUT',

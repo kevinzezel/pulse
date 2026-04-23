@@ -82,6 +82,7 @@ def recover_sessions():
                 "project_id": raw_project_id,
                 "project_name": get_project_name(sid),
                 "notify_on_idle": get_notify_on_idle(sid),
+                "bytes_since_enter": 0,
             }
             try:
                 num = int(sid.split('-')[1])
@@ -125,6 +126,7 @@ def sync_sessions_request():
                 "project_id": raw_project_id,
                 "project_name": get_project_name(sid),
                 "notify_on_idle": get_notify_on_idle(sid),
+                "bytes_since_enter": 0,
             }
             if sid.startswith(f"{SESSION_PREFIX}-"):
                 try:
@@ -191,6 +193,7 @@ def create_session_request(payload):
             "project_id": project_id,
             "project_name": project_name,
             "notify_on_idle": False,
+            "bytes_since_enter": 0,
         }
         snapshot = dict(sessions[session_id])
 
@@ -248,6 +251,7 @@ def restore_sessions_request(payload):
                     "project_id": project_id,
                     "project_name": project_name,
                     "notify_on_idle": bool(item.get("notify_on_idle")),
+                    "bytes_since_enter": 0,
                 }
                 try:
                     num = int(sid.split('-')[1])
@@ -355,6 +359,7 @@ def clone_session_request(source_session_id):
             "project_id": source_project_id,
             "project_name": source_project_name,
             "notify_on_idle": False,
+            "bytes_since_enter": 0,
         }
         snapshot = dict(sessions[session_id])
 
@@ -542,12 +547,29 @@ async def websocket_terminal(websocket: WebSocket, session_id: str):
                 os.write(fd, data.encode("utf-8"))
                 now_ts = time.time()
                 pressed_enter = "\r" in data or "\n" in data
+                # Escape sequences (arrow keys, mouse events, function keys,
+                # touch scroll em mobile que manda `\x1b[<64;...M`) passam
+                # pelo PTY mas NÃO alteram o buffer de composição visível.
+                is_escape_seq = data.startswith("\x1b")
+                # Ctrl-C (abort) / Ctrl-D (EOF) esvaziam a linha pendente
+                # no shell — refletir isso no contador.
+                clears_buffer = "\x03" in data or "\x04" in data
                 with _sessions_lock:
                     s = sessions.get(session_id)
                     if s is not None:
                         s["last_input_ts"] = now_ts
                         if pressed_enter:
+                            # Qualquer byte após o último \r ou \n é buffer
+                            # novo (paste "cmd\nmore" → "more" fica pendente).
+                            idx = max(data.rfind("\r"), data.rfind("\n"))
+                            s["bytes_since_enter"] = len(data) - idx - 1
                             s["last_enter_ts"] = now_ts
+                        elif clears_buffer:
+                            s["bytes_since_enter"] = 0
+                        elif is_escape_seq:
+                            pass
+                        else:
+                            s["bytes_since_enter"] = s.get("bytes_since_enter", 0) + len(data)
             elif msg_type == "resize":
                 set_pty_size(fd, msg["rows"], msg["cols"])
                 try:

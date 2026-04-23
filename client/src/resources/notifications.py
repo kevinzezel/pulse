@@ -10,6 +10,11 @@ WATCHER_INTERVAL_SECONDS = 5
 CAPTURE_LINES = 100
 SNIPPET_MAX_LINES = 20
 SNIPPET_MAX_CHARS = 3500
+# Janela após a qual re-notificamos mesmo que a tela capturada seja bit-idêntica
+# à já alertada. Evita spam do tipo "agente esperando input" que volta pro mesmo
+# estado visual após cada resposta do user, mas ainda dá um lembrete se ficar
+# parado na mesma tela por muito tempo.
+NOTIFIED_HASH_TTL_SECONDS = 1800
 # Lines that are ONLY box-drawing border chars (plus surrounding whitespace)
 # — the bare separator bars around agent input boxes.
 _BORDER_ONLY_LINE_RE = re.compile(r"^\s*[─━═▀▄█]{2,}\s*$")
@@ -41,11 +46,18 @@ def _clean_snippet_line(line):
 #
 # Schema:
 #   {
-#     "hash":            <md5 digest of last observed capture-pane output>,
-#     "last_output_ts":  <unix time of last hash change; 0 means "no output seen
-#                         since state was created, so never alert">,
-#     "notified":        <bool; latched True after one alert per idle streak,
-#                         reset on the next hash change>,
+#     "hash":               <md5 digest of last observed capture-pane output>,
+#     "last_output_ts":     <unix time of last hash change; 0 means "no output
+#                            seen since state was created, so never alert">,
+#     "notified":           <bool; latched True after one alert per idle streak,
+#                            reset on the next hash change>,
+#     "last_notified_hash": <md5 digest of the last capture we actually sent an
+#                            alert for; used by Rule 4 to dedup repeated
+#                            notifications when an agent parks at the same
+#                            input prompt after each user response>,
+#     "last_notified_ts":   <unix time of the last alert sent; paired with
+#                            NOTIFIED_HASH_TTL_SECONDS to force a re-notify
+#                            even on bit-identical captures after the TTL>,
 #   }
 _state = {}
 
@@ -101,7 +113,10 @@ async def notification_watcher():
     from resources.terminal import sessions, _sessions_lock
     from resources.settings import get_telegram_raw, get_idle_timeout, get_channels
     from resources.notification_broadcast import broadcast
-    from tools.tmux import capture_pane, get_notify_on_idle
+    from tools.tmux import (
+        capture_pane, get_notify_on_idle,
+        get_project_name, get_group_name, get_custom_name,
+    )
     from tools.telegram import send_telegram_message
 
     logger.info("Notification watcher started")
@@ -114,22 +129,31 @@ async def notification_watcher():
                 candidate_ids = [sid for sid, s in sessions.items() if s.get("notify_on_idle")]
                 monitored_snapshot = {sid: dict(sessions[sid]) for sid in candidate_ids}
 
-            # Reconcile cached notify_on_idle with tmux @notify_on_idle (source
-            # of truth). If another client instance sharing the same tmux
-            # server flipped the toggle — or the user ran `tmux set-option -u`
-            # manually — our cached dict is stale and would keep firing
-            # alerts. Re-read per tick and drop stale-True entries, also
-            # patching the cache so the sidebar sees reality on the next
-            # GET /api/sessions.
+            # Reconcile cached notify_on_idle + scope names with the tmux
+            # options (source of truth). If another client flipped the toggle,
+            # or the frontend renamed a project/group but the PATCH failed on
+            # this server (fire-and-forget), our cached dict is stale and the
+            # notification shows the old label. Re-read per tick: cost is
+            # ~4 subprocess calls per monitored session per 5s — trivial.
             monitored_ids = []
             for sid in candidate_ids:
-                if await asyncio.to_thread(get_notify_on_idle, sid):
-                    monitored_ids.append(sid)
-                else:
+                if not await asyncio.to_thread(get_notify_on_idle, sid):
                     with _sessions_lock:
                         if sid in sessions:
                             sessions[sid]["notify_on_idle"] = False
                     monitored_snapshot.pop(sid, None)
+                    continue
+                project_name = await asyncio.to_thread(get_project_name, sid)
+                group_name = await asyncio.to_thread(get_group_name, sid)
+                custom_name = await asyncio.to_thread(get_custom_name, sid)
+                with _sessions_lock:
+                    if sid in sessions:
+                        sessions[sid]["project_name"] = project_name
+                        sessions[sid]["group_name"] = group_name
+                        if custom_name:
+                            sessions[sid]["name"] = custom_name
+                        monitored_snapshot[sid] = dict(sessions[sid])
+                monitored_ids.append(sid)
 
             for sid in list(_state):
                 if sid not in monitored_ids:
@@ -163,7 +187,13 @@ async def notification_watcher():
                     # hash change is observed, so a dormant session that was
                     # just armed with notify_on_idle=True cannot false-alert
                     # before any output ever happens.
-                    _state[sid] = {"hash": h, "last_output_ts": 0, "notified": False}
+                    _state[sid] = {
+                        "hash": h,
+                        "last_output_ts": 0,
+                        "notified": False,
+                        "last_notified_hash": None,
+                        "last_notified_ts": 0,
+                    }
                     continue
 
                 if h != state["hash"]:
@@ -183,23 +213,30 @@ async def notification_watcher():
                 if last_output <= 0:
                     continue
 
-                # Rule 2: user is not mid-composition (typed without Enter).
-                last_input = sess.get("last_input_ts", 0)
-                last_enter = sess.get("last_enter_ts", 0)
-                if last_input > last_enter:
+                # Rule 2: user is not mid-composition. Based on an explicit
+                # byte counter maintained by the WebSocket input handler
+                # (zeroed on \r/\n, incremented on every other keystroke).
+                # Replaces the previous timestamp-based heuristic
+                # (last_input > last_enter) which had edge cases in TUIs
+                # (pastes with embedded Enter, echo contaminating baseline).
+                # Semântica: qualquer texto parcial no buffer suprime o alerta
+                # até o usuário pressionar Enter (ou abandonar a sessão).
+                if sess.get("bytes_since_enter", 0) > 0:
                     continue
 
-                # Rule 3: last input was before last output — i.e. the terminal
-                # produced something AFTER the user's last keystroke (or the
-                # user hasn't typed at all since enabling). Without this, a
-                # user typing shortly after new output would look idle until
-                # they press Enter.
-                if last_input >= last_output:
-                    continue
-
-                # Rule 4: timeout elapsed since last output.
+                # Rule 3: timeout elapsed since last output.
                 idle_seconds = now - last_output
                 if idle_seconds < idle_timeout:
+                    continue
+
+                # Rule 4: dedup por hash do capture. Agentes (Claude Code,
+                # Cursor) voltam pro mesmo estado visual após cada resposta
+                # do user — sem isso, cada pergunta sucessiva gera um alerta
+                # idêntico. Re-notificamos se passou NOTIFIED_HASH_TTL_SECONDS
+                # desde o último envio com esse mesmo hash.
+                if (state["last_notified_hash"] == h
+                        and (now - state["last_notified_ts"]) < NOTIFIED_HASH_TTL_SECONDS):
+                    state["notified"] = True
                     continue
 
                 name = sess.get("name", sid)
@@ -240,6 +277,8 @@ async def notification_watcher():
                     except Exception as exc:
                         logger.warning(f"Telegram notification exception for {sid}: {exc}")
 
+                state["last_notified_hash"] = h
+                state["last_notified_ts"] = now
                 state["notified"] = True
         except asyncio.CancelledError:
             logger.info("Notification watcher cancelled")
