@@ -193,13 +193,65 @@ def get_project_id(session_id):
     return result.stdout.strip() or None
 
 
+def set_project_name(session_id, name):
+    if name:
+        subprocess.run(
+            ['tmux', 'set-option', '-t', session_id, '@project_name', name],
+            capture_output=True
+        )
+    else:
+        subprocess.run(
+            ['tmux', 'set-option', '-t', session_id, '-u', '@project_name'],
+            capture_output=True
+        )
+
+
+def get_project_name(session_id):
+    try:
+        result = subprocess.run(
+            ['tmux', 'show-option', '-t', session_id, '-v', '@project_name'],
+            capture_output=True, text=True
+        )
+    except FileNotFoundError:
+        return None
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip() or None
+
+
+def set_group_name(session_id, name):
+    if name:
+        subprocess.run(
+            ['tmux', 'set-option', '-t', session_id, '@group_name', name],
+            capture_output=True
+        )
+    else:
+        subprocess.run(
+            ['tmux', 'set-option', '-t', session_id, '-u', '@group_name'],
+            capture_output=True
+        )
+
+
+def get_group_name(session_id):
+    try:
+        result = subprocess.run(
+            ['tmux', 'show-option', '-t', session_id, '-v', '@group_name'],
+            capture_output=True, text=True
+        )
+    except FileNotFoundError:
+        return None
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip() or None
+
+
 def capture_pane(session_id, lines=100):
     try:
         result = subprocess.run(
             ['tmux', 'capture-pane', '-p', '-t', session_id, '-S', f'-{lines}'],
-            capture_output=True, text=True,
+            capture_output=True, text=True, timeout=3.0,
         )
-    except FileNotFoundError:
+    except (FileNotFoundError, subprocess.TimeoutExpired):
         return None
     if result.returncode != 0:
         return None

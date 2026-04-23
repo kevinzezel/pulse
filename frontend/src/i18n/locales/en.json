@@ -601,7 +601,7 @@
     "noSessions": "No active sessions"
   },
   "notifications": {
-    "idleTitle": "{name} is idle",
+    "idleTitle": "{context} is idle",
     "idleBody": "Waiting for {idleSeconds}s",
     "browserSection": "Browser notifications",
     "browserSectionHint": "Get native browser notifications when a monitored session goes idle. Runs in parallel with Telegram.",

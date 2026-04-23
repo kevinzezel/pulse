@@ -6,6 +6,32 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [1.7.0] — 2026-04-23
+
+### Added
+
+- **Notification title now carries the full `project › group › terminal` context.** Until now, both the browser (native Notification API) and the Telegram bot rendered idle alerts as `<terminal-name> is idle` — fine when you have three terminals, useless when you have thirty across five projects on three machines. The client (Python) now persists the *human-readable* labels of the project and the group alongside their IDs via new tmux user options `@project_name` and `@group_name` (mirroring the existing `@project_id` / `@group_id` pattern), so both notification channels build a composite title like `Pulse › Backend › tail logs is idle` without the frontend having to resolve IDs at delivery time. When a terminal is not in a group, the group segment is omitted (`Pulse › shell is idle`). The labels follow the terminal through `recover_sessions()` / `sync_sessions_request` / `restore_sessions_request` because they live in tmux, not in a separate registry. The frontend passes `project_name` and `group_name` at `createSession`, at `assignSessionGroup`, and — critically — when a project or group is **renamed**, the rename functions in `services/api.js` fire a best-effort batch of `PATCH /api/sessions/{id}/scope-names` calls (new endpoint) to every configured server so active terminals in the renamed scope pick up the fresh label for their next idle event. If a server is offline during the batch, the stale label survives in that terminal's tmux options until the next user-driven action on it re-syncs; no error surfaces to the user.
+
+### Fixed
+
+- **Idle-terminal detection overhauled** — the previous heuristic had three distinct failure modes that a code-review pass against the requirement spec surfaced:
+  1. **Dormant-session false positive.** When a user enabled notifications on a terminal that had received no input and had no output in flight, the watcher initialized its internal `last_activity_ts` to `now` and — because the "user is mid-composing" filter evaluates `last_input_ts > last_enter_ts` as `0 > 0 = False` — fired a false idle alert after `timeout` seconds, even though no terminal output ever occurred.
+  2. **Fast-command false positive.** A 2-second `INPUT_IGNORE_WINDOW_SECONDS` was designed to ignore shell echo of keystrokes, but it ate *all* output from commands that responded under 2 s (`ls`, `date`, `pwd`, `git status` in a clean repo). `last_activity_ts` would stay pinned to the previous prompt's timestamp, so `idle_seconds` computed against a stale baseline and the alert fired early.
+  3. **"Every keystroke resets the timer" was only incidentally satisfied.** Keystrokes updated `last_input_ts` but never `last_activity_ts`, so if the user spent 40 s composing a long command without pressing Enter and then pressed it, the `last_input > last_enter` filter instantly collapsed (both now equal `now`) and the stale baseline from minutes earlier fired the alert immediately *on* the Enter.
+  
+  The rewrite in `client/src/resources/notifications.py` tracks three timestamps with disjoint semantics — `last_output_ts` (last real hash change, zero until one is observed), `last_input_ts`, `last_enter_ts` — and gates alerts on four conjoined rules: (1) `last_output_ts > 0`, (2) `last_input_ts <= last_enter_ts` (user not mid-composing), (3) `last_input_ts < last_output_ts` (last output is more recent than last input — user has already "responded" to the terminal or never typed), (4) `(now - last_output_ts) >= idle_timeout`. The `INPUT_IGNORE_WINDOW_SECONDS` heuristic is **removed** entirely — rule (3) subsumes it without the false-swallow. Known remaining limitation: because the watcher polls every 5 s, it cannot distinguish "shell echo of a long command" from "the command has produced its output" within a single tick, so commands with no intermediate output (`sleep 60`) can still false-alert once the poll window advances past their echo tick. A future iteration can close that gap with `tmux display -p '#{pane_current_command}'` gating, at the cost of breaking the "tail -f that stops producing output" case.
+- **`capture_pane` now has a 3-second subprocess timeout.** The watcher coroutine calls `tmux capture-pane` on every monitored session every 5 s; a hung tmux server would block the event loop indefinitely because `subprocess.run` had no timeout. Matches the pattern already used in `client/src/resources/terminal.py:431-434` for history capture. Timeouts are silently treated as a transient miss (`return None`), identical to the existing `FileNotFoundError` path — the watcher skips this session this tick and tries again on the next.
+- **`capture_pane` no longer blocks the event loop.** With N monitored sessions, the watcher previously serialized N synchronous `subprocess.run` calls on the asyncio event loop thread. Wrapping in `await asyncio.to_thread(capture_pane, sid, CAPTURE_LINES)` offloads each call to the default thread pool, so one slow tmux invocation can't stall notifications for every other session.
+- **Watcher now reconciles `notify_on_idle` with the tmux option on every tick.** Each client instance keeps an in-memory `sessions[sid]["notify_on_idle"]` cache hydrated at startup. If another client instance sharing the same tmux server flips the toggle — a real scenario when a user has both the installed client and a dev client running at once — the cache diverges from the tmux `@notify_on_idle` option (source of truth), and the "stale" instance keeps firing idle alerts even though the bell shows off in the UI. The watcher now calls `get_notify_on_idle(sid)` once per candidate session per tick (~1 subprocess call per monitored session per 5s — negligible) and drops any whose tmux option has been unset, patching the cache on the way so the sidebar on the next `GET /api/sessions` reflects the truth.
+
+### Removed
+
+- **Click-to-focus behavior on browser notifications.** The native Notification used to attach an `onclick` handler that dispatched a `rt:focus-session` custom event, and `Dashboard` listened for it to un-hide the group, change the selected group, splice the session into the mosaic layout, and `window.focus()` the tab. In practice the focus path was flaky (browsers throttle programmatic focus for security) and the layout side-effects surprised users more than helped. Notifications are now visualization-only — see it, know the terminal is idle, go look. The `rt:focus-session` listener in `page.js` and the `onclick` in `NotificationsProvider.jsx` are gone.
+
+### Notes
+
+- **Sessions persisted before v1.7.0** will not have `@project_name` or `@group_name` tmux options set, so their first idle notification after upgrade will fall back to the terminal name only. The next user-driven rename (or explicit assign-group, or sync from the dashboard) repopulates the label. No migration step is required.
+
 ## [1.6.1] — 2026-04-23
 
 ### Fixed
@@ -365,7 +391,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.6.1...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.7.0...HEAD
+[1.7.0]: https://github.com/kevinzezel/pulse/releases/tag/v1.7.0
 [1.6.1]: https://github.com/kevinzezel/pulse/releases/tag/v1.6.1
 [1.6.0]: https://github.com/kevinzezel/pulse/releases/tag/v1.6.0
 [1.5.0]: https://github.com/kevinzezel/pulse/releases/tag/v1.5.0

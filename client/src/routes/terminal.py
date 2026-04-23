@@ -8,9 +8,9 @@ import time
 from fastapi import APIRouter, Body, WebSocket, WebSocketDisconnect, UploadFile, File, Request
 
 logger = logging.getLogger(__name__)
-from resources.terminal import create_session_request, list_sessions_request, kill_session_request, rename_session_request, sync_sessions_request, clone_session_request, websocket_terminal, sessions, set_session_notify_request, restore_sessions_request, _sessions_lock
+from resources.terminal import create_session_request, list_sessions_request, kill_session_request, rename_session_request, sync_sessions_request, clone_session_request, websocket_terminal, sessions, set_session_notify_request, set_session_scope_names_request, restore_sessions_request, _sessions_lock
 from resources.notification_broadcast import register as register_notification_client, unregister as unregister_notification_client
-from tools.tmux import get_pane_cwd, send_text_to_session, set_group_id
+from tools.tmux import get_pane_cwd, send_text_to_session, set_group_id, set_group_name
 from system.log import AppException
 from system.i18n import build_i18n_response
 from envs.load import API_KEY
@@ -43,10 +43,19 @@ def create(
     request: Request,
     name: str = Body(None, max_length=50, embed=True),
     group_id: str | None = Body(None, embed=True),
+    group_name: str | None = Body(None, embed=True, max_length=64),
     project_id: str | None = Body(None, embed=True, max_length=64),
+    project_name: str | None = Body(None, embed=True, max_length=64),
     cwd: str | None = Body(None, embed=True, max_length=1024),
 ):
-    resp = create_session_request({"name": name, "group_id": group_id, "project_id": project_id, "cwd": cwd})
+    resp = create_session_request({
+        "name": name,
+        "group_id": group_id,
+        "group_name": group_name,
+        "project_id": project_id,
+        "project_name": project_name,
+        "cwd": cwd,
+    })
     return build_i18n_response(request, resp["status_code"], resp["content"])
 
 
@@ -92,17 +101,35 @@ def assign_group(
     request: Request,
     session_id: str,
     group_id: str | None = Body(None, embed=True, max_length=64),
+    group_name: str | None = Body(None, embed=True, max_length=64),
 ):
     with _sessions_lock:
         if session_id not in sessions:
             raise AppException(key="errors.session_not_found", status_code=404)
         sessions[session_id]["group_id"] = group_id
+        sessions[session_id]["group_name"] = group_name or None
         snapshot = dict(sessions[session_id])
     set_group_id(session_id, group_id)
+    set_group_name(session_id, group_name)
     return build_i18n_response(request, 200, {
         "detail_key": "success.session_group_assigned",
         "session": snapshot,
     })
+
+
+@router.patch("/sessions/{session_id}/scope-names")
+def update_scope_names(
+    request: Request,
+    session_id: str,
+    project_name: str | None = Body(None, embed=True, max_length=64),
+    group_name: str | None = Body(None, embed=True, max_length=64),
+):
+    resp = set_session_scope_names_request(
+        session_id,
+        project_name=project_name,
+        group_name=group_name,
+    )
+    return build_i18n_response(request, resp["status_code"], resp["content"])
 
 
 @router.patch("/sessions/{session_id}/notify")

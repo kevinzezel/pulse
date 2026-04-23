@@ -48,7 +48,7 @@ function Dashboard() {
   const { t } = useTranslation();
   const showError = useErrorToast();
   const { servers, loading: serversLoading } = useServers();
-  const { activeProjectId } = useProjects();
+  const { activeProjectId, activeProject } = useProjects();
   const { getProjectGroup, setProjectGroup, hydrated: hydratedViewState } = useViewState();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -383,10 +383,12 @@ function Dashboard() {
               id: sessionId,
               name: s.name,
               group_id: s.group_id || null,
+              group_name: s.group_name || null,
               notify_on_idle: Boolean(s.notify_on_idle),
               cwd: s.cwd || null,
               created_at: s.created_at,
               project_id: s.project_id || activeProjectId,
+              project_name: s.project_name || activeProject?.name || null,
             });
           }
 
@@ -402,7 +404,7 @@ function Dashboard() {
         })
         .catch(err => console.warn('[sessionsSnapshot] persist failed', err));
     }, 500);
-  }, [sessions, offlineServerIds, hydratedSessions, servers, activeProjectId, sessionsProjectId]);
+  }, [sessions, offlineServerIds, hydratedSessions, servers, activeProjectId, activeProject, sessionsProjectId]);
 
   useEffect(() => {
     if (!hydratedSessions) return;
@@ -515,53 +517,6 @@ function Dashboard() {
       }
     })();
   }, [servers, serversLoading, hydratedSessions, sessions, offlineServerIds, fetchSessions, t]);
-
-  useEffect(() => {
-    function handler(ev) {
-      const composedId = ev?.detail?.sessionId;
-      if (!composedId) return;
-      const session = sessions.find(s => s.id === composedId);
-      if (!session) return;
-      const targetGroupId = session.group_id || null;
-
-      try { window.focus?.(); } catch {}
-
-      const group = targetGroupId ? groups.find(g => g.id === targetGroupId) : null;
-      if (group && group.hidden) {
-        const prevGroups = groups;
-        setGroups(g => g.map(gg => gg.id === targetGroupId ? { ...gg, hidden: false } : gg));
-        setGroupHidden(targetGroupId, false).catch(err => {
-          setGroups(prevGroups);
-          showError(err);
-        });
-      }
-
-      if (targetGroupId !== selectedGroupId) {
-        setSelectedGroupId(targetGroupId);
-      }
-
-      const targetKey = `${activeProjectId}::${targetGroupId ?? '__none__'}`;
-      const targetLayout = mosaicLayouts[targetKey] ?? null;
-      const visibleIds = getVisibleSessionIds(targetLayout);
-      if (!visibleIds.has(composedId)) {
-        if (isMaximized) setSavedLayout(null);
-        setMosaicLayouts(prev => {
-          const cur = prev[targetKey] ?? null;
-          const nextLayout = cur
-            ? { type: 'split', direction: 'row', children: [cur, composedId], splitPercentages: [50, 50] }
-            : composedId;
-          return { ...prev, [targetKey]: nextLayout };
-        });
-      }
-
-      if (isMobile) {
-        setActiveTerminalId(composedId);
-        setSidebarOpen(false);
-      }
-    }
-    window.addEventListener('rt:focus-session', handler);
-    return () => window.removeEventListener('rt:focus-session', handler);
-  }, [sessions, groups, selectedGroupId, mosaicLayouts, isMaximized, isMobile, showError, activeProjectId]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -689,7 +644,11 @@ function Dashboard() {
   async function handleCreate(serverId, name, groupId) {
     if (!serverId) return;
     try {
-      const data = await createSession(serverId, name, groupId);
+      const group = groupId ? groups.find(g => g.id === groupId) : null;
+      const data = await createSession(serverId, name, groupId, null, {
+        groupName: group?.name || null,
+        projectName: activeProject?.name || null,
+      });
       const session = decorateSession(data.session, serverId);
       setSessions(prev => [...prev, session]);
       // A successful mutation proves the server is online — if it had been
@@ -831,9 +790,11 @@ function Dashboard() {
 
   async function handleAssignGroup(sessionId, groupId) {
     const prevSessions = sessions;
-    setSessions(prev => prev.map(s => s.id === sessionId ? { ...s, group_id: groupId } : s));
+    const group = groupId ? groups.find(g => g.id === groupId) : null;
+    const groupName = group?.name || null;
+    setSessions(prev => prev.map(s => s.id === sessionId ? { ...s, group_id: groupId, group_name: groupName } : s));
     try {
-      await assignSessionGroup(sessionId, groupId);
+      await assignSessionGroup(sessionId, groupId, groupName);
     } catch (err) {
       setSessions(prevSessions);
       showError(err);

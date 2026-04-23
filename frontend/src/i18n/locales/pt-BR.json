@@ -601,7 +601,7 @@
     "noSessions": "Nenhuma sessão ativa"
   },
   "notifications": {
-    "idleTitle": "{name} está ociosa",
+    "idleTitle": "{context} está ocioso",
     "idleBody": "Aguardando há {idleSeconds}s",
     "browserSection": "Notificações no navegador",
     "browserSectionHint": "Receba notificações nativas no navegador quando uma sessão monitorada ficar ociosa. Roda em paralelo com o Telegram.",

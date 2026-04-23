@@ -149,11 +149,14 @@ export function NotificationsProvider({ children }) {
     if (!backendSessionId) return;
     const composedId = composeSessionId(serverId, backendSessionId);
     const name = event.name || backendSessionId;
+    const context = [event.project_name, event.group_name, name]
+      .filter((x) => typeof x === 'string' && x)
+      .join(' › ') || name;
     const idleSeconds = Number(event.idle_seconds) || 0;
     const snippet = typeof event.snippet === 'string' ? event.snippet : '';
 
     const tr = tRef.current;
-    const title = tr('notifications.idleTitle', { name });
+    const title = tr('notifications.idleTitle', { context });
     const body = tr('notifications.idleBody', { idleSeconds });
 
     toast(title, { icon: '🔔', duration: 6000 });
@@ -164,19 +167,12 @@ export function NotificationsProvider({ children }) {
       try {
         const snippetTrimmed = snippet.length > 180 ? snippet.slice(-180) : snippet;
         const fullBody = snippetTrimmed ? `${body}\n${snippetTrimmed}` : body;
-        const notification = new Notification(title, {
+        new Notification(title, {
           body: fullBody,
           tag: composedId,
           renotify: true,
           icon: '/favicon.ico',
         });
-        notification.onclick = () => {
-          try { window.focus(); } catch {}
-          try { notification.close(); } catch {}
-          window.dispatchEvent(new CustomEvent('rt:focus-session', {
-            detail: { sessionId: composedId },
-          }));
-        };
       } catch {}
     }
   }, []);

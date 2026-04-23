@@ -18,6 +18,8 @@ from tools.tmux import (
     get_pane_cwd, set_custom_name, get_custom_name,
     get_group_id, set_group_id,
     get_project_id, set_project_id,
+    get_group_name, set_group_name,
+    get_project_name, set_project_name,
     get_notify_on_idle, set_notify_on_idle,
     ensure_tmux_config,
 )
@@ -76,7 +78,9 @@ def recover_sessions():
                 "name": custom_name or sid,
                 "created_at": created_at,
                 "group_id": raw_group_id or None,
+                "group_name": get_group_name(sid),
                 "project_id": raw_project_id,
+                "project_name": get_project_name(sid),
                 "notify_on_idle": get_notify_on_idle(sid),
             }
             try:
@@ -117,7 +121,9 @@ def sync_sessions_request():
                 "name": custom_name or sid,
                 "created_at": created_at,
                 "group_id": raw_group_id or None,
+                "group_name": get_group_name(sid),
                 "project_id": raw_project_id,
+                "project_name": get_project_name(sid),
                 "notify_on_idle": get_notify_on_idle(sid),
             }
             if sid.startswith(f"{SESSION_PREFIX}-"):
@@ -150,7 +156,9 @@ def create_session_request(payload):
     session_id = _next_id()
     name = payload.get("name") or session_id
     group_id = payload.get("group_id")
+    group_name = payload.get("group_name") or None
     project_id = payload.get("project_id") or DEFAULT_PROJECT_ID
+    project_name = payload.get("project_name") or None
     cwd = payload.get("cwd")
     # Default new terminals to $HOME regardless of where the client process runs
     # (systemd/launchd spawn us under INSTALL_ROOT, which would otherwise leak
@@ -165,8 +173,12 @@ def create_session_request(payload):
 
     if group_id is not None:
         set_group_id(session_id, group_id)
+    if group_name is not None:
+        set_group_name(session_id, group_name)
 
     set_project_id(session_id, project_id)
+    if project_name is not None:
+        set_project_name(session_id, project_name)
 
     now = datetime.now(timezone.utc).isoformat()
     with _sessions_lock:
@@ -175,7 +187,9 @@ def create_session_request(payload):
             "name": name,
             "created_at": now,
             "group_id": group_id,
+            "group_name": group_name,
             "project_id": project_id,
+            "project_name": project_name,
             "notify_on_idle": False,
         }
         snapshot = dict(sessions[session_id])
@@ -211,10 +225,16 @@ def restore_sessions_request(payload):
             if name != sid:
                 set_custom_name(sid, name)
             group_id = item.get("group_id")
+            group_name = item.get("group_name") or None
             if group_id:
                 set_group_id(sid, group_id)
+            if group_name:
+                set_group_name(sid, group_name)
             project_id = item.get("project_id") or DEFAULT_PROJECT_ID
+            project_name = item.get("project_name") or None
             set_project_id(sid, project_id)
+            if project_name:
+                set_project_name(sid, project_name)
             if item.get("notify_on_idle"):
                 set_notify_on_idle(sid, True)
             created_at = item.get("created_at") or datetime.now(timezone.utc).isoformat()
@@ -224,7 +244,9 @@ def restore_sessions_request(payload):
                     "name": name,
                     "created_at": created_at,
                     "group_id": group_id or None,
+                    "group_name": group_name,
                     "project_id": project_id,
+                    "project_name": project_name,
                     "notify_on_idle": bool(item.get("notify_on_idle")),
                 }
                 try:
@@ -295,7 +317,9 @@ def clone_session_request(source_session_id):
             raise AppException(key="errors.tmux_session_not_found", status_code=404)
         source_name = sessions[source_session_id]["name"]
         source_group_id = sessions[source_session_id].get("group_id")
+        source_group_name = sessions[source_session_id].get("group_name")
         source_project_id = sessions[source_session_id].get("project_id") or DEFAULT_PROJECT_ID
+        source_project_name = sessions[source_session_id].get("project_name")
 
     cwd = get_pane_cwd(source_session_id)
 
@@ -307,8 +331,12 @@ def clone_session_request(source_session_id):
 
     if source_group_id:
         set_group_id(session_id, source_group_id)
+    if source_group_name:
+        set_group_name(session_id, source_group_name)
 
     set_project_id(session_id, source_project_id)
+    if source_project_name:
+        set_project_name(session_id, source_project_name)
 
     if cwd:
         subprocess.run(
@@ -323,7 +351,9 @@ def clone_session_request(source_session_id):
             "name": name,
             "created_at": now,
             "group_id": source_group_id,
+            "group_name": source_group_name,
             "project_id": source_project_id,
+            "project_name": source_project_name,
             "notify_on_idle": False,
         }
         snapshot = dict(sessions[session_id])
@@ -334,6 +364,36 @@ def clone_session_request(source_session_id):
             "detail_key": "success.session_cloned",
             "session": snapshot,
         }
+    }
+
+
+def set_session_scope_names_request(session_id, project_name=None, group_name=None):
+    """Update the cached human-readable project/group labels for a session.
+
+    Only the fields explicitly provided (not None) are updated; passing an
+    empty string clears the option. Used by the frontend to propagate
+    project/group renames down to the client without changing the IDs.
+    """
+    with _sessions_lock:
+        if session_id not in sessions:
+            raise AppException(key="errors.session_not_found", status_code=404)
+        if project_name is not None:
+            sessions[session_id]["project_name"] = project_name or None
+        if group_name is not None:
+            sessions[session_id]["group_name"] = group_name or None
+        snapshot = dict(sessions[session_id])
+
+    if project_name is not None:
+        set_project_name(session_id, project_name)
+    if group_name is not None:
+        set_group_name(session_id, group_name)
+
+    return {
+        "status_code": 200,
+        "content": {
+            "detail_key": "success.session_scope_names_updated",
+            "session": snapshot,
+        },
     }
 
 

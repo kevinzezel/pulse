@@ -140,21 +140,61 @@ export function getSessions(serverId) {
   return request(serverId, '/api/sessions');
 }
 
-export function createSession(serverId, name, groupId = null, cwd = null) {
-  const body = { name: name || null, group_id: groupId, project_id: getActiveProjectId() };
+export function createSession(serverId, name, groupId = null, cwd = null, extras = {}) {
+  const body = {
+    name: name || null,
+    group_id: groupId,
+    project_id: getActiveProjectId(),
+  };
   if (cwd) body.cwd = cwd;
+  if (extras.groupName) body.group_name = extras.groupName;
+  if (extras.projectName) body.project_name = extras.projectName;
   return request(serverId, '/api/sessions', {
     method: 'POST',
     body: JSON.stringify(body),
   });
 }
 
-export function assignSessionGroup(compositeId, groupId) {
+export function assignSessionGroup(compositeId, groupId, groupName = null) {
   const { serverId, sessionId } = sessionIdOf(compositeId);
+  const body = { group_id: groupId };
+  if (groupName !== null) body.group_name = groupName || '';
   return request(serverId, `/api/sessions/${sessionId}/group`, {
     method: 'PATCH',
-    body: JSON.stringify({ group_id: groupId }),
+    body: JSON.stringify(body),
   });
+}
+
+export function updateSessionScopeNames(compositeId, { projectName = undefined, groupName = undefined } = {}) {
+  const { serverId, sessionId } = sessionIdOf(compositeId);
+  const body = {};
+  if (projectName !== undefined) body.project_name = projectName || '';
+  if (groupName !== undefined) body.group_name = groupName || '';
+  return request(serverId, `/api/sessions/${sessionId}/scope-names`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
+}
+
+// Fire-and-forget: propagate a renamed project/group down to every live session
+// on every configured server, so future idle notifications carry the fresh
+// label. Errors are swallowed — if a server is offline now, the next tmux-side
+// recovery will still have the previous label, and the next user-driven action
+// on that session will re-sync it.
+async function propagateScopeName(filterFn, patch) {
+  try {
+    const { servers } = await getLocalServers();
+    if (!Array.isArray(servers) || servers.length === 0) return;
+    await Promise.allSettled(servers.map(async (srv) => {
+      try {
+        const data = await getSessions(srv.id);
+        const targets = (data?.sessions || []).filter(filterFn);
+        await Promise.allSettled(targets.map((s) =>
+          updateSessionScopeNames(composeSessionId(srv.id, s.id), patch)
+        ));
+      } catch {}
+    }));
+  } catch {}
 }
 
 export function sendTextToSession(compositeId, text, sendEnter = false) {
@@ -327,6 +367,7 @@ export async function renameGroup(groupId, name) {
     body: JSON.stringify({ groups: next }),
   });
   const updated = res.groups.find(g => g.id === groupId);
+  propagateScopeName((s) => s.group_id === groupId, { groupName: clean });
   return { group: updated, detail_key: 'success.group_renamed' };
 }
 
@@ -650,6 +691,7 @@ export async function renameProject(projectId, name) {
   };
   const res = await saveProjects(next);
   const updated = res.projects.find(p => p.id === projectId);
+  propagateScopeName((s) => s.project_id === projectId, { projectName: clean });
   return { project: updated, detail_key: 'success.project_renamed', state: res };
 }
 

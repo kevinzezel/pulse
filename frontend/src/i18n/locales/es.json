@@ -601,7 +601,7 @@
     "noSessions": "No hay sesiones activas"
   },
   "notifications": {
-    "idleTitle": "{name} está inactiva",
+    "idleTitle": "{context} está inactivo",
     "idleBody": "Esperando hace {idleSeconds}s",
     "browserSection": "Notificaciones en el navegador",
     "browserSectionHint": "Recibe notificaciones nativas en el navegador cuando una sesión monitoreada se vuelva inactiva. Funciona en paralelo con Telegram.",
