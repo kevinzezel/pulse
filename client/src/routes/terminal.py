@@ -108,6 +108,14 @@ def assign_group(
             raise AppException(key="errors.session_not_found", status_code=404)
         sessions[session_id]["group_id"] = group_id
         sessions[session_id]["group_name"] = group_name or None
+        # Defense-in-depth contra Rule 5: mover terminal entre grupos no
+        # frontend desmonta o <TerminalPane> e interrompe o heartbeat de
+        # viewing por uma janela de até alguns segundos (até o user trocar
+        # pro novo grupo e o componente remontar). Tocar last_viewing_ts aqui
+        # garante grace de 15s no watcher para essa janela, mesmo se algum
+        # timing edge case do IntersectionObserver no remount voltar a
+        # quebrar no futuro.
+        sessions[session_id]["last_viewing_ts"] = time.time()
         snapshot = dict(sessions[session_id])
     set_group_id(session_id, group_id)
     set_group_name(session_id, group_name)

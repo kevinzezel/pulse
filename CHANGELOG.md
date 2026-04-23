@@ -6,6 +6,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [1.9.2] — 2026-04-23
+
+### Fixed
+
+- **Notification idle heartbeat agora sobrevive a movimentação de terminal entre grupos.** Antes, mover um terminal de um grupo (ex: "Sem grupo") pra outro (ex: "Teste") via popover na sidebar causava unmount do `<TerminalPane>` (clearInterval do heartbeat de viewing). Após o usuário trocar pro grupo destino e clicar no terminal pra abri-lo no mosaico, o `<TerminalPane>` remontava e o `IntersectionObserver` era recriado — mas podia disparar callback inicial com `entry.isIntersecting=false` se o `slotRef.current` ainda tinha `getBoundingClientRect()` zero (o `cached.container` foi anexado via `appendChild` síncrono mas o flex layout/`fitAddon.fit()` ficaram 1 frame atrás). Como o IO só dispara de novo quando atravessa o threshold de 0.1 e a transição "altura 0 → altura cheia" não cruzava esse limite, `intersectingRef.current` ficava preso em `false` para sempre. Heartbeat parava de mandar `{type: 'viewing'}`, backend perdia `last_viewing_ts`, Rule 5 (`now - last_viewing_ts < VIEWING_GRACE_SECONDS=15`) deixava de suprimir → notificação disparava mesmo com o terminal visível em tela. Fix em duas camadas: **(a)** `frontend/src/components/TerminalPane.jsx` — `intersectingRef` agora inicializa em `false` (em vez do antigo `true` otimista) e o effect do IO faz bootstrap síncrono via `slot.getBoundingClientRect()` no mount; o `sendHeartbeat` também reconcilia a cada 10s lendo o rect direto se o ref está false (recupera de qualquer lock-in residual sem custo perceptível). **(b)** `client/src/routes/terminal.py` — endpoint `PATCH /sessions/{id}/group` agora também toca `sessions[session_id]["last_viewing_ts"] = time.time()` junto com a mutação de grupo, dando 15s de grace defensivo no backend pra qualquer timing edge case que reapareça no futuro.
+
+### Added
+
+- **Documentação `NOTIFICATIONS.md` na raiz do repo.** Documento técnico completo do sistema de notificações idle do Pulse: visão geral, fluxo de dados ponta-a-ponta (frontend → WS → backend → broadcast/Telegram), as 5 regras do `notification_watcher` com paths e linhas, as 4 condições do heartbeat de viewing, ciclo de vida do `terminalCache` module-level, configuração via `data/settings.json`, casos extremos & gotchas (mover entre grupos, race do IO no remount, múltiplas abas, WS substituído, compose drafts, etc.), tabela de constantes com referências, e checklists para futuras alterações. Inclui também um checklist de verificação manual pra rodar antes de qualquer commit que mexa nesse sistema.
+
 ## [1.9.1] — 2026-04-23
 
 ### Fixed
@@ -477,7 +487,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.9.1...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.9.2...HEAD
+[1.9.2]: https://github.com/kevinzezel/pulse/releases/tag/v1.9.2
 [1.9.1]: https://github.com/kevinzezel/pulse/releases/tag/v1.9.1
 [1.9.0]: https://github.com/kevinzezel/pulse/releases/tag/v1.9.0
 [1.8.0]: https://github.com/kevinzezel/pulse/releases/tag/v1.8.0

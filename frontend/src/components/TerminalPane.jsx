@@ -353,10 +353,19 @@ export default function TerminalPane({ session, onSessionEnded, isMobile = false
   // Reage a montar/desmontar do componente (trocou de grupo / mosaico re-mount):
   // o intervalo é recriado no mount, parado no unmount → backend esquece após
   // VIEWING_GRACE_SECONDS (15s) e alerta volta a poder disparar.
-  const intersectingRef = useRef(true);
+  //
+  // Default conservador (false) e bootstrap síncrono via getBoundingClientRect:
+  // o IO antes inicializava em true (otimista), mas após remount entre grupos
+  // ele podia disparar uma vez com isIntersecting=false enquanto o slot ainda
+  // tinha rect zero (flex layout não consolidado), e ficava preso porque a
+  // transição "rect zero → rect cheio" não cruza o threshold de 0.1.
+  // Ler o rect direto no mount evita esse lock-in.
+  const intersectingRef = useRef(false);
   useEffect(() => {
     const slot = slotRef.current;
     if (!slot) return;
+    const rect = slot.getBoundingClientRect();
+    intersectingRef.current = rect.width > 0 && rect.height > 0;
     const obs = new IntersectionObserver(([entry]) => {
       intersectingRef.current = entry.isIntersecting;
     }, { threshold: 0.1 });
@@ -372,7 +381,16 @@ export default function TerminalPane({ session, onSessionEnded, isMobile = false
       if (typeof document === 'undefined') return;
       if (document.visibilityState !== 'visible') return;
       if (!document.hasFocus()) return;
-      if (!intersectingRef.current) return;
+      if (!intersectingRef.current) {
+        // Reconciliação: se o IO ficou preso em false após remount mas o slot
+        // está visível agora (rect > 0), recupera. Custa um getBoundingClientRect
+        // a cada 10s só quando o ref está false — desprezível.
+        const slot = slotRef.current;
+        if (!slot) return;
+        const rect = slot.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) return;
+        intersectingRef.current = true;
+      }
       if (Date.now() - lastUserActivityTs > USER_ACTIVITY_THRESHOLD_MS) return;
       try { ws.send(JSON.stringify({ type: 'viewing' })); } catch {}
     };
