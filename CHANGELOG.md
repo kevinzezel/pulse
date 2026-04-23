@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [1.7.1] — 2026-04-23
+
+### Changed
+
+- **Notification snippet strips box-drawing decoration from agent TUIs.** Agent CLIs like Claude Code (draws `─`/U+2500 bars) and Cursor (draws `▄`/`▀` half blocks) sandwich their input area in thick horizontal separators — when Telegram renders the `<pre>` snippet, those lines show up as large solid black rectangles that push the actually-useful content (agent replies, status lines, `❯` prompt) out of the visible body. Two cases are handled: (1) **pure-border lines** — a line whose content is only ≥2 border chars (`─`/`━`/`═`/`▀`/`▄`/`█`) plus optional whitespace — are dropped entirely; (2) **border-decorated label lines** — a line that starts with ≥10 border chars but also contains text (e.g. Claude Code's `──────── fix-sessions-json-empty-install ──`, which visually wraps into multiple dash-rows on mobile) have every run of border chars collapsed to a single space, leaving just the label text. Lines without border chars, or with only a few scattered, are untouched; non-agent sessions (shell, htop, vim) are unaffected. Effective result: Telegram notifications now show the conversation + the branch/mode label inline, instead of two walls of black bars sandwiching them.
+
 ## [1.7.0] — 2026-04-23
 
 ### Added
@@ -391,7 +397,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.7.0...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.7.1...HEAD
+[1.7.1]: https://github.com/kevinzezel/pulse/releases/tag/v1.7.1
 [1.7.0]: https://github.com/kevinzezel/pulse/releases/tag/v1.7.0
 [1.6.1]: https://github.com/kevinzezel/pulse/releases/tag/v1.6.1
 [1.6.0]: https://github.com/kevinzezel/pulse/releases/tag/v1.6.0

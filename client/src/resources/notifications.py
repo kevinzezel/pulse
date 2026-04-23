@@ -1,6 +1,7 @@
 import asyncio
 import hashlib
 import logging
+import re
 import time
 
 logger = logging.getLogger(__name__)
@@ -9,6 +10,31 @@ WATCHER_INTERVAL_SECONDS = 5
 CAPTURE_LINES = 100
 SNIPPET_MAX_LINES = 20
 SNIPPET_MAX_CHARS = 3500
+# Lines that are ONLY box-drawing border chars (plus surrounding whitespace)
+# — the bare separator bars around agent input boxes.
+_BORDER_ONLY_LINE_RE = re.compile(r"^\s*[─━═▀▄█]{2,}\s*$")
+# Lines that START with a long run of border chars but also contain a
+# label (e.g. Claude Code's `──────── fix-sessions-json-empty-install ─`).
+# Visually in the Telegram <pre>, the many ─ before/after the label wrap
+# into several "wall of dash" rows. We strip the border decoration and
+# keep just the text inside.
+_BORDER_DECORATED_LINE_RE = re.compile(r"^\s*[─━═▀▄█]{10,}")
+# Any run of border chars (to replace with a single space when stripping).
+_BORDER_RUN_RE = re.compile(r"[─━═▀▄█]+")
+
+
+def _clean_snippet_line(line):
+    """Drop or de-decorate a line for the notification snippet.
+
+    Returns None if the line is pure borders and should be dropped.
+    Returns the stripped text when the line has a border-decorated label
+    (keeps the label, loses the bars). Returns the line unchanged otherwise.
+    """
+    if _BORDER_ONLY_LINE_RE.match(line):
+        return None
+    if _BORDER_DECORATED_LINE_RE.match(line):
+        return _BORDER_RUN_RE.sub(" ", line).strip()
+    return line
 
 # Watcher state keyed by session id. Owned exclusively by notification_watcher()
 # which runs as a single asyncio task, so no lock is required.
@@ -44,8 +70,14 @@ def _format_pane_snippet(content):
     lines = [ln.rstrip() for ln in content.rstrip("\n").split("\n")]
     while lines and not lines[-1]:
         lines.pop()
-    lines = lines[-SNIPPET_MAX_LINES:]
-    text = "\n".join(lines)
+    cleaned = []
+    for ln in lines:
+        out = _clean_snippet_line(ln)
+        if out is None:
+            continue
+        cleaned.append(out)
+    cleaned = cleaned[-SNIPPET_MAX_LINES:]
+    text = "\n".join(cleaned)
     if len(text) > SNIPPET_MAX_CHARS:
         text = "…\n" + text[-SNIPPET_MAX_CHARS:]
     return text
