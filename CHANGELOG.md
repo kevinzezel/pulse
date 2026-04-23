@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [1.6.1] — 2026-04-23
+
+### Fixed
+
+- **Storage tab reloaded into the wrong settings tab.** After any action in Settings → Storage that forces a full-page reload (activate Mongo/S3, sync push, sync pull, deactivate), the page came back on the default `servers` tab because the Settings page picks `activeTab` from `?tab=` in the URL at mount and the reload wasn't passing it. `reloadPage()` in `StorageTab.jsx` now calls `window.history.replaceState(null, '', '/settings?tab=storage')` immediately before `window.location.reload()`, so the browser re-mounts on the Storage tab — same visual continuity as `use router.replace() then reload`, one fewer redirect.
+
 ## [1.6.0] — 2026-04-23
 
 ### Added
@@ -359,7 +365,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.6.0...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.6.1...HEAD
+[1.6.1]: https://github.com/kevinzezel/pulse/releases/tag/v1.6.1
 [1.6.0]: https://github.com/kevinzezel/pulse/releases/tag/v1.6.0
 [1.5.0]: https://github.com/kevinzezel/pulse/releases/tag/v1.5.0
 [1.4.20]: https://github.com/kevinzezel/pulse/releases/tag/v1.4.20

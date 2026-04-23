@@ -240,7 +240,13 @@ export default function StorageTab() {
   useEffect(() => { refresh(); }, []);
 
   function reloadPage() {
-    if (typeof window !== 'undefined') window.location.reload();
+    if (typeof window === 'undefined') return;
+    // Rewrite the URL so the post-reload page lands back on the Storage tab
+    // (Settings reads `?tab=…` from search params on mount).
+    try {
+      window.history.replaceState(null, '', '/settings?tab=storage');
+    } catch {}
+    window.location.reload();
   }
 
   async function handleActivateFile() {
