@@ -6,6 +6,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [1.9.1] — 2026-04-23
+
+### Fixed
+
+- **install (Windows): erros do instalador agora ficam visíveis mesmo quando a janela do PowerShell fecha sozinha.** O `install.ps1` passou a (a) capturar tudo num arquivo `%TEMP%\pulse-install-<timestamp>.log` via `Start-Transcript` e (b) abrir uma `MessageBox` nativa do Windows (WPF) sempre que aborta com erro fatal — popup que sobrevive ao console fechando logo após `exit 1`. Antes, em ambientes onde a janela termina ao sair (clique-direito em `.ps1` "Run with PowerShell", atalhos com `powershell -Command "..."`, perfis do Windows Terminal configurados pra fechar), o usuário só conseguia ler a mensagem se filmasse a tela e pausasse no frame certo. Os dois `exit 1` "soltos" no main (`Test-Wsl2` e `Test-WslSystemd`) foram convertidos pra `Write-ErrExit` para herdar o mesmo tratamento — antes esses caminhos saíam sem fechar transcript nem disparar MessageBox, justamente os casos mais frequentes de falha. Fallback final é `Read-Host` quando WPF não está disponível (PowerShell Core no Linux/macOS, Windows Server Core).
+- **install (Windows): rejeita corretamente `docker-desktop`/`rancher-desktop` quando elas são a única "distro" WSL instalada.** A função `Get-DefaultDistro` já rejeitava container-engine VMs no caminho do default explícito (`*` em `wsl -l -v`), mas no caminho de fallback (`Invoke-Wsl -l -q` quando nenhuma distro está marcada como default) ela aceitava qualquer item — incluindo `docker-desktop`. O fluxo seguia até bater em `Test-WslSystemd`, que falhava com mensagem genérica de "systemd não está rodando" (porque `docker-desktop` não roda systemd) em vez de orientar o usuário a instalar uma distro Linux real. Agora o fallback aplica a mesma rejeição e aborta com mensagem específica: `"The only WSL distro installed is 'docker-desktop' ... Run: wsl --install -d Ubuntu"`. Cenário típico onde isso aparecia: máquina com Docker Desktop instalado mas sem nenhuma distro Ubuntu/Debian/etc.
+
 ## [1.9.0] — 2026-04-23
 
 ### Added
@@ -470,7 +477,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.9.0...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.9.1...HEAD
+[1.9.1]: https://github.com/kevinzezel/pulse/releases/tag/v1.9.1
 [1.9.0]: https://github.com/kevinzezel/pulse/releases/tag/v1.9.0
 [1.8.0]: https://github.com/kevinzezel/pulse/releases/tag/v1.8.0
 [1.7.5]: https://github.com/kevinzezel/pulse/releases/tag/v1.7.5

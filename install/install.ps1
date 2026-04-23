@@ -25,7 +25,31 @@ $Repo      = "$RepoOwner/$RepoName"
 
 function Write-Status  ($msg) { Write-Host "[pulse] $msg" -ForegroundColor Green }
 function Write-Warn    ($msg) { Write-Host "[pulse] $msg" -ForegroundColor Yellow }
-function Write-ErrExit ($msg) { Write-Host "[pulse] $msg" -ForegroundColor Red; exit 1 }
+
+# Fatal errors must remain visible even when the host window closes immediately
+# after `exit 1` (clique-direito em .ps1, atalho com `powershell -Command`,
+# perfis do Windows Terminal que encerram ao sair). Defense-in-depth:
+#   1. Stop the transcript so the failure is captured on disk.
+#   2. Pop a native MessageBox (WPF) — survives the console disappearing.
+#   3. Read-Host fallback for environments without WPF (Server Core, PS Core
+#      on non-Windows). In a closing-window scenario this returns immediately,
+#      but it's the cheapest last-ditch attempt to hold the console open.
+function Write-ErrExit ($msg) {
+    Write-Host "[pulse] $msg" -ForegroundColor Red
+    if ($script:LogPath) {
+        Write-Host ""
+        Write-Host "Full log saved to: ${script:LogPath}" -ForegroundColor Yellow
+    }
+    try { Stop-Transcript | Out-Null } catch {}
+    try {
+        Add-Type -AssemblyName PresentationFramework -ErrorAction Stop
+        $body = if ($script:LogPath) { "$msg`n`nFull log: ${script:LogPath}" } else { $msg }
+        [System.Windows.MessageBox]::Show($body, 'Pulse installer failed', 'OK', 'Error') | Out-Null
+    } catch {
+        try { Read-Host "Press Enter to close" | Out-Null } catch {}
+    }
+    exit 1
+}
 
 function Show-Banner {
     @"
@@ -98,8 +122,26 @@ function Get-DefaultDistro {
         }
     }
     # Fallback when no '*' line matched (unusual — but better than nothing).
+    # Apply the same container-engine-VM rejection here. Without this, an
+    # install where docker-desktop is the only distro (no explicit default)
+    # passed straight through and Test-WslSystemd reported the misleading
+    # "systemd is not running" message instead of "you have no real Linux
+    # distro — install Ubuntu first".
     $distros = Invoke-Wsl -l -q
-    if ($distros.Count -gt 0) { return $distros[0] }
+    foreach ($d in $distros) {
+        if ($d -match '^(docker-desktop|rancher-desktop)') { continue }
+        return $d
+    }
+    if ($distros.Count -gt 0) {
+        Write-ErrExit @"
+The only WSL distro installed is '$($distros[0])', which is a container-engine VM (not a real Linux distro).
+Install Ubuntu first:
+  1) Open PowerShell as Administrator
+  2) Run: wsl --install -d Ubuntu
+  3) Restart your PC and complete the Ubuntu setup
+  4) Re-run this installer
+"@
+    }
     return $null
 }
 
@@ -212,34 +254,42 @@ function Show-Success ($url) {
 # -----------------------------------------------------------------------------
 Show-Banner
 
+# Capture everything to a log file so the user can inspect the failure
+# afterwards even when the console window closes immediately on exit.
+# Timestamped filename keeps each run self-contained — installer is rare and
+# logs are tiny, so unbounded growth isn't a concern.
+$script:LogPath = Join-Path $env:TEMP "pulse-install-$(Get-Date -Format 'yyyyMMdd-HHmmss').log"
+try { Start-Transcript -Path $script:LogPath -Append | Out-Null } catch {}
+
 if (-not (Test-Wsl2)) {
-    Write-Warn "WSL2 is not installed (or has no Linux distro)."
-    Write-Host ""
-    Write-Host "Pulse on Windows runs inside WSL2 (so tmux is available)."
-    Write-Host "Install WSL2 and try again:"
-    Write-Host ""
-    Write-Host "  1) Open PowerShell as Administrator"
-    Write-Host "  2) Run: wsl --install"
-    Write-Host "  3) Restart your PC"
-    Write-Host "  4) Complete the Ubuntu setup when it launches"
-    Write-Host "  5) Re-run this installer in PowerShell (non-admin):"
-    Write-Host "       irm https://raw.githubusercontent.com/$Repo/main/install/install.ps1 | iex"
-    Write-Host ""
-    exit 1
+    Write-ErrExit @"
+WSL2 is not installed (or has no Linux distro).
+
+Pulse on Windows runs inside WSL2 (so tmux is available). Install WSL2 and try again:
+
+  1) Open PowerShell as Administrator
+  2) Run: wsl --install
+  3) Restart your PC
+  4) Complete the Ubuntu setup when it launches
+  5) Re-run this installer in PowerShell (non-admin):
+       irm https://raw.githubusercontent.com/$Repo/main/install/install.ps1 | iex
+"@
 }
 
 if (-not (Test-WslSystemd)) {
-    Write-Warn "systemd is not running inside your WSL distro."
-    Write-Host ""
-    Write-Host "Pulse uses systemd user units. Enable it once, then re-run:"
-    Write-Host ""
-    Write-Host "  1) In WSL:         sudo sh -c 'printf `"[boot]\nsystemd=true\n`" >> /etc/wsl.conf'"
-    Write-Host "  2) In PowerShell:  wsl --shutdown"
-    Write-Host "  3) Wait a few seconds, then re-run this installer."
-    Write-Host ""
-    exit 1
+    Write-ErrExit @"
+systemd is not running inside your WSL distro.
+
+Pulse uses systemd user units. Enable it once, then re-run:
+
+  1) In WSL:         sudo sh -c 'printf "[boot]\nsystemd=true\n" >> /etc/wsl.conf'
+  2) In PowerShell:  wsl --shutdown
+  3) Wait a few seconds, then re-run this installer.
+"@
 }
 
 Invoke-WslBootstrap
 $url = Install-WindowsShortcuts
 if ($url) { Show-Success $url }
+
+try { Stop-Transcript | Out-Null } catch {}
