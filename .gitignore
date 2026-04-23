@@ -4,7 +4,7 @@ node_modules
 __pycache__
 .superpowers
 # Internal planning artifacts (brainstorming/specs) — kept local, not in git
-docs/
+docs/superpowers
 client/data/*
 frontend/data/*
 frontend/.env

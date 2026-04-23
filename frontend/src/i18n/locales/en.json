@@ -664,5 +664,20 @@
     },
     "titlePlaceholder": "Untitled",
     "bodyPlaceholder": "Type here…"
+  },
+  "update": {
+    "modal": {
+      "title": "Update available — Pulse v{version}",
+      "subtitle": "{count} server(s) need updating",
+      "instructions": "Open your terminal (on Windows: WSL terminal) and run the command below on each server's machine:",
+      "currentLabel": "Current",
+      "latestLabel": "Latest",
+      "unknownVersion": "Unknown — old version",
+      "copyButton": "Copy",
+      "copiedToast": "Command copied",
+      "dismissButton": "Remind me in 24h",
+      "releaseNotesButton": "Release notes",
+      "closeAria": "Close"
+    }
   }
 }

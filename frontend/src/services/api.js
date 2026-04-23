@@ -801,3 +801,20 @@ export async function syncCloudToLocal() {
   return localRequest('/api/storage-sync/cloud-to-local', { method: 'POST' });
 }
 
+// ===== Update notifier =====
+
+const SERVER_VERSION_TIMEOUT_MS = 5000;
+
+export async function getServerVersion(serverId) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), SERVER_VERSION_TIMEOUT_MS);
+  try {
+    return await request(serverId, '/api/version', { signal: controller.signal });
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+export function getUpdateStatus() {
+  return localRequest('/api/update-status');
+}

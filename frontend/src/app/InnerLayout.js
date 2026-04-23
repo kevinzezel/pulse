@@ -6,6 +6,7 @@ import { I18nProvider } from '@/providers/I18nProvider';
 import { ProjectsProvider } from '@/providers/ProjectsProvider';
 import { ViewStateProvider } from '@/providers/ViewStateProvider';
 import { ServersProvider } from '@/providers/ServersProvider';
+import { UpdateNotifierProvider } from '@/providers/UpdateNotifierProvider';
 import { NotificationsProvider } from '@/providers/NotificationsProvider';
 import { NotesProvider } from '@/providers/NotesProvider';
 import { NotesFab } from '@/components/Notes/NotesFab';
@@ -18,24 +19,26 @@ export default function InnerLayout({ children }) {
         <ProjectsProvider>
           <ViewStateProvider>
             <ServersProvider>
-              <NotificationsProvider>
-                <NotesProvider>
-                  {children}
-                  <NotesFab />
-                  <NotesManager />
-                  <Toaster
-                    position="bottom-right"
-                    toastOptions={{
-                      duration: 4000,
-                      style: {
-                        background: 'hsl(var(--card))',
-                        color: 'hsl(var(--card-foreground))',
-                        border: '1px solid hsl(var(--border))',
-                      },
-                    }}
-                  />
-                </NotesProvider>
-              </NotificationsProvider>
+              <UpdateNotifierProvider>
+                <NotificationsProvider>
+                  <NotesProvider>
+                    {children}
+                    <NotesFab />
+                    <NotesManager />
+                    <Toaster
+                      position="bottom-right"
+                      toastOptions={{
+                        duration: 4000,
+                        style: {
+                          background: 'hsl(var(--card))',
+                          color: 'hsl(var(--card-foreground))',
+                          border: '1px solid hsl(var(--border))',
+                        },
+                      }}
+                    />
+                  </NotesProvider>
+                </NotificationsProvider>
+              </UpdateNotifierProvider>
             </ServersProvider>
           </ViewStateProvider>
         </ProjectsProvider>

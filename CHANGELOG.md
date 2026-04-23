@@ -6,6 +6,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [1.10.0] — 2026-04-23
+
+### Added
+
+- **Notificação proativa de nova versão no dashboard.** O frontend agora alerta automaticamente quando há release nova do Pulse no GitHub, sem o usuário precisar rodar `pulse check-updates` à mão. A cada 1h o `UpdateNotifierProvider` (`frontend/src/providers/UpdateNotifierProvider.jsx`) consulta a rota Next.js server-side `GET /api/update-status` (cache em memória de 1h, exponential backoff de 3 tentativas com delays `[0, 1s, 2s]`, respeito ao `X-RateLimit-Reset` do GitHub e cache negativo de 5min para não martelar após falha) que devolve a `tag_name` da última release de `kevinzezel/pulse`. Em paralelo, via `Promise.allSettled`, busca a versão atual de cada server cadastrado pelo novo endpoint autenticado `GET /api/version` no client Python (`client/src/routes/version.py`). Se algum server estiver desatualizado, abre um modal único listando-os (server `current → latest`) com o comando `pulse upgrade` em destaque + botão de copiar, link para as release notes do GitHub e botão "Remind me in 24h". Servers offline somem da lista; servers em versão pré-feature (404 no endpoint) aparecem como "Unknown — old version" para forçar a primeira atualização. O dismiss persiste em `localStorage.rt:updateDismiss` por 24h, mas é invalidado imediatamente se sair release ainda mais nova durante o silêncio. i18n completo em pt-BR/en/es sob a chave `update.modal.*`.
+- **Três guias técnicos novos em `docs/`:** `SELF-HOSTING.md` (CLI `pulse`, arquivos de config em `~/.config/pulse/`, behind a reverse proxy, networking defaults pra Linux/macOS/WSL2), `STORAGE.md` (drivers Local/MongoDB/S3 detalhados, setup R2/MinIO/B2/GCS/Spaces, sync local↔cloud, behavior notes sobre hot-reload, fail-fast, optimistic locks e legacy migration de v1.5.x) e `MULTI-SERVER.md` (install client-only/dashboard-only, registro no dashboard, arquitetura típica). Pasta `docs/superpowers/` intacta. Conteúdo extraído do README pra deixar o pitch enxuto sem perder profundidade.
+
+### Changed
+
+- **README reescrito pra atrair contribuidores.** De 416 → 205 linhas. Tagline pain-point first ("Stop babysitting your AI coding agents") substitui o "Your AI coding cockpit"; blockquote "Who is this for?" logo após o pitch elimina ambiguidade em 5s; features reordenadas por força (idle alerts → mobile → multi-server → multi-projeto → context → jump-to-code → polish); as seções de self-hosting, storage e multi-server (~200 linhas) viraram links pra `docs/`. Quatro diferenciais técnicos do código que estavam silenciados no texto antigo agora aparecem na vitrine: as 5 regras anti-spam do `notification_watcher` com link pro `NOTIFICATIONS.md`, o ED3 fix do `xterm.js` que mantém o scrollback do Claude Code vivo após `/compact` (workaround pra anthropics/claude-code#16310 — diferencial real e raro), o recover-on-restart com snapshot de sessões pós-reboot e o capture-as-text per-pane que funciona até em apps alt-screen. Pin de versão atualizado de `v1.3.2` (desatualizado) pra `v1.9.2`. Themes/i18n e cloud sync agrupados em "Polish" com link pro `docs/STORAGE.md` em vez do bloco gigante anterior.
+
 ## [1.9.2] — 2026-04-23
 
 ### Fixed
@@ -487,7 +498,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.9.2...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.10.0...HEAD
+[1.10.0]: https://github.com/kevinzezel/pulse/releases/tag/v1.10.0
 [1.9.2]: https://github.com/kevinzezel/pulse/releases/tag/v1.9.2
 [1.9.1]: https://github.com/kevinzezel/pulse/releases/tag/v1.9.1
 [1.9.0]: https://github.com/kevinzezel/pulse/releases/tag/v1.9.0
