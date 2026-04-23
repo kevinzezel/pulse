@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [1.7.5] — 2026-04-23
+
+### Fixed
+
+- **Floating note body now behaves like a plain textarea — cursor stays where you click, selection works, scroll is preserved.** `NoteBody.jsx` previously toggled between a read-only `<div>` (whitespace-pre-wrap, with a custom `[ ]`/`[x]` markdown parser that rendered task-style checkboxes as clickable HTML inputs) and a `<textarea>` for editing. Each toggle re-mounted the textarea with `selectionStart=0` and `scrollTop=0`, so re-clicking a long note to continue writing always reset the scroll to the top — and clicking a word in the middle of the visible text put the caret at position 0 instead of where you clicked, breaking selections and mid-text edits. Root cause: the toggle existed *only* to support the clickable-checkbox rendering on the read-only side, and the two elements (`<div>` and `<textarea>`) are separate DOM nodes that can't share scroll/selection state. Fix: drop the toggle, render the textarea unconditionally. The `<div>` view-mode, the parser, the `editing` state, the focus `useEffect`, and the `toggleCheckbox` helper are all gone (~40 lines removed, ~15 lines remain). You can still type `[ ]`/`[x]` in a note — they're just literal text now, no longer rendered as interactive checkboxes. Trade-off was discussed and accepted explicitly.
+
 ## [1.7.4] — 2026-04-23
 
 ### Fixed
@@ -420,7 +426,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.7.4...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.7.5...HEAD
+[1.7.5]: https://github.com/kevinzezel/pulse/releases/tag/v1.7.5
 [1.7.4]: https://github.com/kevinzezel/pulse/releases/tag/v1.7.4
 [1.7.3]: https://github.com/kevinzezel/pulse/releases/tag/v1.7.3
 [1.7.2]: https://github.com/kevinzezel/pulse/releases/tag/v1.7.2
