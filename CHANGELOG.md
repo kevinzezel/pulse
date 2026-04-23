@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [1.7.2] — 2026-04-23
+
+### Fixed
+
+- **Linux systemd dashboard service now finds `npx` when node is installed via nvm/volta/fnm.** The `pulse.service` unit hardcoded `PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin`, which excludes every per-user node version manager. On machines where node was installed *only* via nvm (the default on Ubuntu/Debian dev setups), `systemctl --user start pulse.service` died on boot with `/bin/sh: 1: exec: npx: not found` and restarted five times before hitting `StartLimitBurst` and giving up — leaving `pulse-client.service` running (which uses an absolute-path venv uvicorn) but the dashboard unreachable. The fix mirrors the pattern already used by the macOS launchd template for Homebrew node: the `ExecStart=` shell now probes `$HOME/.nvm/versions/node/<latest>/bin` (picking the highest version via `sort -V`), `$HOME/.volta/bin`, and `$HOME/.local/share/fnm/aliases/default/bin`, prepending any that exist to `$PATH` before `exec npx next start …`. System node in `/usr/bin` still works through the original `Environment=PATH` fallback. Users hitting this on an already-installed Pulse can either re-run the installer (which re-copies the updated template) or patch `~/.config/systemd/user/pulse.service` by hand and `systemctl --user daemon-reload && systemctl --user restart pulse.service`.
+
 ## [1.7.1] — 2026-04-23
 
 ### Changed
@@ -397,7 +403,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.7.1...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.7.2...HEAD
+[1.7.2]: https://github.com/kevinzezel/pulse/releases/tag/v1.7.2
 [1.7.1]: https://github.com/kevinzezel/pulse/releases/tag/v1.7.1
 [1.7.0]: https://github.com/kevinzezel/pulse/releases/tag/v1.7.0
 [1.6.1]: https://github.com/kevinzezel/pulse/releases/tag/v1.6.1
