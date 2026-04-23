@@ -15,7 +15,11 @@ Environment=NODE_ENV=production
 # systemd when Next spawns internal workers; pinning the path guarantees
 # sessions.json / notes.json / etc. land in the right directory.
 Environment=PULSE_FRONTEND_ROOT=%h/.local/share/pulse/frontend
-ExecStart=/bin/sh -c 'exec npx next start -H "$WEB_HOST" -p "$WEB_PORT"'
+# Systemd user services don't inherit the login shell's PATH, so node installed
+# via nvm/volta/fnm is invisible. Detect common user-level node managers and
+# prepend them to PATH before execing npx; system node in /usr/bin remains the
+# fallback via the Environment=PATH above.
+ExecStart=/bin/sh -c 'if [ -d "$HOME/.nvm/versions/node" ]; then v=$(ls -1 "$HOME/.nvm/versions/node" 2>/dev/null | sort -V | tail -n1); [ -n "$v" ] && PATH="$HOME/.nvm/versions/node/$v/bin:$PATH"; fi; [ -d "$HOME/.volta/bin" ] && PATH="$HOME/.volta/bin:$PATH"; [ -d "$HOME/.local/share/fnm/aliases/default/bin" ] && PATH="$HOME/.local/share/fnm/aliases/default/bin:$PATH"; export PATH; exec npx next start -H "$WEB_HOST" -p "$WEB_PORT"'
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal
