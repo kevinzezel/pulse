@@ -25,12 +25,15 @@ async def broadcast(event: dict[str, Any]) -> None:
         snapshot = list(_clients)
     if not snapshot:
         return
+    # Envio paralelo: um cliente lento não atrasa o envio para os outros.
+    results = await asyncio.gather(
+        *[ws.send_json(event) for ws in snapshot],
+        return_exceptions=True,
+    )
     dead: list[WebSocket] = []
-    for ws in snapshot:
-        try:
-            await ws.send_json(event)
-        except Exception as exc:
-            logger.debug("Broadcast send failed, dropping client: %s", exc)
+    for ws, result in zip(snapshot, results):
+        if isinstance(result, Exception):
+            logger.debug("Broadcast send failed, dropping client: %s", result)
             dead.append(ws)
     if dead:
         async with _lock:

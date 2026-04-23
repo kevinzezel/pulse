@@ -118,6 +118,8 @@ fi
 
 [ "$INSTALL_MODE" = "only" ] && exit 0
 
+pulse_check_port "$WEB_PORT" "frontend"
+
 if [ "$MODE" = "prod" ]; then
     pulse_log "build + start at http://$WEB_HOST:$WEB_PORT"
     npm run build

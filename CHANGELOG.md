@@ -6,6 +6,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [1.8.0] — 2026-04-23
+
+### Added
+
+- **Idle alert agora respeita "estou vendo o terminal" (regra "tô olhando").** Cada `<TerminalPane>` no frontend manda um heartbeat `{type: 'viewing'}` a cada 10 s pelo WebSocket existente do terminal **se e somente se** as quatro condições forem verdadeiras: `document.visibilityState === 'visible'`, `document.hasFocus()`, o terminal está na viewport (via `IntersectionObserver` com threshold 0.1), e houve `mousemove`/`keydown`/`pointerdown`/`wheel`/`touchstart` na página nos últimos 30 s. O backend grava `last_viewing_ts` na sessão e o `notification_watcher` usa uma nova **Rule 5** (`now - last_viewing_ts < VIEWING_GRACE_SECONDS = 15s`) que suprime o alerta quando você está vendo. Sai da aba / minimiza / scrolla o terminal pra fora da viewport / vai pegar café (mouse parado por 30 s+) → para de mandar heartbeat → 15 s depois o backend "esquece" e os alertas voltam a poder disparar normalmente. Resolve dois sintomas comuns: (1) alerta dispara ao logar e abrir um terminal porque o `resize`/SIGWINCH do attach inicial mudou a tela do tmux capturada, resetando o cronômetro de idle; (2) alerta dispara enquanto você navega TUI de agente (Claude Code / Cursor / Gemini CLI) com setas pra escolher uma opção — o handler de input já ignora escape sequences pro contador `bytes_since_enter`, então a Regra 2 não suprimia. Com Rule 5, ambos os casos somem porque você está olhando.
+- **Verificação de porta com kill assistido nos `start.sh`.** Antes de spawnar o uvicorn (cliente) ou o `next start`/`next dev` (frontend), os scripts agora checam se a porta-alvo está em uso e, se estiver, listam os PIDs/comandos que a estão segurando e perguntam interativamente `Kill <service> on port <N> and continue? [Y/n]` (default Y, Enter confirma). Aceito → manda `SIGTERM` em todos os PIDs (com fallback `fuser -k -TERM`), espera até 5 s pelo socket liberar, escala pra `SIGKILL` se necessário, e prossegue. Recusado → aborta com mensagem clara. A detecção usa `bash`'s built-in `/dev/tcp` (zero dependências externas) que mirroreia exatamente o que o uvicorn/next tentam no bind — fonte da verdade, não fica refém de `lsof`/`ss`/`fuser` que podem lagar durante teardown e reportar porta livre quando o socket ainda está bound. PID enumeration usa `lsof`, `ss` ou `fuser` (o que estiver disponível) só para mostrar quem é o dono. O `start.sh` raiz roda os dois checks **sequencialmente antes** de backgroundar os filhos — backgroundar o prompt enterraria a pergunta no output do outro filho concorrendo pelo mesmo `/dev/tty`. Função reutilizável `pulse_check_port` exportada em `install/lib/common.sh`, sourcing automático em todos os start.sh.
+
+### Changed
+
+- **`TIMEOUT_MIN` do idle subiu de 5 → 15 segundos.** O range válido agora é 15-3600s. Por que: a Rule 5 ("tô olhando") usa um grace de 15 s para absorver gap entre heartbeats e re-mounts do react-mosaic; o `TIMEOUT_MIN` precisava ser ≥ grace para a interação fazer sentido. Migração automática lazy: `load_settings` (`client/src/resources/settings.py`) detecta se o valor salvo no `data/settings.json` está abaixo do novo mínimo, faz clamp em memória e **persiste imediatamente** no disco com `save_settings()` (com log `idle_timeout_seconds drifted (5 → 15); persisting clamp`), então o JSON fica em sincronia com o que o sistema usa de fato — sem valor "fantasma" no disco. Frontend (`NotificationsTab.jsx` + i18n hints `notes.toolbar.timeoutHint` em pt-BR/en/es) também atualizado: `clampTimeout` e `<input min={15}>` rejeitam digitar abaixo de 15.
+- **`broadcast()` dos eventos de notificação agora envia em paralelo** (`asyncio.gather(..., return_exceptions=True)` em vez de loop serial com `await`). Um cliente WebSocket lento não atrasa mais o envio para os outros — útil quando você tem várias abas abertas e a do celular está com WiFi ruim, a do desktop não fica esperando.
+
+### Fixed
+
+- **`send_telegram_message` não bloqueia mais o event loop.** Estava sendo chamado direto de dentro do `notification_watcher` (asyncio task) sem `asyncio.to_thread`, e a função usa `urllib.request.urlopen` com timeout de 10 s. Resultado: se o Telegram tava lento ou inalcançável, **todo o event loop do Python congelava por até 10 s** — todos os WebSockets de terminal travavam (o output do tmux ficava empilhado), o WebSocket de notificação não conseguia broadcastar pra outras sessões, e o próprio watcher não pollava as outras sessões. Fix: `await asyncio.to_thread(send_telegram_message, ...)`. Compare com `capture_pane` na mesma `notifications.py:178` que já estava corretamente em `asyncio.to_thread`.
+- **Compose draft sem Enter não dispara mais alerta idle falso.** O endpoint `POST /sessions/{id}/send-text` chamava `send_text_to_session` direto pro tmux sem tocar o estado da sessão (`bytes_since_enter`/`last_input_ts`/`last_enter_ts`), enquanto o handler do WebSocket de input atualizava esses campos a cada keystroke. Resultado: você usa o compose pra pré-popular um comando longo (ex: `git commit -m "..."`) sem mandar Enter, deixa lá pra revisar; o `idle_timeout` passa; a Regra 2 do watcher (`bytes_since_enter == 0`) não suprime; alerta dispara. Fix: o handler do `send-text` agora espelha exatamente a lógica do handler do WS de input (incrementa contador se `send_enter=False`, zera + grava `last_enter_ts` se `True`, sempre atualiza `last_input_ts`).
+- **Timeout do `tmux capture-pane` não é mais silencioso.** Antes, `subprocess.TimeoutExpired` era capturado junto com `FileNotFoundError` num único `except` que retornava `None` sem nenhum log. Se o servidor tmux ficava lento crônico, o user simplesmente parava de receber alertas e não tinha pista nenhuma do porquê. Agora, `TimeoutExpired` é tratado num `except` separado com `logger.warning(f"capture_pane timeout for {session_id}")` — diagnóstico claro no log do client.
+
 ## [1.7.5] — 2026-04-23
 
 ### Fixed
@@ -426,7 +444,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.7.5...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.8.0...HEAD
+[1.8.0]: https://github.com/kevinzezel/pulse/releases/tag/v1.8.0
 [1.7.5]: https://github.com/kevinzezel/pulse/releases/tag/v1.7.5
 [1.7.4]: https://github.com/kevinzezel/pulse/releases/tag/v1.7.4
 [1.7.3]: https://github.com/kevinzezel/pulse/releases/tag/v1.7.3

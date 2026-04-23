@@ -265,7 +265,12 @@ def capture_pane(session_id, lines=100):
             ['tmux', 'capture-pane', '-p', '-t', session_id, '-S', f'-{lines}'],
             capture_output=True, text=True, timeout=3.0,
         )
-    except (FileNotFoundError, subprocess.TimeoutExpired):
+    except FileNotFoundError:
+        return None
+    except subprocess.TimeoutExpired:
+        # Sem este log, um tmux server lento causa silêncio: o watcher pula a
+        # sessão sem alertar e o user não tem como saber por quê.
+        logger.warning(f"capture_pane timeout for {session_id}")
         return None
     if result.returncode != 0:
         return None

@@ -495,7 +495,7 @@
       "detect": "Detectar",
       "detectChatId": "Detectar chat ID a partir das mensagens recentes ao bot",
       "timeoutLabel": "Timeout de inatividade (segundos)",
-      "timeoutHint": "Uma sessão marcada é considerada idle depois desse tempo sem atividade. Mín 5, máx 3600.",
+      "timeoutHint": "Uma sessão marcada é considerada idle depois desse tempo sem atividade. Mín 15, máx 3600.",
       "configureFirst": "Configure o token antes de testar",
       "channelsLabel": "Canais de notificação",
       "channelBrowser": "Navegador",

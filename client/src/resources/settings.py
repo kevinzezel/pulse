@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 SETTINGS_FILE = Path(__file__).resolve().parents[2] / "data" / "settings.json"
 
-TIMEOUT_MIN = 5
+TIMEOUT_MIN = 15
 TIMEOUT_MAX = 3600
 DEFAULT_TIMEOUT = 30
 
@@ -72,12 +72,20 @@ def load_settings():
             timeout = int(timeout)
         except (TypeError, ValueError):
             timeout = DEFAULT_TIMEOUT
-        settings["notifications"]["idle_timeout_seconds"] = max(TIMEOUT_MIN, min(TIMEOUT_MAX, timeout))
+        clamped_timeout = max(TIMEOUT_MIN, min(TIMEOUT_MAX, timeout))
+        timeout_drifted = (clamped_timeout != notif.get("idle_timeout_seconds"))
+        settings["notifications"]["idle_timeout_seconds"] = clamped_timeout
         if "channels" in notif:
             settings["notifications"]["channels"] = _normalize_channels(notif.get("channels"))
         else:
             settings["notifications"]["channels"] = list(DEFAULT_CHANNELS)
         settings["editor"]["binary_override"] = str(editor.get("binary_override", "") or "").strip()
+    # Persiste valor já clampado quando o salvo em disco caiu fora do range válido
+    # (ex: após bump do TIMEOUT_MIN entre versões). Mantém o JSON em sincronia com
+    # o que o sistema de fato usa, em vez de carregar valor "fantasma" pra sempre.
+    if timeout_drifted:
+        logger.info(f"idle_timeout_seconds drifted ({notif.get('idle_timeout_seconds')!r} → {clamped_timeout}); persisting clamp")
+        save_settings()
     logger.info(f"Loaded settings (telegram configured: {bool(settings['telegram']['bot_token'])})")
 
 

@@ -153,6 +153,19 @@ def send_text(
         if session_id not in sessions:
             raise AppException(key="errors.session_not_found", status_code=404)
     send_text_to_session(session_id, text, send_enter)
+    # Espelha o handler do WS de input (resources/terminal.py:557-572): texto
+    # enviado via compose também conta como "atividade" para o watcher de idle.
+    # Sem isso, um draft pré-populado sem Enter dispara alerta falso.
+    now_ts = time.time()
+    with _sessions_lock:
+        s = sessions.get(session_id)
+        if s is not None:
+            s["last_input_ts"] = now_ts
+            if send_enter:
+                s["bytes_since_enter"] = 0
+                s["last_enter_ts"] = now_ts
+            else:
+                s["bytes_since_enter"] = s.get("bytes_since_enter", 0) + len(text or "")
     return build_i18n_response(request, 200, {"detail_key": "success.text_sent"})
 
 

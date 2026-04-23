@@ -495,7 +495,7 @@
       "detect": "Detect",
       "detectChatId": "Detect chat ID from recent messages to the bot",
       "timeoutLabel": "Idle timeout (seconds)",
-      "timeoutHint": "A monitored session is considered idle after this many seconds without activity. Min 5, max 3600.",
+      "timeoutHint": "A monitored session is considered idle after this many seconds without activity. Min 15, max 3600.",
       "configureFirst": "Configure the token before testing",
       "channelsLabel": "Notification channels",
       "channelBrowser": "Browser",

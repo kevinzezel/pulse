@@ -142,6 +142,8 @@ fi
 ensure_env
 [ "$INSTALL_MODE" = "only" ] && exit 0
 
+pulse_check_port "$API_PORT" "client"
+
 pulse_need_cmd uv || pulse_die "uv not on PATH. Run without --no-install, or install manually: curl -LsSf https://astral.sh/uv/install.sh | sh"
 
 VENV="$SCRIPT_DIR/.venv"

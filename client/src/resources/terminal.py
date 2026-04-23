@@ -84,6 +84,7 @@ def recover_sessions():
                 "project_name": get_project_name(sid),
                 "notify_on_idle": get_notify_on_idle(sid),
                 "bytes_since_enter": 0,
+                "last_viewing_ts": 0,
             }
             try:
                 num = int(sid.split('-')[1])
@@ -129,6 +130,7 @@ def sync_sessions_request():
                 "project_name": get_project_name(sid),
                 "notify_on_idle": get_notify_on_idle(sid),
                 "bytes_since_enter": 0,
+                "last_viewing_ts": 0,
             }
             if sid.startswith(f"{SESSION_PREFIX}-"):
                 try:
@@ -196,6 +198,7 @@ def create_session_request(payload):
             "project_name": project_name,
             "notify_on_idle": False,
             "bytes_since_enter": 0,
+            "last_viewing_ts": 0,
         }
         snapshot = dict(sessions[session_id])
 
@@ -254,6 +257,7 @@ def restore_sessions_request(payload):
                     "project_name": project_name,
                     "notify_on_idle": bool(item.get("notify_on_idle")),
                     "bytes_since_enter": 0,
+                    "last_viewing_ts": 0,
                 }
                 try:
                     num = int(sid.split('-')[1])
@@ -362,6 +366,7 @@ def clone_session_request(source_session_id):
             "project_name": source_project_name,
             "notify_on_idle": False,
             "bytes_since_enter": 0,
+            "last_viewing_ts": 0,
         }
         snapshot = dict(sessions[session_id])
 
@@ -572,6 +577,15 @@ async def websocket_terminal(websocket: WebSocket, session_id: str):
                             pass
                         else:
                             s["bytes_since_enter"] = s.get("bytes_since_enter", 0) + len(data)
+            elif msg_type == "viewing":
+                # Heartbeat de presença: o frontend manda enquanto o usuário
+                # está vendo este terminal (aba visível, janela em foco,
+                # terminal na viewport, mouse/teclado ativos). Suprime alerta
+                # idle no watcher (Rule 5) durante a janela de grace.
+                with _sessions_lock:
+                    s = sessions.get(session_id)
+                    if s is not None:
+                        s["last_viewing_ts"] = time.time()
             elif msg_type == "resize":
                 set_pty_size(fd, msg["rows"], msg["cols"])
                 try:

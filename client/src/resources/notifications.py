@@ -15,6 +15,11 @@ SNIPPET_MAX_CHARS = 3500
 # estado visual após cada resposta do user, mas ainda dá um lembrete se ficar
 # parado na mesma tela por muito tempo.
 NOTIFIED_HASH_TTL_SECONDS = 1800
+# Janela de "tô olhando": se o frontend mandou heartbeat 'viewing' nos últimos
+# N segundos, suprime alerta — o user está vendo o terminal, não precisa notif.
+# Maior que o intervalo de heartbeat (10s) com folga pra absorver jitter de rede
+# e re-mounts do react-mosaic durante drag/resize de painéis.
+VIEWING_GRACE_SECONDS = 15
 # Lines that are ONLY box-drawing border chars (plus surrounding whitespace)
 # — the bare separator bars around agent input boxes.
 _BORDER_ONLY_LINE_RE = re.compile(r"^\s*[─━═▀▄█]{2,}\s*$")
@@ -239,6 +244,14 @@ async def notification_watcher():
                     state["notified"] = True
                     continue
 
+                # Rule 5: usuário está vendo este terminal AGORA? Se o frontend
+                # mandou heartbeat 'viewing' nos últimos VIEWING_GRACE_SECONDS,
+                # suprime alerta — não marca notified=True, então quando o user
+                # sair de cena, a próxima rodada já avalia normal.
+                last_viewing = sess.get("last_viewing_ts", 0)
+                if last_viewing > 0 and (now - last_viewing) < VIEWING_GRACE_SECONDS:
+                    continue
+
                 name = sess.get("name", sid)
                 context = _compose_context(sess)
                 snippet = _format_pane_snippet(content)
@@ -269,7 +282,7 @@ async def notification_watcher():
                     if snippet:
                         msg += f"\n<pre>{_html_escape(snippet)}</pre>"
                     try:
-                        ok, detail = send_telegram_message(bot_token, chat_id, msg)
+                        ok, detail = await asyncio.to_thread(send_telegram_message, bot_token, chat_id, msg)
                         if ok:
                             logger.info(f"Idle notification sent for {sid} after {int(idle_seconds)}s")
                         else:

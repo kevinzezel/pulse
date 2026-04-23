@@ -12,7 +12,7 @@ import ServerSelector from './ServerSelector';
 function clampTimeout(v) {
   const n = parseInt(v, 10);
   if (Number.isNaN(n)) return 30;
-  return Math.max(5, Math.min(3600, n));
+  return Math.max(15, Math.min(3600, n));
 }
 
 function Toggle({ checked, onChange, disabled, label, icon }) {
@@ -281,7 +281,7 @@ export default function NotificationsTab() {
             <label className="text-xs text-muted-foreground">{t('settings.notifications.timeoutLabel')}</label>
             <input
               type="number"
-              min={5}
+              min={15}
               max={3600}
               value={timeoutSecs}
               onChange={(e) => setTimeoutSecs(e.target.value)}

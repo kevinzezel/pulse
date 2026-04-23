@@ -9,6 +9,22 @@ import { getXtermTheme } from '@/themes/xterm';
 
 const terminalCache = new Map();
 
+// Heartbeat de presença ("tô olhando"): cada TerminalPane manda a cada 10s no
+// WS já existente do terminal SE: aba visível + janela em foco + terminal na
+// viewport + houve mouse/teclado nos últimos 30s. O backend usa esse sinal pra
+// suprimir alerta idle (Rule 5 do watcher) — você não recebe notificação do que
+// está olhando.
+const VIEWING_HEARTBEAT_MS = 10000;
+const USER_ACTIVITY_THRESHOLD_MS = 30000;
+
+let lastUserActivityTs = typeof window !== 'undefined' ? Date.now() : 0;
+if (typeof window !== 'undefined') {
+  const bumpActivity = () => { lastUserActivityTs = Date.now(); };
+  ['mousemove', 'keydown', 'pointerdown', 'wheel', 'touchstart'].forEach((ev) => {
+    window.addEventListener(ev, bumpActivity, { passive: true });
+  });
+}
+
 export function destroyAllTerminals() {
   for (const id of [...terminalCache.keys()]) {
     destroyTerminal(id);
@@ -332,6 +348,38 @@ export default function TerminalPane({ session, onSessionEnded, isMobile = false
       }
     };
   }, [session.id, setupResizeObserver]);
+
+  // "Tô olhando": IntersectionObserver no slot + heartbeat 10s pelo WS existente.
+  // Reage a montar/desmontar do componente (trocou de grupo / mosaico re-mount):
+  // o intervalo é recriado no mount, parado no unmount → backend esquece após
+  // VIEWING_GRACE_SECONDS (15s) e alerta volta a poder disparar.
+  const intersectingRef = useRef(true);
+  useEffect(() => {
+    const slot = slotRef.current;
+    if (!slot) return;
+    const obs = new IntersectionObserver(([entry]) => {
+      intersectingRef.current = entry.isIntersecting;
+    }, { threshold: 0.1 });
+    obs.observe(slot);
+    return () => obs.disconnect();
+  }, []);
+
+  useEffect(() => {
+    const sendHeartbeat = () => {
+      const entry = terminalCache.get(session.id);
+      const ws = entry?.ws;
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      if (typeof document === 'undefined') return;
+      if (document.visibilityState !== 'visible') return;
+      if (!document.hasFocus()) return;
+      if (!intersectingRef.current) return;
+      if (Date.now() - lastUserActivityTs > USER_ACTIVITY_THRESHOLD_MS) return;
+      try { ws.send(JSON.stringify({ type: 'viewing' })); } catch {}
+    };
+    sendHeartbeat();
+    const id = setInterval(sendHeartbeat, VIEWING_HEARTBEAT_MS);
+    return () => clearInterval(id);
+  }, [session.id]);
 
   return (
     <div className="flex flex-col overflow-hidden" style={{ height: '100%', background: 'hsl(var(--terminal-bg))' }}>

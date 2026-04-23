@@ -495,7 +495,7 @@
       "detect": "Detectar",
       "detectChatId": "Detectar chat ID desde los mensajes recientes al bot",
       "timeoutLabel": "Timeout de inactividad (segundos)",
-      "timeoutHint": "Una sesión monitoreada se considera inactiva después de este tiempo sin actividad. Mín 5, máx 3600.",
+      "timeoutHint": "Una sesión monitoreada se considera inactiva después de este tiempo sin actividad. Mín 15, máx 3600.",
       "configureFirst": "Configura el token antes de probar",
       "channelsLabel": "Canales de notificación",
       "channelBrowser": "Navegador",

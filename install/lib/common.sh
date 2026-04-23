@@ -90,3 +90,110 @@ pulse_env_get() {
     [ -n "$val" ] || return 1
     printf '%s' "$val"
 }
+
+# True when something is currently listening on the local TCP port. Uses bash's
+# built-in /dev/tcp so it has zero external dependencies — and, because it
+# mirrors exactly what uvicorn/next do at bind time, it's the source of truth
+# for "is this port available?". PID enumeration tools (lsof/ss/fuser) can lag
+# during process teardown and report no holder while the socket is still bound.
+_pulse_port_in_use() {
+    port="$1"
+    (exec 3<>/dev/tcp/127.0.0.1/"$port") 2>/dev/null
+}
+
+# List PIDs listening on a TCP port (best effort, for display). Tries lsof,
+# then ss, then fuser. Empty output is fine — caller falls back to fuser -k.
+_pulse_pids_on_port() {
+    port="$1"
+    if pulse_need_cmd lsof; then
+        lsof -t -iTCP:"$port" -sTCP:LISTEN 2>/dev/null | tr '\n' ' '
+    elif pulse_need_cmd ss; then
+        ss -H -lptn "sport = :$port" 2>/dev/null \
+            | grep -oE 'pid=[0-9]+' \
+            | cut -d= -f2 \
+            | sort -u \
+            | tr '\n' ' '
+    elif pulse_need_cmd fuser; then
+        fuser -n tcp "$port" 2>/dev/null | tr -s ' \t' '\n' | grep -E '^[0-9]+$' | sort -u | tr '\n' ' '
+    fi
+}
+
+# Check if a TCP port is in use; if so, list the process(es) and ask the user
+# whether to kill. Default answer is yes (Enter = Y). Aborts on "no".
+# Usage: pulse_check_port <port> [<service-label>]
+pulse_check_port() {
+    port="$1"
+    label="${2:-process}"
+
+    _pulse_port_in_use "$port" || return 0
+
+    pids="$(_pulse_pids_on_port "$port" | tr -s ' ')"
+    pids="${pids# }"
+    pids="${pids% }"
+
+    if [ -n "$pids" ]; then
+        pulse_warn "port $port already in use by:"
+        for pid in $pids; do
+            info="$(ps -o pid=,user=,etime=,args= -p "$pid" 2>/dev/null | sed 's/^[[:space:]]*//')"
+            if [ -n "$info" ]; then
+                printf "    %s\n" "$info"
+            else
+                printf "    pid %s (no longer running?)\n" "$pid"
+            fi
+        done
+    else
+        pulse_warn "port $port already in use (process owner unknown — may need 'sudo lsof -i:$port' to identify)"
+    fi
+
+    if [ ! -e /dev/tty ]; then
+        pulse_die "port $port in use and no TTY available to confirm. Free it manually and rerun."
+    fi
+
+    printf "%bKill %s on port %s and continue? [Y/n]%b " "$PULSE_YELLOW" "$label" "$port" "$PULSE_NC"
+    if ! read -r answer </dev/tty; then
+        pulse_die "could not read from /dev/tty — aborting."
+    fi
+    case "$answer" in
+        n|N|no|NO|No) pulse_die "aborted — port $port still in use." ;;
+    esac
+
+    for pid in $pids; do
+        kill "$pid" 2>/dev/null || true
+    done
+    if pulse_need_cmd fuser; then
+        fuser -k -TERM -n tcp "$port" >/dev/null 2>&1 || true
+    fi
+
+    i=0
+    while [ "$i" -lt 20 ]; do
+        sleep 0.25
+        if ! _pulse_port_in_use "$port"; then
+            pulse_ok "port $port freed."
+            return 0
+        fi
+        i=$((i + 1))
+    done
+
+    pulse_warn "process didn't exit on TERM — sending KILL"
+    survivors="$(_pulse_pids_on_port "$port" | tr -s ' ')"
+    survivors="${survivors# }"
+    survivors="${survivors% }"
+    for pid in $survivors; do
+        kill -9 "$pid" 2>/dev/null || true
+    done
+    if pulse_need_cmd fuser; then
+        fuser -k -KILL -n tcp "$port" >/dev/null 2>&1 || true
+    fi
+
+    i=0
+    while [ "$i" -lt 8 ]; do
+        sleep 0.25
+        if ! _pulse_port_in_use "$port"; then
+            pulse_ok "port $port freed."
+            return 0
+        fi
+        i=$((i + 1))
+    done
+
+    pulse_die "could not free port $port."
+}

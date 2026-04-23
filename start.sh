@@ -5,6 +5,10 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 CLIENT_DIR="$SCRIPT_DIR/client"
 FRONTEND_DIR="$SCRIPT_DIR/frontend"
 
+# shellcheck disable=SC1091
+PULSE_LOG_TAG="pulse"
+. "$SCRIPT_DIR/install/lib/common.sh"
+
 cleanup() {
     echo ""
     echo "Shutting down..."
@@ -36,6 +40,12 @@ fi
 
 : "${API_PORT:?API_PORT env var required (set in client/.env)}"
 : "${WEB_PORT:?WEB_PORT env var required (set in frontend/.env)}"
+
+# Sequential port check before spawning the two background children — running
+# the prompt inside a backgrounded child would race for /dev/tty and the prompt
+# would be buried in the other child's output.
+pulse_check_port "$API_PORT" "client"
+pulse_check_port "$WEB_PORT" "frontend"
 
 echo "Starting client..."
 "$CLIENT_DIR/start.sh" &
