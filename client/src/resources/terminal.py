@@ -20,7 +20,7 @@ from tools.tmux import (
     get_project_id, set_project_id,
     get_group_name, set_group_name,
     get_project_name, set_project_name,
-    get_notify_on_idle, set_notify_on_idle,
+    get_notify_on_idle, set_notify_on_idle, migrate_notify_on_idle_legacy,
     ensure_tmux_config,
 )
 
@@ -67,6 +67,7 @@ def recover_sessions():
             except (ValueError, OSError):
                 created_at = datetime.now(timezone.utc).isoformat()
             subprocess.run(['tmux', 'set-option', '-t', sid, 'status', 'off'], capture_output=True)
+            migrate_notify_on_idle_legacy(sid)
             custom_name = get_custom_name(sid)
             raw_group_id = get_group_id(sid)
             raw_project_id = get_project_id(sid)
@@ -111,6 +112,7 @@ def sync_sessions_request():
             except (ValueError, OSError):
                 created_at = datetime.now(timezone.utc).isoformat()
             subprocess.run(['tmux', 'set-option', '-t', sid, 'status', 'off'], capture_output=True)
+            migrate_notify_on_idle_legacy(sid)
             custom_name = get_custom_name(sid)
             raw_group_id = get_group_id(sid)
             raw_project_id = get_project_id(sid)

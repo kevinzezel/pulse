@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [1.7.4] — 2026-04-23
+
+### Fixed
+
+- **Idle notifications duplicated when running two Pulse instances on the same host.** When the user kept the official (installer) and the dev (`./start.sh`) instances running side-by-side on different ports, every idle event produced two Telegram messages instead of one. Root cause: the "this terminal should notify" flag was a tmux server option (`@notify_on_idle`), and every `tmux` call in the codebase runs without `-L`/`-S` — so both client processes talk to the *same* tmux daemon and read the *same* flag. Whichever frontend the user toggled the bell on, both backends would adopt the session on their next 5 s `notification_watcher` tick and dispatch independently. The existing in-memory `last_notified_hash` dedup is process-local, so it never desynchronized them. The fix namespaces the option per instance: `client/src/tools/tmux.py` now derives an `INSTANCE_ID` from the SHA-256 of the absolute path of the `client/` directory (8 hex chars — stable across restarts of the same install, distinct between installs) and writes/reads `@notify_on_idle__<INSTANCE_ID>` instead of the bare `@notify_on_idle`. A new `migrate_notify_on_idle_legacy(session_id)` helper, called inside `recover_sessions()` and `sync_sessions_request()` in `client/src/resources/terminal.py`, copies any pre-existing legacy flag into the current instance's namespace and removes the legacy option — so the first instance to boot after upgrade adopts the previously-toggled sessions, and subsequent instances stop noisy-adopting them. Trade-off accepted: on the *other* instances' UIs the bell appears off for those legacy sessions until the user re-enables it there explicitly. Going forward, toggling the bell on a given UI only affects that instance's dispatcher; both instances notify only when the user explicitly enables the bell on both — which is the expected behavior.
+
 ## [1.7.3] — 2026-04-23
 
 ### Fixed
@@ -414,7 +420,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.7.3...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.7.4...HEAD
+[1.7.4]: https://github.com/kevinzezel/pulse/releases/tag/v1.7.4
 [1.7.3]: https://github.com/kevinzezel/pulse/releases/tag/v1.7.3
 [1.7.2]: https://github.com/kevinzezel/pulse/releases/tag/v1.7.2
 [1.7.1]: https://github.com/kevinzezel/pulse/releases/tag/v1.7.1

@@ -4,9 +4,23 @@ import os
 import struct
 import fcntl
 import termios
+import hashlib
 import logging
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+# Instance ID estável: hash curto do path absoluto da pasta client/. Mesma
+# instalação → mesmo ID entre restarts. Instalações distintas (ex: oficial em
+# ~/.local/share/pulse/client vs dev em <repo>/client) → IDs distintos. Usado
+# para namespacear opções do tmux que são "por instância" mas que viveriam
+# globalmente se gravadas com o mesmo nome — o servidor tmux é único por
+# usuário, então sem namespace duas instâncias se atropelam.
+_CLIENT_ROOT = Path(__file__).resolve().parents[2]
+INSTANCE_ID = hashlib.sha256(str(_CLIENT_ROOT).encode("utf-8")).hexdigest()[:8]
+
+NOTIFY_OPTION = f"@notify_on_idle__{INSTANCE_ID}"
+NOTIFY_OPTION_LEGACY = "@notify_on_idle"
 
 
 def ensure_tmux_config():
@@ -261,12 +275,12 @@ def capture_pane(session_id, lines=100):
 def set_notify_on_idle(session_id, value):
     if value:
         subprocess.run(
-            ['tmux', 'set-option', '-t', session_id, '@notify_on_idle', '1'],
+            ['tmux', 'set-option', '-t', session_id, NOTIFY_OPTION, '1'],
             capture_output=True,
         )
     else:
         subprocess.run(
-            ['tmux', 'set-option', '-t', session_id, '-u', '@notify_on_idle'],
+            ['tmux', 'set-option', '-t', session_id, '-u', NOTIFY_OPTION],
             capture_output=True,
         )
 
@@ -274,7 +288,7 @@ def set_notify_on_idle(session_id, value):
 def get_notify_on_idle(session_id):
     try:
         result = subprocess.run(
-            ['tmux', 'show-option', '-t', session_id, '-v', '@notify_on_idle'],
+            ['tmux', 'show-option', '-t', session_id, '-v', NOTIFY_OPTION],
             capture_output=True, text=True,
         )
     except FileNotFoundError:
@@ -282,6 +296,37 @@ def get_notify_on_idle(session_id):
     if result.returncode != 0:
         return False
     return result.stdout.strip() == '1'
+
+
+def migrate_notify_on_idle_legacy(session_id):
+    # Migra o flag legado @notify_on_idle (gravado pre-isolamento por instância)
+    # para o namespace desta instância e remove o legado. Idempotente: no-op se
+    # o legado não existe. Trade-off: a primeira instância que reiniciar pós-
+    # upgrade adota as sessões legadas; outras precisam do usuário reabilitar
+    # manualmente nas UIs onde quer manter o alerta.
+    try:
+        legacy = subprocess.run(
+            ['tmux', 'show-option', '-t', session_id, '-v', NOTIFY_OPTION_LEGACY],
+            capture_output=True, text=True,
+        )
+    except FileNotFoundError:
+        return
+    if legacy.returncode != 0 or legacy.stdout.strip() != '1':
+        return
+    own = subprocess.run(
+        ['tmux', 'show-option', '-t', session_id, '-v', NOTIFY_OPTION],
+        capture_output=True, text=True,
+    )
+    own_set = own.returncode == 0 and own.stdout.strip() == '1'
+    if not own_set:
+        subprocess.run(
+            ['tmux', 'set-option', '-t', session_id, NOTIFY_OPTION, '1'],
+            capture_output=True,
+        )
+    subprocess.run(
+        ['tmux', 'set-option', '-t', session_id, '-u', NOTIFY_OPTION_LEGACY],
+        capture_output=True,
+    )
 
 
 def send_text_to_session(session_id, text, send_enter=False):
