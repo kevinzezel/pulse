@@ -4,6 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useState } from 'rea
 import { usePathname } from 'next/navigation';
 import { destroyTerminalsByServerId } from '@/components/TerminalPane';
 import { getLocalServers, setLocalServers } from '@/services/api';
+import { useRefetchOnFocus } from '@/utils/useRefetchOnFocus';
 
 const ServersContext = createContext(null);
 
@@ -74,6 +75,11 @@ export function ServersProvider({ children }) {
     }
     load();
   }, [load, pathname]);
+
+  useRefetchOnFocus(
+    () => { load().catch((err) => console.warn('[ServersProvider] focus refetch failed:', err)); },
+    pathname !== '/login',
+  );
 
   return (
     <ServersContext.Provider value={{ servers, loading, error, reload: load, save }}>

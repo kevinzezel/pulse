@@ -1,13 +1,10 @@
 import { NextResponse } from 'next/server';
-import { promises as fs } from 'fs';
-import path from 'path';
-import { randomUUID } from 'crypto';
 import { withAuth } from '@/lib/auth';
-import { withFileLock } from '@/lib/jsonStore';
+import { readStore, writeStore, withStoreLock } from '@/lib/storage';
 import { DEFAULT_PROJECT_ID } from '@/lib/projectScope';
 
-const FILE = path.join(process.cwd(), 'data', 'layouts.json');
-const LOCK_KEY = 'data/layouts.json';
+const REL = 'data/layouts.json';
+const EMPTY = { layouts: {} };
 
 function migrateLayouts(layouts) {
   let changed = false;
@@ -25,40 +22,19 @@ function migrateLayouts(layouts) {
 }
 
 async function readLayouts() {
-  try {
-    const raw = await fs.readFile(FILE, 'utf-8');
-    const parsed = JSON.parse(raw);
-    const layouts = parsed?.layouts;
-    if (!layouts || typeof layouts !== 'object' || Array.isArray(layouts)) return {};
-    const { migrated, changed } = migrateLayouts(layouts);
-    if (changed) {
-      await withFileLock(LOCK_KEY, async () => {
-        try {
-          const raw2 = await fs.readFile(FILE, 'utf-8');
-          const parsed2 = JSON.parse(raw2);
-          const layouts2 = parsed2?.layouts && typeof parsed2.layouts === 'object' && !Array.isArray(parsed2.layouts) ? parsed2.layouts : {};
-          const { migrated: migrated2, changed: changed2 } = migrateLayouts(layouts2);
-          if (changed2) await atomicWrite(migrated2);
-        } catch {}
-      });
-    }
-    return migrated;
-  } catch (err) {
-    if (err.code === 'ENOENT') return {};
-    throw err;
+  const data = await readStore(REL, EMPTY);
+  const layouts = data?.layouts;
+  if (!layouts || typeof layouts !== 'object' || Array.isArray(layouts)) return {};
+  const { migrated, changed } = migrateLayouts(layouts);
+  if (changed) {
+    await withStoreLock(REL, async () => {
+      const fresh = await readStore(REL, EMPTY);
+      const freshLayouts = fresh?.layouts && typeof fresh.layouts === 'object' && !Array.isArray(fresh.layouts) ? fresh.layouts : {};
+      const { migrated: migrated2, changed: changed2 } = migrateLayouts(freshLayouts);
+      if (changed2) await writeStore(REL, { layouts: migrated2 });
+    });
   }
-}
-
-async function atomicWrite(layouts) {
-  await fs.mkdir(path.dirname(FILE), { recursive: true });
-  const tmp = `${FILE}.${randomUUID()}.tmp`;
-  try {
-    await fs.writeFile(tmp, JSON.stringify({ layouts }, null, 2), 'utf-8');
-    await fs.rename(tmp, FILE);
-  } catch (err) {
-    await fs.unlink(tmp).catch(() => {});
-    throw err;
-  }
+  return migrated;
 }
 
 function normalize(input) {
@@ -86,9 +62,9 @@ export const PUT = withAuth(async (req) => {
   if (!body || typeof body.layouts !== 'object' || Array.isArray(body.layouts)) {
     return NextResponse.json({ detail: 'Expected { layouts: {...} }', detail_key: 'errors.invalid_body' }, { status: 400 });
   }
-  const layouts = await withFileLock(LOCK_KEY, async () => {
+  const layouts = await withStoreLock(REL, async () => {
     const next = normalize(body.layouts);
-    await atomicWrite(next);
+    await writeStore(REL, { layouts: next });
     return next;
   });
   return NextResponse.json({ layouts });

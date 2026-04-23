@@ -9,6 +9,7 @@ import {
   setActiveProjectIdInModule,
 } from '@/services/api';
 import { reorderById } from '@/utils/reorder';
+import { useRefetchOnFocus } from '@/utils/useRefetchOnFocus';
 import { DEFAULT_PROJECT_ID } from '@/lib/projectScope';
 
 const STORAGE_KEY = 'rt:activeProjectId';
@@ -58,6 +59,11 @@ export function ProjectsProvider({ children }) {
     if (pathname === '/login') return;
     refreshProjects().catch(() => {});
   }, [pathname, refreshProjects]);
+
+  useRefetchOnFocus(
+    () => { refreshProjects().catch((err) => console.warn('[ProjectsProvider] focus refetch failed:', err)); },
+    loaded && pathname !== '/login',
+  );
 
   const setActiveProject = useCallback(async (id) => {
     const res = await apiSetActive(id);

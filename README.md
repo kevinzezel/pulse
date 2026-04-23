@@ -107,9 +107,9 @@ Touch scroll inside the terminal works via synthesized VT200 mouse-wheel escapes
 
 ### Multi-project, multi-session organization
 
-Two levels of grouping: **Projects** at the top (switchable from the header) and **Groups** inside each project. Assign any session to a group; open all sessions in a group with a single click; hide groups you don't want to see today. Drag-and-drop reorders them.
+Two levels of grouping: **Projects** at the top (switchable from the header) and **Groups** inside each project. Assign any session to a group; open all sessions in a group with a single click; hide groups you don't want to see today. Drag-and-drop reorders both projects and groups.
 
-Mosaic layouts are saved per `project::group` pair — switch project, your split panes come back exactly where you left them. When you reopen the dashboard, sessions auto-restore and reconnect with backoff.
+Mosaic layouts are saved per `project::group` pair — switch project, your split panes come back exactly where you left them. Selected group and selected flow are persisted per-project too, so the entire view (splits + active group + active flow) restores precisely where you left it, even across devices. When you reopen the dashboard, sessions auto-restore and reconnect with backoff.
 
 <p align="center">
   <img src="assets/screenshots/projects.png" alt="Projects list — active, protected, empty states" width="90%"/>
@@ -159,6 +159,26 @@ One dashboard, any number of clients. Each remote has its own color, health chec
 <p align="center">
   <img src="assets/screenshots/servers-settings.png" alt="Add a remote Pulse client — host, port, API key, color tag" width="90%"/>
 </p>
+
+### Share your workspace between machines (optional cloud storage)
+
+Point Pulse at a remote storage driver and all your `projects`, `flows`, `notes`, `prompts`, `servers`, `groups`, `layouts`, `view-state`, `sessions` and `compose-drafts` stop living in local JSON files and live in the cloud instead. Install Pulse on your desktop, laptop, and a VPS, point each one at the same remote, and the same data appears on all three — rename a project on your laptop, hit the tab on your desktop, refetch on focus, it's there. Without a remote configured, Pulse works exactly as before (local files, no dependency on anything external).
+
+Three drivers are built in:
+
+| Driver | Use when | Config |
+|---|---|---|
+| **Local files** | Default. Single install, no sharing. | (nothing — the absence of cloud config) |
+| **MongoDB** | You have a Mongo instance or want Atlas free tier. | `mongodb://` or `mongodb+srv://` URI, optional database name. |
+| **S3 / S3-compatible** | You already use AWS, or want zero-ops on Cloudflare R2, or run MinIO on-prem. | Endpoint (optional — blank for AWS), bucket, region, Access Key ID, Secret Access Key, optional prefix. |
+
+The **S3 driver** works with **AWS S3**, **Cloudflare R2** (zero egress), **Google Cloud Storage** (via S3 interoperability), **MinIO** (self-hosted — tick "path-style addressing"), **Backblaze B2**, **DigitalOcean Spaces**, and any other S3-compatible target. Concurrency safety uses the native ETag + `If-Match` — no custom fields added to your objects.
+
+Configure in **Settings → Storage**: three horizontal tabs (Local / MongoDB / S3), each with its own form. Paste the URI or fill the S3 fields, click **Validate & Activate** — the dashboard pings the remote, saves the config, and **swaps the storage backend live**, no restart. The next API call reads from the new driver. Two destructive sync buttons let you migrate in either direction — push local files to the cloud when hooking up a new machine, or pull the cloud back to local files before deactivating. Writes across multiple dashboards are serialized per-document by an optimistic lock with automatic retry, so concurrent edits from two machines never silently drop. If the remote becomes unreachable at runtime, the dashboard fails loudly (503 on every API call) rather than pretending nothing happened.
+
+Secrets in the UI are always masked; every secret field has a **Copy** button that writes the full plaintext to your clipboard — no toggle exposes them on screen.
+
+<!-- TODO: add assets/screenshots/storage-settings.png — Settings → Storage tab with the three-driver tab strip and S3 form visible. -->
 
 ### Look the way you want
 
@@ -221,8 +241,39 @@ Config files (all in `~/.config/pulse/`):
 | `client.env`      | `API_HOST`, `API_PORT`, `API_KEY` |
 | `frontend.env`    | `WEB_HOST`, `WEB_PORT`, `AUTH_PASSWORD`, `AUTH_JWT_SECRET`, `AUTH_COOKIE_SECURE` |
 | `../local/share/pulse/frontend/data/servers.json` | list of Pulse clients the dashboard connects to |
+| `../local/share/pulse/frontend/data/storage-config.json` *(optional)* | when present, the dashboard reads/writes through the configured remote driver (MongoDB or S3) instead of local JSON files |
 
 Prefer `pulse config password` / `pulse config ports` over editing the env files by hand — they keep `servers.json` in sync and restart the right services for you.
+
+### Storage — local files, MongoDB, or S3
+
+The dashboard persists ten JSON files under `frontend/data/` by default: `projects`, `flows`, `groups`, `notes`, `prompts`, `servers`, `layouts`, `view-state`, `sessions`, `compose-drafts`. For a single-install setup that's all you need.
+
+When you want the same workspace on a second machine (desktop + laptop, or desktop + VPS), configure a remote storage driver through **Settings → Storage**. Three drivers available:
+
+**MongoDB** — if you already run Mongo or want Atlas free tier:
+
+1. In the MongoDB tab, paste a `mongodb://…` URI and optionally a database name (defaults to `pulse`).
+2. Save. The dashboard runs `ping` + `listCollections` with a 3s timeout, writes `data/storage-config.json`, and hot-swaps the backend — from the next API call on, every read/write goes to MongoDB. **No restart required.**
+3. Click **Sync local → cloud** once to seed MongoDB from the current local files (destructive on the Mongo side — requires typing `sync` to confirm).
+
+**S3 / S3-compatible** — AWS S3, Cloudflare R2, Google Cloud Storage, MinIO, Backblaze B2, DO Spaces:
+
+1. In the S3 tab, fill: **endpoint** (leave empty for AWS, or full URL for R2/GCS/MinIO — e.g. `https://<account>.r2.cloudflarestorage.com`), **bucket**, **region** (`us-east-1` default, `auto` for R2), **Access Key ID**, **Secret Access Key**, optional **prefix** (useful to share a bucket with other apps), and **path-style addressing** checkbox (required for MinIO).
+2. Save. The dashboard runs `HeadBucket` with a 3s timeout to confirm the credentials can reach the bucket, writes `data/storage-config.json`, and hot-swaps.
+3. Click **Sync local → cloud** to seed objects into the bucket.
+
+To go back to local files from either driver: **Settings → Storage → Sync cloud → local** (optional, if you want the current cloud state preserved locally), then **Deactivate remote storage** — the frontend switches back to local files instantly. The local files that were there before activation are untouched and become active again as-is.
+
+Behavior notes:
+- **Driver tabs in the UI** — Local / MongoDB / S3 as three horizontal tabs. The active driver is marked with `*`. Switching tabs lets you preview / edit another driver's config without activating it.
+- **Secrets are masked but copyable** — URI, Access Key, Secret Key are always rendered as `••••••`. Click the Copy button next to any secret to copy the full plaintext value to your clipboard.
+- **Hot-reload, no restart** — saving, changing, or deactivating a remote swaps the backend live. In-flight requests finish on the old backend; the old client is drained for 10s in the background, then closed.
+- **Fail-fast on outage** — if the remote becomes unreachable at runtime (network loss, credential rotation, server down), every API call returns `503 errors.storage.unavailable` until it comes back. If the frontend boots with a dead remote, same story — open Settings → Storage and deactivate or fix.
+- **Concurrent writes** from multiple dashboards against the same remote are serialized per-object via optimistic locks with auto-retry. Mongo uses a `_version` integer field; S3 uses the native ETag + `If-Match` header. No silent write losses; last-writer-wins only on the rare case of two people editing the exact same field simultaneously.
+- **Refetch on tab focus** — when a browser tab regains focus, providers silently refetch so changes made on another machine show up without a manual reload.
+- **Requirements**: MongoDB 4.2+ (driver `mongodb@7.x`) or any S3-compatible API. The `data/storage-config.json` file always stays local — it's the config to reach the remote, can't live inside the remote itself.
+- **Legacy**: if upgrading from v1.5.x, the existing `data/mongo-config.json` is auto-migrated on first boot to the new unified `data/storage-config.json` and the legacy file is removed. Zero user action needed.
 
 ### Behind a reverse proxy
 

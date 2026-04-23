@@ -710,3 +710,32 @@ export async function deleteProject(projectId) {
   const res = await saveProjects(next);
   return { detail_key: 'success.project_deleted', state: res };
 }
+
+// ----------------------------------------------------------------------------
+// Storage (MongoDB sync) configuration + sync
+// ----------------------------------------------------------------------------
+
+export async function getStorageConfig() {
+  return localRequest('/api/storage-config');
+}
+
+export async function setStorageConfig(payload) {
+  // payload = { driver: 'mongo'|'s3'|'file', ...driver-specific params }
+  return localRequest('/api/storage-config', {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteStorageConfig() {
+  return localRequest('/api/storage-config', { method: 'DELETE' });
+}
+
+export async function syncLocalToCloud() {
+  return localRequest('/api/storage-sync/local-to-cloud', { method: 'POST' });
+}
+
+export async function syncCloudToLocal() {
+  return localRequest('/api/storage-sync/cloud-to-local', { method: 'POST' });
+}
+

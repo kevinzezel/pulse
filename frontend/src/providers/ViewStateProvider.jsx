@@ -3,6 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { getViewState, setViewState as apiSetViewState } from '@/services/api';
+import { useRefetchOnFocus } from '@/utils/useRefetchOnFocus';
 
 const SAVE_DEBOUNCE_MS = 400;
 
@@ -63,6 +64,21 @@ export function ViewStateProvider({ children }) {
   }, []);
 
   useEffect(() => () => { if (saveTimer.current) clearTimeout(saveTimer.current); }, []);
+
+  useRefetchOnFocus(async () => {
+    if (!hydrated || pathname === '/login') return;
+    // Skip refetch if we have a pending save — our local state is newer.
+    if (pendingRef.current) return;
+    try {
+      const data = await getViewState();
+      const remote = (data && typeof data.view_state === 'object' && !Array.isArray(data.view_state))
+        ? { ...data.view_state }
+        : {};
+      setViewStateLocal(remote);
+    } catch (err) {
+      console.warn('[ViewStateProvider] focus refetch failed:', err);
+    }
+  }, hydrated && pathname !== '/login');
 
   const setKey = useCallback((key, value) => {
     setViewStateLocal(prev => {

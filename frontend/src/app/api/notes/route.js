@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { randomUUID } from 'crypto';
-import { readJsonFile, writeJsonFileAtomic, withFileLock } from '@/lib/jsonStore';
+import { readStore, writeStore, withStoreLock } from '@/lib/storage';
 import { withAuth } from '@/lib/auth';
 import {
   DEFAULT_COLOR, DEFAULT_WIDTH, DEFAULT_HEIGHT,
@@ -10,20 +10,19 @@ import {
 import { DEFAULT_PROJECT_ID, migrateList } from '@/lib/projectScope';
 
 const REL = 'data/notes.json';
-const LOCK_KEY = 'data/notes.json';
 const EMPTY = { notes: [], updated_at: null };
 
 async function readAndMigrate() {
-  const data = await readJsonFile(REL, EMPTY);
+  const data = await readStore(REL, EMPTY);
   const list = Array.isArray(data?.notes) ? data.notes : [];
   const { list: migrated, changed } = migrateList(list);
   if (changed) {
-    await withFileLock(LOCK_KEY, async () => {
-      const fresh = await readJsonFile(REL, EMPTY);
+    await withStoreLock(REL, async () => {
+      const fresh = await readStore(REL, EMPTY);
       const freshList = Array.isArray(fresh?.notes) ? fresh.notes : [];
       const { list: freshMigrated, changed: stillChanged } = migrateList(freshList);
       if (stillChanged) {
-        await writeJsonFileAtomic(REL, { notes: freshMigrated, updated_at: fresh?.updated_at ?? new Date().toISOString() });
+        await writeStore(REL, { notes: freshMigrated, updated_at: fresh?.updated_at ?? new Date().toISOString() });
       }
     });
   }
@@ -72,7 +71,7 @@ export const POST = withAuth(async (req) => {
   const color = isValidColor(body?.color) ? body.color : DEFAULT_COLOR;
 
   const now = new Date().toISOString();
-  const note = await withFileLock(LOCK_KEY, async () => {
+  const note = await withStoreLock(REL, async () => {
     const data = await readAndMigrate();
     const notes = data.notes;
     const created = {
@@ -86,7 +85,7 @@ export const POST = withAuth(async (req) => {
       project_id: (typeof body?.project_id === 'string' && body.project_id) ? body.project_id : DEFAULT_PROJECT_ID,
     };
     notes.push(created);
-    await writeJsonFileAtomic(REL, { notes, updated_at: now });
+    await writeStore(REL, { notes, updated_at: now });
     return created;
   });
   return NextResponse.json(note, { status: 201 });

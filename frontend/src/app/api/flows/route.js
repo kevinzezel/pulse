@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { randomUUID } from 'crypto';
-import { readJsonFile, writeJsonFileAtomic, withFileLock } from '@/lib/jsonStore';
+import { readStore, writeStore, withStoreLock } from '@/lib/storage';
 import { withAuth } from '@/lib/auth';
 import { NAME_MAX } from '@/lib/flowsConfig';
 import { DEFAULT_PROJECT_ID, migrateList } from '@/lib/projectScope';
@@ -9,11 +9,11 @@ const REL = 'data/flows.json';
 const EMPTY = { flows: [], updated_at: null };
 
 async function readAndMigrate() {
-  const data = await readJsonFile(REL, EMPTY);
+  const data = await readStore(REL, EMPTY);
   const list = Array.isArray(data?.flows) ? data.flows : [];
   const { list: migrated, changed } = migrateList(list);
   if (changed) {
-    await writeJsonFileAtomic(REL, { flows: migrated, updated_at: data?.updated_at ?? new Date().toISOString() });
+    await writeStore(REL, { flows: migrated, updated_at: data?.updated_at ?? new Date().toISOString() });
   }
   return { flows: migrated, updated_at: data?.updated_at ?? null };
 }
@@ -54,7 +54,7 @@ export const POST = withAuth(async (req) => {
   const scene = isObject(body?.scene) ? body.scene : { elements: [], appState: {}, files: {} };
   const projectId = (typeof body?.project_id === 'string' && body.project_id) ? body.project_id : DEFAULT_PROJECT_ID;
 
-  const flow = await withFileLock(REL, async () => {
+  const flow = await withStoreLock(REL, async () => {
     const now = new Date().toISOString();
     const data = await readAndMigrate();
     const flows = data.flows;
@@ -67,7 +67,7 @@ export const POST = withAuth(async (req) => {
       project_id: projectId,
     };
     flows.push(created);
-    await writeJsonFileAtomic(REL, { flows, updated_at: now });
+    await writeStore(REL, { flows, updated_at: now });
     return created;
   });
 

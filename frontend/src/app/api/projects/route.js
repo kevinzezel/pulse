@@ -1,13 +1,10 @@
 import { NextResponse } from 'next/server';
-import { promises as fs } from 'fs';
-import path from 'path';
 import { randomUUID } from 'crypto';
 import { withAuth } from '@/lib/auth';
-import { withFileLock } from '@/lib/jsonStore';
+import { readStore, writeStore, withStoreLock } from '@/lib/storage';
 import { DEFAULT_PROJECT_ID, DEFAULT_PROJECT_NAME } from '@/lib/projectScope';
 
-const FILE = path.join(process.cwd(), 'data', 'projects.json');
-const LOCK_KEY = 'data/projects.json';
+const REL = 'data/projects.json';
 
 const NAME_MAX = 64;
 
@@ -22,67 +19,50 @@ function makeDefaultState() {
   };
 }
 
-async function readState() {
-  try {
-    const raw = await fs.readFile(FILE, 'utf-8');
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== 'object') return makeDefaultState();
-    const projects = Array.isArray(parsed.projects) ? parsed.projects : [];
-    const hasDefault = projects.some((p) => p && p.is_default === true);
-    const normalized = {
-      projects: projects
-        .map((p) => ({
-          id: (typeof p.id === 'string' && p.id) ? p.id : `proj-${randomUUID()}`,
-          name: String(p?.name ?? '').trim() || DEFAULT_PROJECT_NAME,
-          is_default: p?.is_default === true,
-          created_at: p?.created_at || new Date().toISOString(),
-        }))
-        .filter((p) => p.name.length > 0),
-      active_project_id: (typeof parsed.active_project_id === 'string' && parsed.active_project_id) || DEFAULT_PROJECT_ID,
-      updated_at: parsed.updated_at || new Date().toISOString(),
-    };
-    if (!hasDefault) {
-      const now = new Date().toISOString();
-      normalized.projects.unshift({
-        id: DEFAULT_PROJECT_ID,
-        name: DEFAULT_PROJECT_NAME,
-        is_default: true,
-        created_at: now,
-      });
-    }
-    if (!normalized.projects.some((p) => p.id === normalized.active_project_id)) {
-      const def = normalized.projects.find((p) => p.is_default) || normalized.projects[0];
-      normalized.active_project_id = def.id;
-    }
-    return normalized;
-  } catch (err) {
-    if (err.code === 'ENOENT') {
-      return withFileLock(LOCK_KEY, async () => {
-        try {
-          const raw = await fs.readFile(FILE, 'utf-8');
-          return JSON.parse(raw);
-        } catch (err2) {
-          if (err2.code !== 'ENOENT') throw err2;
-          const seed = makeDefaultState();
-          await atomicWrite(seed);
-          return seed;
-        }
-      });
-    }
-    throw err;
+function normalizeState(parsed) {
+  if (!parsed || typeof parsed !== 'object') return makeDefaultState();
+  const projects = Array.isArray(parsed.projects) ? parsed.projects : [];
+  const hasDefault = projects.some((p) => p && p.is_default === true);
+  const normalized = {
+    projects: projects
+      .map((p) => ({
+        id: (typeof p.id === 'string' && p.id) ? p.id : `proj-${randomUUID()}`,
+        name: String(p?.name ?? '').trim() || DEFAULT_PROJECT_NAME,
+        is_default: p?.is_default === true,
+        created_at: p?.created_at || new Date().toISOString(),
+      }))
+      .filter((p) => p.name.length > 0),
+    active_project_id: (typeof parsed.active_project_id === 'string' && parsed.active_project_id) || DEFAULT_PROJECT_ID,
+    updated_at: parsed.updated_at || new Date().toISOString(),
+  };
+  if (!hasDefault) {
+    const now = new Date().toISOString();
+    normalized.projects.unshift({
+      id: DEFAULT_PROJECT_ID,
+      name: DEFAULT_PROJECT_NAME,
+      is_default: true,
+      created_at: now,
+    });
   }
+  if (!normalized.projects.some((p) => p.id === normalized.active_project_id)) {
+    const def = normalized.projects.find((p) => p.is_default) || normalized.projects[0];
+    normalized.active_project_id = def.id;
+  }
+  return normalized;
 }
 
-async function atomicWrite(state) {
-  await fs.mkdir(path.dirname(FILE), { recursive: true });
-  const tmp = `${FILE}.${randomUUID()}.tmp`;
-  try {
-    await fs.writeFile(tmp, JSON.stringify(state, null, 2), 'utf-8');
-    await fs.rename(tmp, FILE);
-  } catch (err) {
-    await fs.unlink(tmp).catch(() => {});
-    throw err;
+async function readState() {
+  const data = await readStore(REL, null);
+  if (!data) {
+    return withStoreLock(REL, async () => {
+      const fresh = await readStore(REL, null);
+      if (fresh) return normalizeState(fresh);
+      const seed = makeDefaultState();
+      await writeStore(REL, seed);
+      return seed;
+    });
   }
+  return normalizeState(data);
 }
 
 function normalizePut(body) {
@@ -141,9 +121,9 @@ export const PUT = withAuth(async (req) => {
   if (!body || !Array.isArray(body.projects)) {
     return NextResponse.json({ detail: 'Expected { projects: [...] }', detail_key: 'errors.invalid_body' }, { status: 400 });
   }
-  const state = await withFileLock(LOCK_KEY, async () => {
+  const state = await withStoreLock(REL, async () => {
     const next = normalizePut(body);
-    await atomicWrite(next);
+    await writeStore(REL, next);
     return next;
   });
   return NextResponse.json(state);

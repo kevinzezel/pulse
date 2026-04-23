@@ -1,49 +1,25 @@
 import { NextResponse } from 'next/server';
-import { promises as fs } from 'fs';
-import path from 'path';
 import { randomUUID } from 'crypto';
 import { withAuth } from '@/lib/auth';
-import { withFileLock } from '@/lib/jsonStore';
+import { readStore, writeStore, withStoreLock } from '@/lib/storage';
 import { DEFAULT_PROJECT_ID, migrateList } from '@/lib/projectScope';
 
-const FILE = path.join(process.cwd(), 'data', 'groups.json');
-const LOCK_KEY = 'data/groups.json';
+const REL = 'data/groups.json';
+const EMPTY = { groups: [] };
 
 async function readGroups() {
-  try {
-    const raw = await fs.readFile(FILE, 'utf-8');
-    const parsed = JSON.parse(raw);
-    const list = Array.isArray(parsed?.groups) ? parsed.groups : [];
-    const { list: migrated, changed } = migrateList(list);
-    if (changed) {
-      await withFileLock(LOCK_KEY, async () => {
-        // re-read inside lock to confirm migration is still needed
-        try {
-          const raw2 = await fs.readFile(FILE, 'utf-8');
-          const parsed2 = JSON.parse(raw2);
-          const list2 = Array.isArray(parsed2?.groups) ? parsed2.groups : [];
-          const { list: migrated2, changed: changed2 } = migrateList(list2);
-          if (changed2) await atomicWrite(migrated2);
-        } catch {}
-      });
-    }
-    return migrated;
-  } catch (err) {
-    if (err.code === 'ENOENT') return [];
-    throw err;
+  const data = await readStore(REL, EMPTY);
+  const list = Array.isArray(data?.groups) ? data.groups : [];
+  const { list: migrated, changed } = migrateList(list);
+  if (changed) {
+    await withStoreLock(REL, async () => {
+      const fresh = await readStore(REL, EMPTY);
+      const freshList = Array.isArray(fresh?.groups) ? fresh.groups : [];
+      const { list: freshMigrated, changed: stillChanged } = migrateList(freshList);
+      if (stillChanged) await writeStore(REL, { groups: freshMigrated });
+    });
   }
-}
-
-async function atomicWrite(groups) {
-  await fs.mkdir(path.dirname(FILE), { recursive: true });
-  const tmp = `${FILE}.${randomUUID()}.tmp`;
-  try {
-    await fs.writeFile(tmp, JSON.stringify({ groups }, null, 2), 'utf-8');
-    await fs.rename(tmp, FILE);
-  } catch (err) {
-    await fs.unlink(tmp).catch(() => {});
-    throw err;
-  }
+  return migrated;
 }
 
 function normalize(list) {
@@ -72,9 +48,9 @@ export const PUT = withAuth(async (req) => {
   if (!body || !Array.isArray(body.groups)) {
     return NextResponse.json({ detail: 'Expected { groups: [...] }', detail_key: 'errors.invalid_body' }, { status: 400 });
   }
-  const groups = await withFileLock(LOCK_KEY, async () => {
+  const groups = await withStoreLock(REL, async () => {
     const next = normalize(body.groups);
-    await atomicWrite(next);
+    await writeStore(REL, { groups: next });
     return next;
   });
   return NextResponse.json({ groups });

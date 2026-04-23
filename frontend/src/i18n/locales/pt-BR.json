@@ -320,7 +320,26 @@
     "project_not_empty": "Projeto não está vazio",
     "project_default_protected": "O projeto padrão não pode ser deletado",
     "editor_binary_not_found": "Binário do editor não encontrado no host. Instale VSCode / Cursor / VSCodium, ou defina o caminho em Configurações → Editor.",
-    "editor_binary_not_executable": "Caminho não é executável: {path}"
+    "editor_binary_not_executable": "Caminho não é executável: {path}",
+    "storage": {
+      "not_configured": "Nenhum storage remoto configurado.",
+      "unavailable": "Storage indisponível. Verifique a conexão remota.",
+      "sync_failed": "Sync falhou em {file}: {reason}",
+      "reload_failed": "Reload do storage falhou: {reason}. A config foi salva mas a ativação falhou; corrija o problema ou remova a config.",
+      "invalid_driver": "Driver de storage inválido.",
+      "clipboard_failed": "Não consegui copiar para a área de transferência: {reason}"
+    },
+    "mongo": {
+      "uri_required": "URI do MongoDB é obrigatória.",
+      "connection_failed": "Conexão MongoDB falhou: {reason}"
+    },
+    "s3": {
+      "bucket_required": "Bucket do S3 é obrigatório.",
+      "access_key_required": "Access Key ID do S3 é obrigatório.",
+      "secret_key_required": "Secret Access Key do S3 é obrigatório.",
+      "connection_failed": "Conexão S3 falhou: {reason}",
+      "bucket_not_found": "Bucket S3 não encontrado ou sem acesso."
+    }
   },
   "success": {
     "group_created": "Grupo criado",
@@ -341,7 +360,16 @@
     "project_renamed": "Projeto renomeado",
     "project_deleted": "Projeto excluído",
     "project_activated": "Projeto ativado",
-    "project_reordered": "Ordem dos projetos salva"
+    "project_reordered": "Ordem dos projetos salva",
+    "storage": {
+      "config_activated": "Storage remoto ativado — recarregando.",
+      "config_deactivated": "Storage remoto desativado — recarregando.",
+      "config_already_absent": "Não havia config de storage remoto pra remover.",
+      "file_activated": "Storage local ativado — recarregando.",
+      "sync_local_to_cloud": "Dados locais enviados ao cloud ({count} arquivo(s)).",
+      "sync_cloud_to_local": "Dados do cloud trazidos para arquivos locais ({count} arquivo(s)).",
+      "copied": "Copiado para clipboard."
+    }
   },
   "time": {
     "now": "agora",
@@ -354,7 +382,8 @@
     "closeTab": "Fechar aba"
   },
   "common": {
-    "cancel": "Cancelar"
+    "cancel": "Cancelar",
+    "loading": "Carregando..."
   },
   "compose": {
     "title": "Enviar ao terminal",
@@ -377,7 +406,8 @@
       "servers": "Servidores",
       "telegram": "Telegram",
       "notifications": "Notificações",
-      "editor": "Editor"
+      "editor": "Editor",
+      "storage": "Armazenamento"
     },
     "editor": {
       "title": "Editor",
@@ -471,6 +501,69 @@
       "channelBrowser": "Navegador",
       "channelTelegram": "Telegram",
       "telegramNotConfigured": "Configure o Telegram na aba correspondente para habilitar este canal."
+    },
+    "storage": {
+      "title": "Armazenamento de dados",
+      "subtitle": "Arquivos locais por padrão. Aponte pra um driver remoto (MongoDB, S3 ou S3-compatível) pra compartilhar seus dados entre várias instalações — troca em tempo real, sem restart.",
+      "activeLabel": "Ativo",
+      "statusActive": "Ativo: {driver}",
+      "validateActivateButton": "Validar e ativar",
+      "useLocalButton": "Usar armazenamento local",
+      "deactivateButton": "Desativar storage remoto",
+      "syncTitle": "Ferramentas de sync",
+      "syncSubtitle": "Cópia unidirecional entre arquivos locais e o driver de cloud ativo. Ambas as operações são destrutivas no lado de destino.",
+      "syncLocalToCloudButton": "Sync local → cloud",
+      "syncCloudToLocalButton": "Sync cloud → local",
+      "typeToConfirm": "Digite \"{word}\" para confirmar",
+      "copyButton": "Copiar",
+      "drivers": {
+        "file": {
+          "label": "Arquivos locais",
+          "description": "O padrão. Tudo fica em data/*.json nesta máquina.",
+          "statusLabel": "Arquivos locais"
+        },
+        "mongo": {
+          "label": "MongoDB",
+          "description": "Aponte pra um MongoDB e toda rota API lê/escreve por ele. Requer MongoDB 4.2+.",
+          "statusLabel": "MongoDB",
+          "uriLabel": "URI de conexão",
+          "uriHint": "URI mongodb:// ou mongodb+srv:// incluindo credenciais",
+          "databaseLabel": "Nome do database (opcional)",
+          "databaseHint": "Padrão \"pulse\" se vazio."
+        },
+        "s3": {
+          "label": "S3",
+          "description": "AWS S3 ou qualquer endpoint S3-compatível (R2, GCS, MinIO, Backblaze B2). Usa ETag If-Match pra proteção de escrita cross-device.",
+          "statusLabel": "S3",
+          "endpointLabel": "Endpoint (opcional)",
+          "endpointHint": "Deixe vazio pra AWS S3. Pra R2/GCS/MinIO informe a URL completa, ex: https://<account>.r2.cloudflarestorage.com",
+          "bucketLabel": "Bucket",
+          "regionLabel": "Região",
+          "regionHint": "Padrão us-east-1. Use \"auto\" para Cloudflare R2.",
+          "accessKeyLabel": "Access Key ID",
+          "secretKeyLabel": "Secret Access Key",
+          "prefixLabel": "Prefixo (opcional)",
+          "prefixHint": "Prefixo de path dentro do bucket. Útil quando o bucket é compartilhado com outros apps.",
+          "forcePathStyleLabel": "Usar path-style addressing (obrigatório para MinIO e alguns S3 self-hosted)"
+        }
+      },
+      "confirmPush": {
+        "title": "Sobrescrever conteúdo do cloud",
+        "body": "Isto vai APAGAR o storage cloud ativo e substituí-lo pelos arquivos locais atuais. Arquivos locais não são alterados.",
+        "confirm": "Enviar para cloud"
+      },
+      "confirmPull": {
+        "title": "Sobrescrever arquivos locais",
+        "body": "Isto vai SOBRESCREVER os arquivos locais em data/ com o conteúdo atual do storage cloud ativo. O cloud não é alterado.",
+        "confirm": "Trazer do cloud"
+      },
+      "confirmDeactivate": {
+        "title": "Desativar storage remoto",
+        "body": "O frontend vai voltar a ler os arquivos locais em data/ — os arquivos que estavam lá antes de você ativar o storage remoto continuam intactos. Se quiser preservar localmente o estado *atual* do cloud, rode opcionalmente Sync cloud → local antes; caso contrário é um rollback limpo ao estado pré-ativação.",
+        "confirm": "Desativar"
+      },
+      "showButton": "Mostrar",
+      "hideButton": "Ocultar"
     }
   },
   "prompts": {

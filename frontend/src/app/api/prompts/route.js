@@ -1,40 +1,19 @@
 import { NextResponse } from 'next/server';
-import { promises as fs } from 'fs';
-import path from 'path';
 import { randomUUID } from 'crypto';
 import { withAuth } from '@/lib/auth';
-import { withFileLock } from '@/lib/jsonStore';
+import { readStore, writeStore, withStoreLock } from '@/lib/storage';
 
-const FILE = path.join(process.cwd(), 'data', 'prompts.json');
-const LOCK_KEY = 'data/prompts.json';
+const REL = 'data/prompts.json';
+const EMPTY = { prompts: [] };
 
 async function readPrompts() {
-  try {
-    const raw = await fs.readFile(FILE, 'utf-8');
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed?.prompts) ? parsed.prompts : [];
-  } catch (err) {
-    if (err.code === 'ENOENT') return [];
-    throw err;
-  }
-}
-
-async function atomicWrite(prompts) {
-  await fs.mkdir(path.dirname(FILE), { recursive: true });
-  const tmp = `${FILE}.${randomUUID()}.tmp`;
-  try {
-    await fs.writeFile(tmp, JSON.stringify({ prompts }, null, 2), 'utf-8');
-    await fs.rename(tmp, FILE);
-  } catch (err) {
-    await fs.unlink(tmp).catch(() => {});
-    throw err;
-  }
+  const data = await readStore(REL, EMPTY);
+  return Array.isArray(data?.prompts) ? data.prompts : [];
 }
 
 function normalize(list) {
   const now = new Date().toISOString();
   return list.map((p) => {
-    // project_id: string = scoped to that project; null = global (explicitly shared across projects).
     const projectId = (typeof p.project_id === 'string' && p.project_id) ? p.project_id : null;
     return {
       id: p.id || `pid-${randomUUID()}`,
@@ -62,9 +41,9 @@ export const PUT = withAuth(async (req) => {
   if (!body || !Array.isArray(body.prompts)) {
     return NextResponse.json({ detail: 'Expected { prompts: [...] }', detail_key: 'errors.invalid_body' }, { status: 400 });
   }
-  const prompts = await withFileLock(LOCK_KEY, async () => {
+  const prompts = await withStoreLock(REL, async () => {
     const next = normalize(body.prompts);
-    await atomicWrite(next);
+    await writeStore(REL, { prompts: next });
     return next;
   });
   return NextResponse.json({ prompts });

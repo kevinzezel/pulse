@@ -1,35 +1,20 @@
 import { NextResponse } from 'next/server';
-import { promises as fs } from 'fs';
-import path from 'path';
 import { withAuth } from '@/lib/auth';
+import { readStore } from '@/lib/storage';
 
 async function readArray(relPath, key) {
-  const file = path.join(process.cwd(), relPath);
-  try {
-    const raw = await fs.readFile(file, 'utf-8');
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed?.[key]) ? parsed[key] : [];
-  } catch (err) {
-    if (err.code === 'ENOENT') return [];
-    throw err;
-  }
+  const data = await readStore(relPath, null);
+  return Array.isArray(data?.[key]) ? data[key] : [];
 }
 
 async function readSessions() {
-  const file = path.join(process.cwd(), 'data', 'sessions.json');
-  try {
-    const raw = await fs.readFile(file, 'utf-8');
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed.servers !== 'object') return [];
-    const out = [];
-    for (const list of Object.values(parsed.servers)) {
-      if (Array.isArray(list)) out.push(...list);
-    }
-    return out;
-  } catch (err) {
-    if (err.code === 'ENOENT') return [];
-    throw err;
+  const data = await readStore('data/sessions.json', null);
+  if (!data || typeof data.servers !== 'object') return [];
+  const out = [];
+  for (const list of Object.values(data.servers)) {
+    if (Array.isArray(list)) out.push(...list);
   }
+  return out;
 }
 
 function countForProject(items, projectId) {

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { readJsonFile, writeJsonFileAtomic, withFileLock } from '@/lib/jsonStore';
+import { readStore, writeStore, withStoreLock } from '@/lib/storage';
 import { withAuth } from '@/lib/auth';
 import {
   isValidColor,
@@ -8,7 +8,6 @@ import {
 } from '@/lib/notesConfig';
 
 const REL = 'data/notes.json';
-const LOCK_KEY = 'data/notes.json';
 const EMPTY = { notes: [], updated_at: null };
 
 function bad(detailKey, detail, status = 400, params = null) {
@@ -69,14 +68,14 @@ export const PATCH = withAuth(async (req, { params }) => {
   }
   let result;
   try {
-    result = await withFileLock(LOCK_KEY, async () => {
-      const data = await readJsonFile(REL, EMPTY);
+    result = await withStoreLock(REL, async () => {
+      const data = await readStore(REL, EMPTY);
       const notes = Array.isArray(data?.notes) ? data.notes : [];
       const idx = notes.findIndex((n) => n.id === id);
       if (idx < 0) return { notFound: true };
       const updated = applyPatch(notes[idx], body);
       notes[idx] = updated;
-      await writeJsonFileAtomic(REL, { notes, updated_at: updated.updated_at });
+      await writeStore(REL, { notes, updated_at: updated.updated_at });
       return { updated };
     });
   } catch (err) {
@@ -88,13 +87,13 @@ export const PATCH = withAuth(async (req, { params }) => {
 
 export const DELETE = withAuth(async (req, { params }) => {
   const { id } = await params;
-  const result = await withFileLock(LOCK_KEY, async () => {
-    const data = await readJsonFile(REL, EMPTY);
+  const result = await withStoreLock(REL, async () => {
+    const data = await readStore(REL, EMPTY);
     const notes = Array.isArray(data?.notes) ? data.notes : [];
     const idx = notes.findIndex((n) => n.id === id);
     if (idx < 0) return { notFound: true };
     notes.splice(idx, 1);
-    await writeJsonFileAtomic(REL, { notes, updated_at: new Date().toISOString() });
+    await writeStore(REL, { notes, updated_at: new Date().toISOString() });
     return { ok: true };
   });
   if (result.notFound) return bad('errors.note_not_found', 'Note not found', 404);

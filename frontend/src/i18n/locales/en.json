@@ -320,7 +320,26 @@
     "project_not_empty": "Project is not empty",
     "project_default_protected": "The default project cannot be deleted",
     "editor_binary_not_found": "Editor binary not found on the host. Install VSCode / Cursor / VSCodium, or set the path in Settings → Editor.",
-    "editor_binary_not_executable": "Path is not executable: {path}"
+    "editor_binary_not_executable": "Path is not executable: {path}",
+    "storage": {
+      "not_configured": "No remote storage is configured.",
+      "unavailable": "Storage is unavailable. Check the remote connection.",
+      "sync_failed": "Sync failed on {file}: {reason}",
+      "reload_failed": "Storage reload failed: {reason}. The config file was saved but activation failed; fix the issue or remove the config.",
+      "invalid_driver": "Invalid storage driver.",
+      "clipboard_failed": "Could not copy to clipboard: {reason}"
+    },
+    "mongo": {
+      "uri_required": "MongoDB URI is required.",
+      "connection_failed": "MongoDB connection failed: {reason}"
+    },
+    "s3": {
+      "bucket_required": "S3 bucket is required.",
+      "access_key_required": "S3 Access Key ID is required.",
+      "secret_key_required": "S3 Secret Access Key is required.",
+      "connection_failed": "S3 connection failed: {reason}",
+      "bucket_not_found": "S3 bucket not found or not accessible."
+    }
   },
   "success": {
     "group_created": "Group created",
@@ -341,7 +360,16 @@
     "project_renamed": "Project renamed",
     "project_deleted": "Project deleted",
     "project_activated": "Project activated",
-    "project_reordered": "Project order saved"
+    "project_reordered": "Project order saved",
+    "storage": {
+      "config_activated": "Remote storage activated — reloading.",
+      "config_deactivated": "Remote storage deactivated — reloading.",
+      "config_already_absent": "No remote storage config to remove.",
+      "file_activated": "Local storage activated — reloading.",
+      "sync_local_to_cloud": "Local data pushed to cloud ({count} file(s)).",
+      "sync_cloud_to_local": "Cloud data pulled to local files ({count} file(s)).",
+      "copied": "Copied to clipboard."
+    }
   },
   "time": {
     "now": "now",
@@ -354,7 +382,8 @@
     "closeTab": "Close tab"
   },
   "common": {
-    "cancel": "Cancel"
+    "cancel": "Cancel",
+    "loading": "Loading..."
   },
   "compose": {
     "title": "Send to terminal",
@@ -377,7 +406,8 @@
       "servers": "Servers",
       "telegram": "Telegram",
       "notifications": "Notifications",
-      "editor": "Editor"
+      "editor": "Editor",
+      "storage": "Storage"
     },
     "editor": {
       "title": "Editor",
@@ -471,6 +501,69 @@
       "channelBrowser": "Browser",
       "channelTelegram": "Telegram",
       "telegramNotConfigured": "Set up Telegram in the matching tab to enable this channel."
+    },
+    "storage": {
+      "title": "Data storage",
+      "subtitle": "Local files by default. Point to a remote driver (MongoDB, S3 or S3-compatible) to share your data across multiple installations — hot-swap, no restart.",
+      "activeLabel": "Active",
+      "statusActive": "Active: {driver}",
+      "validateActivateButton": "Validate & Activate",
+      "useLocalButton": "Use local storage",
+      "deactivateButton": "Deactivate remote storage",
+      "syncTitle": "Sync tools",
+      "syncSubtitle": "One-way copy between local files and the active cloud driver. Both operations are destructive on the target side.",
+      "syncLocalToCloudButton": "Sync local → cloud",
+      "syncCloudToLocalButton": "Sync cloud → local",
+      "typeToConfirm": "Type \"{word}\" to confirm",
+      "copyButton": "Copy",
+      "drivers": {
+        "file": {
+          "label": "Local files",
+          "description": "The default. Everything lives in data/*.json on this machine.",
+          "statusLabel": "Local files"
+        },
+        "mongo": {
+          "label": "MongoDB",
+          "description": "Point at a MongoDB and every API route reads/writes through it. Requires MongoDB 4.2+.",
+          "statusLabel": "MongoDB",
+          "uriLabel": "Connection URI",
+          "uriHint": "mongodb:// or mongodb+srv:// URI including credentials",
+          "databaseLabel": "Database name (optional)",
+          "databaseHint": "Defaults to \"pulse\" if empty."
+        },
+        "s3": {
+          "label": "S3",
+          "description": "AWS S3 or any S3-compatible endpoint (R2, GCS, MinIO, Backblaze B2). Uses ETag If-Match for cross-device write safety.",
+          "statusLabel": "S3",
+          "endpointLabel": "Endpoint (optional)",
+          "endpointHint": "Leave empty for AWS S3. For R2/GCS/MinIO provide the full URL, e.g. https://<account>.r2.cloudflarestorage.com",
+          "bucketLabel": "Bucket",
+          "regionLabel": "Region",
+          "regionHint": "Defaults to us-east-1. Use \"auto\" for Cloudflare R2.",
+          "accessKeyLabel": "Access Key ID",
+          "secretKeyLabel": "Secret Access Key",
+          "prefixLabel": "Prefix (optional)",
+          "prefixHint": "Path prefix inside the bucket. Useful when sharing the bucket with other apps.",
+          "forcePathStyleLabel": "Use path-style addressing (required for MinIO and some self-hosted S3)"
+        }
+      },
+      "confirmPush": {
+        "title": "Replace cloud contents",
+        "body": "This will WIPE the active cloud storage and replace it with the current local files. Local files are not changed.",
+        "confirm": "Push to cloud"
+      },
+      "confirmPull": {
+        "title": "Overwrite local files",
+        "body": "This will OVERWRITE the local files in data/ with the current contents of the active cloud storage. The cloud is not changed.",
+        "confirm": "Pull from cloud"
+      },
+      "confirmDeactivate": {
+        "title": "Deactivate remote storage",
+        "body": "The frontend will go back to reading local files in data/ — the files that were there before you activated remote storage are still intact. If you want the *current* cloud state preserved locally, optionally run Sync cloud → local first; otherwise this is a clean rollback to the pre-activation state.",
+        "confirm": "Deactivate"
+      },
+      "showButton": "Show",
+      "hideButton": "Hide"
     }
   },
   "prompts": {

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { readJsonFile, writeJsonFileAtomic, withFileLock } from '@/lib/jsonStore';
+import { readStore, writeStore, withStoreLock } from '@/lib/storage';
 import { withAuth } from '@/lib/auth';
 import { NAME_MAX } from '@/lib/flowsConfig';
 
@@ -53,8 +53,8 @@ export const PATCH = withAuth(async (req, { params }) => {
   }
 
   try {
-    const updated = await withFileLock(REL, async () => {
-      const data = await readJsonFile(REL, EMPTY);
+    const updated = await withStoreLock(REL, async () => {
+      const data = await readStore(REL, EMPTY);
       const flows = Array.isArray(data?.flows) ? data.flows : [];
       const idx = flows.findIndex((f) => f.id === id);
       if (idx < 0) {
@@ -62,7 +62,7 @@ export const PATCH = withAuth(async (req, { params }) => {
       }
       const next = await applyPatch(flows[idx], body);
       flows[idx] = next;
-      await writeJsonFileAtomic(REL, { flows, updated_at: next.updated_at });
+      await writeStore(REL, { flows, updated_at: next.updated_at });
       return next;
     });
     return NextResponse.json(updated);
@@ -74,15 +74,15 @@ export const PATCH = withAuth(async (req, { params }) => {
 export const DELETE = withAuth(async (req, { params }) => {
   const { id } = await params;
   try {
-    await withFileLock(REL, async () => {
-      const data = await readJsonFile(REL, EMPTY);
+    await withStoreLock(REL, async () => {
+      const data = await readStore(REL, EMPTY);
       const flows = Array.isArray(data?.flows) ? data.flows : [];
       const idx = flows.findIndex((f) => f.id === id);
       if (idx < 0) {
         throw Object.assign(new Error('Flow not found'), { key: 'errors.flow_not_found', status: 404 });
       }
       flows.splice(idx, 1);
-      await writeJsonFileAtomic(REL, { flows, updated_at: new Date().toISOString() });
+      await writeStore(REL, { flows, updated_at: new Date().toISOString() });
     });
     return NextResponse.json({ ok: true });
   } catch (err) {

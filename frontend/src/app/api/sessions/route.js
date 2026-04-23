@@ -1,10 +1,9 @@
 import { NextResponse } from 'next/server';
-import { readJsonFile, writeJsonFileAtomic, withFileLock } from '@/lib/jsonStore';
+import { readStore, writeStore, withStoreLock } from '@/lib/storage';
 import { withAuth } from '@/lib/auth';
 import { DEFAULT_PROJECT_ID } from '@/lib/projectScope';
 
 const REL = 'data/sessions.json';
-const LOCK_KEY = 'data/sessions.json';
 const EMPTY = { servers: {}, updated_at: null };
 
 function normalizeSession(raw) {
@@ -38,19 +37,19 @@ function migrateServers(serversIn) {
 }
 
 async function readAndMigrate() {
-  const data = await readJsonFile(REL, EMPTY);
+  const data = await readStore(REL, EMPTY);
   if (!data || typeof data !== 'object') return EMPTY;
   const serversIn = data.servers && typeof data.servers === 'object' ? data.servers : {};
   const { servers, changed } = migrateServers(serversIn);
   const out = { servers, updated_at: data.updated_at ?? null };
   if (changed) {
     out.updated_at = new Date().toISOString();
-    await withFileLock(LOCK_KEY, async () => {
-      const fresh = await readJsonFile(REL, EMPTY);
+    await withStoreLock(REL, async () => {
+      const fresh = await readStore(REL, EMPTY);
       const freshServersIn = fresh?.servers && typeof fresh.servers === 'object' ? fresh.servers : {};
       const { servers: freshServers, changed: stillChanged } = migrateServers(freshServersIn);
       if (stillChanged) {
-        await writeJsonFileAtomic(REL, { servers: freshServers, updated_at: new Date().toISOString() });
+        await writeStore(REL, { servers: freshServers, updated_at: new Date().toISOString() });
       }
     });
   }
@@ -77,8 +76,8 @@ export const GET = withAuth(async () => {
 export const PUT = withAuth(async (req) => {
   const body = await req.json();
   const cleaned = normalizePayload(body);
-  await withFileLock(LOCK_KEY, async () => {
-    await writeJsonFileAtomic(REL, cleaned);
+  await withStoreLock(REL, async () => {
+    await writeStore(REL, cleaned);
   });
   return NextResponse.json(cleaned);
 });

@@ -1,34 +1,14 @@
 import { NextResponse } from 'next/server';
-import { promises as fs } from 'fs';
-import path from 'path';
 import { randomUUID } from 'crypto';
 import { withAuth } from '@/lib/auth';
-import { withFileLock } from '@/lib/jsonStore';
+import { readStore, writeStore, withStoreLock } from '@/lib/storage';
 
-const FILE = path.join(process.cwd(), 'data', 'servers.json');
-const LOCK_KEY = 'data/servers.json';
+const REL = 'data/servers.json';
+const EMPTY = { servers: [] };
 
 async function readServers() {
-  try {
-    const raw = await fs.readFile(FILE, 'utf-8');
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed?.servers) ? parsed.servers : [];
-  } catch (err) {
-    if (err.code === 'ENOENT') return [];
-    throw err;
-  }
-}
-
-async function atomicWrite(servers) {
-  await fs.mkdir(path.dirname(FILE), { recursive: true });
-  const tmp = `${FILE}.${randomUUID()}.tmp`;
-  try {
-    await fs.writeFile(tmp, JSON.stringify({ servers }, null, 2), 'utf-8');
-    await fs.rename(tmp, FILE);
-  } catch (err) {
-    await fs.unlink(tmp).catch(() => {});
-    throw err;
-  }
+  const data = await readStore(REL, EMPTY);
+  return Array.isArray(data?.servers) ? data.servers : [];
 }
 
 function normalize(list) {
@@ -69,9 +49,9 @@ export const PUT = withAuth(async (req) => {
   if (!body || !Array.isArray(body.servers)) {
     return NextResponse.json({ detail: 'Expected { servers: [...] }', detail_key: 'errors.invalid_body' }, { status: 400 });
   }
-  const servers = await withFileLock(LOCK_KEY, async () => {
+  const servers = await withStoreLock(REL, async () => {
     const next = normalize(body.servers);
-    await atomicWrite(next);
+    await writeStore(REL, { servers: next });
     return next;
   });
   return NextResponse.json({ servers });

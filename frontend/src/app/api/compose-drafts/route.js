@@ -1,9 +1,8 @@
 import { NextResponse } from 'next/server';
-import { readJsonFile, writeJsonFileAtomic, withFileLock } from '@/lib/jsonStore';
+import { readStore, writeStore, withStoreLock } from '@/lib/storage';
 import { withAuth } from '@/lib/auth';
 
 const REL = 'data/compose-drafts.json';
-const LOCK_KEY = 'data/compose-drafts.json';
 const EMPTY = { drafts: {}, updated_at: null };
 
 const KEY_RE = /^[A-Za-z0-9_-]+::[A-Za-z0-9_-]+$/;
@@ -31,15 +30,15 @@ function normalizePayload(raw) {
 }
 
 export const GET = withAuth(async () => {
-  const data = await readJsonFile(REL, EMPTY);
+  const data = await readStore(REL, EMPTY);
   return NextResponse.json(data);
 });
 
 export const PUT = withAuth(async (req) => {
   const body = await req.json();
   const cleaned = normalizePayload(body);
-  await withFileLock(LOCK_KEY, async () => {
-    await writeJsonFileAtomic(REL, cleaned);
+  await withStoreLock(REL, async () => {
+    await writeStore(REL, cleaned);
   });
   return NextResponse.json(cleaned);
 });

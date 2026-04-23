@@ -7,6 +7,7 @@ import {
 } from '@/services/api';
 import { useErrorToast } from '@/providers/I18nProvider';
 import { useProjects } from '@/providers/ProjectsProvider';
+import { useRefetchOnFocus } from '@/utils/useRefetchOnFocus';
 import {
   BASE_Z, PINNED_BASE_Z, SAVE_DEBOUNCE_MS,
   DEFAULT_COLOR, DEFAULT_WIDTH, DEFAULT_HEIGHT,
@@ -63,6 +64,13 @@ export function NotesProvider({ children }) {
   useEffect(() => {
     if (managerOpen) load();
   }, [managerOpen, load]);
+
+  useRefetchOnFocus(() => {
+    // Skip refetch if local writes are in flight or queued — they'd be clobbered.
+    if (Object.keys(pendingPatches.current).length > 0) return;
+    if (Object.keys(debounceTimers.current).length > 0) return;
+    load().catch((err) => console.warn('[NotesProvider] focus refetch failed:', err));
+  }, pathname !== '/login');
 
   const flushPatch = useCallback(async (id) => {
     const patch = pendingPatches.current[id];
