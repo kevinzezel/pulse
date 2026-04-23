@@ -304,28 +304,6 @@ export async function saveGroups(groups) {
   });
 }
 
-export async function getLayouts() {
-  return localRequest('/api/layouts');
-}
-
-export async function setLayouts(layouts) {
-  return localRequest('/api/layouts', {
-    method: 'PUT',
-    body: JSON.stringify({ layouts }),
-  });
-}
-
-export async function getViewState() {
-  return localRequest('/api/view-state');
-}
-
-export async function setViewState(viewState) {
-  return localRequest('/api/view-state', {
-    method: 'PUT',
-    body: JSON.stringify({ view_state: viewState }),
-  });
-}
-
 export function getSessionsSnapshot() {
   return localRequest('/api/sessions');
 }

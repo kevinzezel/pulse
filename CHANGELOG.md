@@ -6,6 +6,32 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [1.9.0] — 2026-04-23
+
+### Added
+
+- **Visão por aba isolada via `localStorage` com auto tab-claim.** Cada aba do navegador agora tem seu próprio mosaico, grupo selecionado e fluxo selecionado por projeto — abrir 2 abas no Chrome (mesmo no mesmo projeto+grupo) significa duas visões totalmente independentes. Implementado via `frontend/src/lib/tabSession.js`: na primeira carga de uma aba sem `sessionStorage["rt:tab-uuid"]`, a aba consulta as outras abas via `BroadcastChannel("rt:tab-coord")` por 150 ms perguntando quais UUIDs já estão "claimed", então adota o primeiro UUID livre da lista persistida em `localStorage["rt:tab-profiles"]` (LRU, máximo 10 perfis) ou gera um novo via `crypto.randomUUID()`. F5 mantém a visão (UUID em `sessionStorage`); fechar a aba libera o UUID pra adoção futura. No dia seguinte (browser reaberto), abrir N abas readota até N dos perfis existentes — cada aba volta com layout/grupo/fluxo da última vez que aquele UUID foi usado. Estado granular nas chaves `rt:tab::<uuid>::layout::<projectId>::<groupKey>` e `rt:tab::<uuid>::view::<projectId>::{group,flow}`. Quando o pool estoura 10 perfis, o `lastSeenTs` mais antigo é evictado e todas suas chaves são apagadas do `localStorage`.
+- **Endpoint one-shot `GET /api/migrate-state`.** Lê `data/layouts.json` + `data/view-state.json`, retorna o conteúdo, e os apaga (driver `file`: `fs.unlink`; outros drivers: sobrescreve com objeto vazio via `writeStore`). O frontend chama uma vez na primeira carga após o upgrade (detectado por ausência do flag `localStorage["rt:migrated-from-server"]`) e popula as chaves locais do UUID recém-criado, então marca o flag para nunca mais chamar. Idempotente: chamadas subsequentes em qualquer aba retornam `{layouts: null, view_state: null}` porque os arquivos já foram esvaziados.
+
+### Changed
+
+- **Removida a persistência global de mosaico e view-state no servidor.** Antes: `frontend/data/layouts.json` (árvore react-mosaic chaveada por `(projectId, groupId)`) e `frontend/data/view-state.json` (grupo + fluxo selecionados por projeto) eram salvos via `PUT /api/layouts` e `PUT /api/view-state`, com debounce de 500 ms / 400 ms e refetch on focus no `ViewStateProvider`. Toda aba do mesmo browser via o mesmo estado, e mudar em uma aba sobrescrevia a outra após F5. Agora: tudo vive em `localStorage` no escopo do UUID da aba (ver acima); `ViewStateProvider` dropou o refetch on focus (não faz sentido com storage local — o estado é a fonte da verdade). Os endpoints `/api/layouts` e `/api/view-state` foram **removidos**, junto com `getLayouts`/`setLayouts`/`getViewState`/`setViewState` do `frontend/src/services/api.js`. `data/layouts.json` e `data/view-state.json` foram tirados de `DATA_REL_PATHS` em `frontend/src/lib/storage.js` — não são mais sincronizados pelos botões de cloud↔local em Settings → Storage.
+
+### Migração
+
+- Rodando `1.9.0` pela primeira vez, a primeira aba a abrir absorve o estado existente do servidor pra suas chaves locais e marca a migração como concluída. Após isso, os arquivos `data/layouts.json` e `data/view-state.json` são apagados automaticamente do disco (driver `file`) ou esvaziados (drivers `mongo`/`s3`). Caso o navegador esteja com versão antiga do bundle JS cacheada quando o servidor já está em 1.9.0, qualquer `PUT /api/layouts` ou `/api/view-state` retornará 404 — basta hard-refresh (`Ctrl+Shift+R`) na aba afetada para carregar o novo cliente.
+
+### Fixed (durante validação interna antes do release)
+
+- **Mosaico do dashboard sumia ao logar de novo após logout (ou após expiração da sessão de 24 h).** Bug introduzido pela própria mudança de v1.9.0 (estado em `localStorage` em vez de servidor) — só apareceu no fluxo de logout/login. Cenário reproduzível: 2 terminais num grupo, logout (`window.location.href = '/login'` faz reload completo), login → mosaico aparece vazio e a chave `rt:tab::<uuid>::layout::<projectId>::<groupId>` é removida do `localStorage` instantaneamente. Causa raiz tem três ingredientes que se compõem na transição `/login → /`:
+  - **(1)** O `ServersProvider` mantém `loading=false, servers=[]` durante toda a estadia em `/login` (foi o último estado setado antes do reload). Quando `router.replace('/')` dispara o navigate, Page.js mounta no mesmo render commit em que o pathname muda — antes do `useEffect` do `ServersProvider` rodar `load()`.
+  - **(2)** Page.js mounta, lê `serversLoading=false, servers=[]`, e seu `useEffect` de fetch dispara `fetchSessions`/`fetchGroups`. Ambos caíam no short-circuit `if (servers.length === 0)` que chamava `setHydratedSessions(true)` / `setHydratedGroups(true)` com listas vazias — semântica errada: o flag implicava "fetch real concluída" mas era estado fabricado.
+  - **(3)** Quando o `ServersProvider.load()` finalmente termina (`setServers([srv1])` + `setLoaded(true)` + `setLoading(false)` batched), o React processa todos os updates pendentes em um único render. Resultado: `hydrated=true`, `hydratedLayouts=true` (do `bootTabSession`), `hydratedSessions=true` (legado do short-circuit), `hydratedGroups=true` (idem), `sessions=[]`/`groups=[]` (ainda do short-circuit, fetch real só vai rodar no próximo render). `projectDataReady` vira `true` por um instante. O `useEffect` de validação em `page.js` roda com `sessions=[]`: `validateTree(tree, validIds={})` retorna `null` para qualquer tile (todos "órfãos"), `mosaicLayouts[key]` vira `null`, e o `flushLayoutsToStorage` traduz `null` em `removeKey()` — apagando a chave do `localStorage` para sempre.
+  
+  F5 não disparava porque o cookie de auth permanecia válido e a transição era um reload "limpo" com `loading=true` desde o início (Page.js's fetch effect early-returnava em `serversLoading`).
+  
+  Fix em duas camadas: **(a)** o `ServersProvider` agora expõe um flag `loaded` (separado de `loading`) que vira `true` apenas após o primeiro `load()` real concluir com sucesso — `projectDataReady` em Page.js inclui esse flag como defesa adicional; **(b)** o short-circuit de `fetchSessions`/`fetchGroups` (quando `servers.length === 0`) **não seta** mais `hydratedSessions/Groups=true`. A semântica passou a ser estrita: `hydrated*=true` significa "fetch real bem-sucedida com servers populados". Sem servers, o flag fica `false`, gate fica `false`, validação não roda. Os outros effects que checavam `hydratedSessions` (snapshot save, restore sessions, compose drafts cleanup) já tinham early-return em `servers.length === 0` antes do check, então a mudança não regrediu nada.
+
 ## [1.8.0] — 2026-04-23
 
 ### Added
@@ -444,7 +470,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.8.0...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.9.0...HEAD
+[1.9.0]: https://github.com/kevinzezel/pulse/releases/tag/v1.9.0
 [1.8.0]: https://github.com/kevinzezel/pulse/releases/tag/v1.8.0
 [1.7.5]: https://github.com/kevinzezel/pulse/releases/tag/v1.7.5
 [1.7.4]: https://github.com/kevinzezel/pulse/releases/tag/v1.7.4

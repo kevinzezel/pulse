@@ -6,10 +6,12 @@ import toast from 'react-hot-toast';
 import {
   getSessions, createSession, killSession, renameSession, syncSessions, cloneSession,
   getGroups, createGroup, assignSessionGroup, setGroupHidden, saveGroups, setSessionNotify, createPrompt,
-  getLayouts, setLayouts, composeSessionId, splitSessionId,
+  composeSessionId, splitSessionId,
   getSessionsSnapshot, setSessionsSnapshot, restoreSessions,
   getComposeDrafts, setComposeDrafts as putComposeDrafts,
 } from '@/services/api';
+import { bootTabSession, tabKey, listTabKeysForScope } from '@/lib/tabSession';
+import { readJSON, writeJSON, removeKey } from '@/lib/localState';
 import { reorderById } from '@/utils/reorder';
 import { replaceInTree, removeFromTree, getVisibleSessionIds, validateTree } from '@/utils/mosaicHelpers';
 import { destroyTerminal, destroyAllTerminals, sendKey, hasDeadConnections } from '@/components/TerminalPane';
@@ -47,7 +49,7 @@ export default function DashboardPage() {
 function Dashboard() {
   const { t } = useTranslation();
   const showError = useErrorToast();
-  const { servers, loading: serversLoading } = useServers();
+  const { servers, loading: serversLoading, loaded: serversLoaded } = useServers();
   const { activeProjectId, activeProject } = useProjects();
   const { getProjectGroup, setProjectGroup, hydrated: hydratedViewState } = useViewState();
   const router = useRouter();
@@ -64,11 +66,11 @@ function Dashboard() {
   const [groupsProjectId, setGroupsProjectId] = useState(null);
   const [savedLayout, setSavedLayout] = useState(null);
   const layoutsSaveTimer = useRef(null);
-  const layoutsInFlight = useRef(Promise.resolve());
   const snapshotDebounceRef = useRef(null);
   const snapshotInFlight = useRef(Promise.resolve());
   const composeDraftsInFlight = useRef(Promise.resolve());
   const latestLayoutsRef = useRef({});
+  const previousLayoutsRef = useRef({});
   const restoreAttemptedRef = useRef(false);
   const [busySessionIds, setBusySessionIds] = useState(new Set());
   const [draggingId, setDraggingId] = useState(null);
@@ -97,43 +99,35 @@ function Dashboard() {
   }, []);
 
   useEffect(() => {
-    async function run() {
+    let alive = true;
+    (async () => {
       try {
-        const data = await getLayouts();
-        const raw = data.layouts || {};
+        await bootTabSession();
+        if (!alive) return;
+        const prefix = 'layout::';
+        const keys = listTabKeysForScope('layout');
         const normalized = {};
-        for (const [k, v] of Object.entries(raw)) {
-          if (v && typeof v === 'object' && !Array.isArray(v) && 'mosaic' in v) {
-            normalized[k] = v.mosaic ?? null;
+        for (const fullKey of keys) {
+          // fullKey = `rt:tab::<uuid>::layout::<projectId>::<groupKey>`
+          const idx = fullKey.indexOf(`::${prefix}`);
+          if (idx === -1) continue;
+          const inner = fullKey.slice(idx + prefix.length + 2); // pula ::layout::
+          const value = readJSON(fullKey, null);
+          if (value && typeof value === 'object' && !Array.isArray(value) && 'mosaic' in value) {
+            normalized[inner] = value.mosaic ?? null;
           } else {
-            normalized[k] = v ?? null;
+            normalized[inner] = value ?? null;
           }
         }
-        if (Object.keys(normalized).length === 0) {
-          try {
-            const legacyLayout = localStorage.getItem('rt:mosaicLayout');
-            if (legacyLayout) {
-              const legacy = JSON.parse(legacyLayout);
-              if (legacy) {
-                normalized[`${activeProjectId}::__none__`] = legacy;
-                await setLayouts(normalized).catch(() => {});
-              }
-            }
-            localStorage.removeItem('rt:mosaicLayout');
-            localStorage.removeItem('rt:mobileOpenIds');
-          } catch {}
-        } else {
-          localStorage.removeItem('rt:mosaicLayout');
-          localStorage.removeItem('rt:mobileOpenIds');
-        }
+        previousLayoutsRef.current = { ...normalized };
         setMosaicLayouts(normalized);
       } catch (err) {
-        console.warn('[getLayouts] failed', err);
+        console.warn('[bootTabSession] failed', err);
       } finally {
-        setHydratedLayouts(true);
+        if (alive) setHydratedLayouts(true);
       }
-    }
-    run();
+    })();
+    return () => { alive = false; };
   }, []);
 
   useEffect(() => {
@@ -150,44 +144,59 @@ function Dashboard() {
     run();
   }, []);
 
+  const flushLayoutsToStorage = useCallback(() => {
+    const next = latestLayoutsRef.current || {};
+    const prev = previousLayoutsRef.current || {};
+    for (const [innerKey, value] of Object.entries(next)) {
+      if (prev[innerKey] === value) continue;
+      const k = tabKey('layout', innerKey);
+      if (k) writeJSON(k, value);
+    }
+    for (const innerKey of Object.keys(prev)) {
+      if (innerKey in next) continue;
+      const k = tabKey('layout', innerKey);
+      if (k) removeKey(k);
+    }
+    previousLayoutsRef.current = { ...next };
+  }, []);
+
   useEffect(() => {
     if (!hydratedLayouts) return;
     latestLayoutsRef.current = mosaicLayouts;
     if (layoutsSaveTimer.current) clearTimeout(layoutsSaveTimer.current);
     layoutsSaveTimer.current = setTimeout(() => {
       layoutsSaveTimer.current = null;
-      const payload = latestLayoutsRef.current;
-      layoutsInFlight.current = layoutsInFlight.current
-        .catch(() => {})
-        .then(() => setLayouts(payload))
-        .catch(err => console.warn('[setLayouts] failed', err));
+      flushLayoutsToStorage();
     }, 500);
     return () => { if (layoutsSaveTimer.current) clearTimeout(layoutsSaveTimer.current); };
-  }, [mosaicLayouts, hydratedLayouts]);
+  }, [mosaicLayouts, hydratedLayouts, flushLayoutsToStorage]);
 
   useEffect(() => {
     return () => {
       if (layoutsSaveTimer.current) {
         clearTimeout(layoutsSaveTimer.current);
         layoutsSaveTimer.current = null;
-        const payload = latestLayoutsRef.current;
-        if (payload) {
-          layoutsInFlight.current = layoutsInFlight.current
-            .catch(() => {})
-            .then(() => setLayouts(payload))
-            .catch(err => console.warn('[setLayouts] unmount flush failed', err));
-        }
+        flushLayoutsToStorage();
       }
     };
-  }, []);
+  }, [flushLayoutsToStorage]);
 
   // Gate every effect/derivation that mutates or reads mosaicLayouts/selectedGroupId
   // against an inconsistent project snapshot (activeProjectId has flipped but sessions
   // or groups haven't caught up yet). Any new effect touching layouts or group state
   // should bail on `!projectDataReady`.
+  // `serversLoaded` é parte do gate porque, na transição /login → /, o ServersProvider
+  // ficou com loading=false e servers=[] (último estado em /login). Page.js mounta,
+  // seu effect de fetch vê serversLoading=false, dispara fetchSessions/fetchGroups que
+  // short-circuitam em servers.length===0, setam hydratedSessions/Groups=true com listas
+  // vazias. Quando ServersProvider depois carrega de verdade, projectDataReady viraria
+  // true (servers populado, hidratos true) com sessions/groups ainda vazios — e a
+  // validação de tree concluiria que os terminais são órfãos, zerando o mosaico.
+  // `serversLoaded` só vira true depois do primeiro load() real do provider concluir.
   const projectDataReady = hydrated && hydratedLayouts && hydratedSessions && hydratedGroups
     && sessionsProjectId === activeProjectId
-    && groupsProjectId === activeProjectId;
+    && groupsProjectId === activeProjectId
+    && serversLoaded;
 
   useEffect(() => {
     if (!projectDataReady) return;
@@ -295,7 +304,11 @@ function Dashboard() {
       setSessions([]);
       setOfflineServerIds([]);
       setSessionsProjectId(activeProjectId);
-      setHydratedSessions(true);
+      // NÃO seta hydratedSessions=true. Semântica: "fetch real bem-sucedida com
+      // servers populados". Sem servers, não há fetch confiável; deixar false impede
+      // que projectDataReady vire true com sessions=[] de short-circuit — o que
+      // faria a validação zerar tiles do mosaico achando que são órfãos durante a
+      // janela /login → / antes do ServersProvider terminar de carregar.
       return;
     }
     const results = await Promise.allSettled(
@@ -334,7 +347,7 @@ function Dashboard() {
     if (servers.length === 0) {
       setGroups([]);
       setGroupsProjectId(activeProjectId);
-      setHydratedGroups(true);
+      // Mesmo motivo do fetchSessions short-circuit: não setar hydratedGroups=true.
       return;
     }
     try {

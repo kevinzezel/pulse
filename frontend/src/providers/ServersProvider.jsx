@@ -41,6 +41,7 @@ export function ServersProvider({ children }) {
   const pathname = usePathname();
   const [servers, setServers] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState(null);
 
   const load = useCallback(async () => {
@@ -51,6 +52,7 @@ export function ServersProvider({ children }) {
       setServers(list);
       cacheState.servers = list;
       setError(null);
+      setLoaded(true);
     } catch (err) {
       setError(err);
     } finally {
@@ -82,7 +84,7 @@ export function ServersProvider({ children }) {
   );
 
   return (
-    <ServersContext.Provider value={{ servers, loading, error, reload: load, save }}>
+    <ServersContext.Provider value={{ servers, loading, loaded, error, reload: load, save }}>
       {children}
     </ServersContext.Provider>
   );

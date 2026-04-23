@@ -1,14 +1,9 @@
 'use client';
 
-import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
-import { getViewState, setViewState as apiSetViewState } from '@/services/api';
-import { useRefetchOnFocus } from '@/utils/useRefetchOnFocus';
-
-const SAVE_DEBOUNCE_MS = 400;
-
-const LEGACY_GROUP_KEY = 'rt:selectedGroupId';
-const LEGACY_FLOW_KEY = 'rt:selectedFlowId';
+import { bootTabSession, tabKey, listTabKeysForScope } from '@/lib/tabSession';
+import { readJSON, writeJSON, removeKey } from '@/lib/localState';
 
 const ViewStateContext = createContext(null);
 
@@ -19,21 +14,27 @@ export function ViewStateProvider({ children }) {
   const pathname = usePathname();
   const [viewState, setViewStateLocal] = useState({});
   const [hydrated, setHydrated] = useState(false);
-  const saveTimer = useRef(null);
-  const pendingRef = useRef(null);
-  const inFlight = useRef(Promise.resolve());
 
   useEffect(() => {
     if (pathname === '/login') { setHydrated(false); return; }
     let alive = true;
     (async () => {
       try {
-        const data = await getViewState().catch(() => ({ view_state: {} }));
+        await bootTabSession();
         if (!alive) return;
-        const remote = (data && typeof data.view_state === 'object' && !Array.isArray(data.view_state))
-          ? { ...data.view_state }
-          : {};
-        setViewStateLocal(remote);
+        const prefix = 'view::';
+        const keys = listTabKeysForScope('view');
+        const next = {};
+        for (const fullKey of keys) {
+          const idx = fullKey.indexOf(`::${prefix}`);
+          if (idx === -1) continue;
+          const inner = fullKey.slice(idx + prefix.length + 2);
+          const value = readJSON(fullKey, null);
+          if (typeof value === 'string' || value === null) {
+            next[inner] = value;
+          }
+        }
+        setViewStateLocal(next);
       } finally {
         if (alive) setHydrated(true);
       }
@@ -41,55 +42,20 @@ export function ViewStateProvider({ children }) {
     return () => { alive = false; };
   }, [pathname]);
 
-  useEffect(() => {
-    if (!hydrated) return;
-    if (typeof window === 'undefined') return;
-    try {
-      window.localStorage.removeItem(LEGACY_GROUP_KEY);
-      window.localStorage.removeItem(LEGACY_FLOW_KEY);
-    } catch {}
-  }, [hydrated]);
-
-  const scheduleSave = useCallback((next) => {
-    pendingRef.current = next;
-    if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => {
-      const payload = pendingRef.current;
-      if (!payload) return;
-      inFlight.current = inFlight.current
-        .catch(() => {})
-        .then(() => apiSetViewState(payload))
-        .catch(err => console.warn('[setViewState] failed', err));
-    }, SAVE_DEBOUNCE_MS);
-  }, []);
-
-  useEffect(() => () => { if (saveTimer.current) clearTimeout(saveTimer.current); }, []);
-
-  useRefetchOnFocus(async () => {
-    if (!hydrated || pathname === '/login') return;
-    // Skip refetch if we have a pending save — our local state is newer.
-    if (pendingRef.current) return;
-    try {
-      const data = await getViewState();
-      const remote = (data && typeof data.view_state === 'object' && !Array.isArray(data.view_state))
-        ? { ...data.view_state }
-        : {};
-      setViewStateLocal(remote);
-    } catch (err) {
-      console.warn('[ViewStateProvider] focus refetch failed:', err);
-    }
-  }, hydrated && pathname !== '/login');
-
   const setKey = useCallback((key, value) => {
     setViewStateLocal(prev => {
       const cur = prev[key] ?? null;
       const nv = value ?? null;
       if (cur === nv) return prev;
       const next = { ...prev, [key]: nv };
-      scheduleSave(next);
+      const fullKey = tabKey('view', key);
+      if (fullKey) {
+        if (nv === null) removeKey(fullKey);
+        else writeJSON(fullKey, nv);
+      }
       return next;
     });
-  }, [scheduleSave]);
+  }, []);
 
   const setProjectGroup = useCallback((projectId, groupId) => {
     if (!projectId) return;

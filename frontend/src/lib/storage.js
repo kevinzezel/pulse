@@ -288,8 +288,6 @@ export const DATA_REL_PATHS = Object.freeze([
   'data/notes.json',
   'data/prompts.json',
   'data/servers.json',
-  'data/layouts.json',
-  'data/view-state.json',
   'data/sessions.json',
   'data/compose-drafts.json',
 ]);
