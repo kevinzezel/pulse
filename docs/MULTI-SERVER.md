@@ -7,7 +7,8 @@ Pulse is split by design into two pieces: the **dashboard** (the web UI you open
 1. [Install only the client on a remote server](#install-only-the-client-on-a-remote-server)
 2. [Install only the dashboard](#install-only-the-dashboard)
 3. [Register a client in the dashboard](#register-a-client-in-the-dashboard)
-4. [Typical architectures](#typical-architectures)
+4. [Opening files in your local editor](#opening-files-in-your-local-editor)
+5. [Typical architectures](#typical-architectures)
 
 ## Install only the client on a remote server
 
@@ -55,6 +56,43 @@ From the same dashboard you can also:
 - **Edit** a server (rename, change port, rotate its API key).
 - **Delete** a server.
 - **Reorder** by drag. The order persists in `servers.json` on the dashboard machine.
+
+## Opening files in your local editor
+
+The "open editor" button (sidebar card, mosaic pane toolbar, group chip) behaves differently depending on whether the client is local or remote:
+
+- **Local client** (browser and client on the same machine): Pulse calls `POST /api/sessions/{id}/open-editor` on the client, which spawns `code <cwd>` directly on that machine. The button shows a folder icon.
+- **Remote client**: Pulse generates a `vscode://vscode-remote/ssh-remote+<host>/<cwd>` URL and asks your browser to open it. Your **local** VS Code handles the URI through the Remote-SSH extension and drops into that directory on the remote. The button shows an external-link icon.
+
+### SSH alias for remote (custom keys / users / ports)
+
+By default the URL uses `server.host` as the SSH target — works fine if your `~/.ssh/config` resolves that hostname with default settings. If you SSH into the server with a custom IdentityFile, User, or Port (anything you'd normally pass via `ssh -i key user@host -p N`), VS Code Remote-SSH won't pick those up from the URL — it needs to find a `Host` block in `~/.ssh/config` matching the target.
+
+Solution: add an alias to your `~/.ssh/config` and tell Pulse to use it.
+
+```sshconfig
+Host my-prod
+  HostName 10.0.0.50
+  User ubuntu
+  IdentityFile ~/.ssh/prod_key
+  Port 2222
+```
+
+Then in **Settings → Servers → edit the server → SSH alias** fill in `my-prod`. The button now generates `vscode://vscode-remote/ssh-remote+my-prod/<cwd>` and Remote-SSH applies the alias settings (User, IdentityFile, Port).
+
+### Group "open all" on a remote — VS Code single-instance gotcha
+
+Clicking the editor icon on a group chip with N remote sessions fires N URL handlers staggered 1.5s apart. By default VS Code **aggregates** multiple folder-open requests into the **same window**, each new one replacing the previous folder — so you'd see only the last folder, not N windows.
+
+Workaround: in your **local** VS Code, set `"window.openFoldersInNewWindow": "on"`:
+
+1. `Cmd/Ctrl + ,` (open Settings).
+2. Search for `openFoldersInNewWindow`.
+3. Switch from `default` to `on`.
+
+After that, each remote URL Pulse fires spawns its own VS Code window.
+
+This is a VS Code default behavior, not a Pulse limitation — there is no public query parameter for the `vscode-remote://` URL scheme to force a new window from the URL itself. The local "open all" doesn't have this issue because Pulse spawns `code -n <path>` directly on the client (the `-n` flag forces a new window for `code` family editors: VS Code, Cursor, VSCodium, Windsurf, code-insiders).
 
 ## Typical architectures
 

@@ -247,19 +247,22 @@ export default function GroupSelector({
     let blocked = 0;
 
     // Remoto: pré-fetch todos os cwds em paralelo, depois dispara cada
-    // window.open com setTimeout escalonado a cada 1500ms. Dois motivos pro
-    // delay (não é cosmético):
-    //   1. C2 — VS Code Remote tem single-instance via URL handler: 2 URLs
-    //      `vscode://vscode-remote/...` em rajada são processadas pela mesma
-    //      instância e só a última pasta vira a folder ativa (não há query
-    //      param público pra forçar nova janela). 1500ms dá tempo do VS Code
-    //      processar o setup SSH+folder antes da próxima URL chegar — valor
-    //      empiricamente seguro. Tentamos 500ms na v1.13.3 e o dedup voltou
-    //      (o handshake SSH não termina nesse intervalo), então revertido.
-    //   2. C1 — browsers consumem "transient activation" a cada window.open;
-    //      após o primeiro, popup blocker pode atacar os subsequentes. Em
-    //      Chrome/Firefox protocol handlers ganham relax, mas Safari é
-    //      estrito. Stagger reduz a janela onde o blocker percebe rajada.
+    // window.open com setTimeout escalonado a cada 1500ms.
+    //   - O stagger ataca C1 (popup blocker): browsers consumem "transient
+    //     activation" a cada window.open; estagiar reduz a janela em que o
+    //     blocker percebe rajada (Chrome/Firefox tolerantes pra protocol
+    //     handlers; Safari mais estrito). Dá tempo também pro user clicar
+    //     "permitir popup" entre as aberturas sem o blocker matar as próximas.
+    //   - O stagger NÃO resolve C2 (VS Code Remote single-instance dedup): o
+    //     URL handler `vscode://vscode-remote/...` é single-instance ABSOLUTO,
+    //     não temporal. Por config padrão do VS Code, cada URL substitui a
+    //     folder na window existente — mesmo com 5+ segundos entre URLs, a
+    //     2ª sobrescreve a 1ª. Não há query param público pro scheme
+    //     vscode-remote pra forçar nova window pelo lado do Pulse.
+    //     Workaround pro user: configurar `window.openFoldersInNewWindow:on`
+    //     no VS Code dele (Cmd+, → buscar openFoldersInNewWindow → on). O
+    //     toast preventivo abaixo orienta sobre isso. Documentado em
+    //     docs/MULTI-SERVER.md#group-open-all-on-a-remote.
     // Toast de "blocked" notifica o user quando window.open retorna null
     // (Safari hard-block, ou popup blocker explicitando rejeição).
     if (remoteEntries.length > 0) {
@@ -287,7 +290,12 @@ export default function GroupSelector({
       // Aviso preventivo enquanto o stagger roda (user vê janelas se abrindo
       // espaçadas e não fica com a sensação de "travou").
       if (urls.length > 1) {
-        toast(t('groupSelector.openAllRemoteStaggerHint'), { icon: '⏳', duration: urls.length * 1500 });
+        // Mínimo de 6s pra dar tempo do user ler a hint (que cobre o stagger
+        // E o workaround do window.openFoldersInNewWindow).
+        toast(t('groupSelector.openAllRemoteStaggerHint'), {
+          icon: '⏳',
+          duration: Math.max(urls.length * 1500, 6000),
+        });
       }
       const remoteResults = await Promise.all(urls.map((url, i) => (
         new Promise((resolve) => {

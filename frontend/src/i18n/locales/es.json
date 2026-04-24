@@ -164,7 +164,7 @@
     "openAllDone": "Abriendo VS Code en {n} sesiones",
     "openAllPartial": "Abrió {done} de {total} — {failed} fallaron",
     "openAllBlocked": "{blocked} de {total} aperturas bloqueadas por el navegador. Permite popups para este sitio en los ajustes.",
-    "openAllRemoteStaggerHint": "Aperturas remotas escalonadas cada 1.5s para evitar dedup de VS Code Remote.",
+    "openAllRemoteStaggerHint": "Apertura escalonada (1.5s entre cada una). Si las carpetas se sobrescriben en lugar de abrir varias ventanas, activa \"window.openFoldersInNewWindow\": \"on\" en VS Code.",
     "hideGroup": "Ocultar grupo",
     "hidden": "Grupo ocultado",
     "showHidden": "Mostrar grupos ocultos",

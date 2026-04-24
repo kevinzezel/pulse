@@ -6,6 +6,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [1.13.6] — 2026-04-24
+
+### Added
+
+- **Documentação do gotcha "abrir todos editores no remoto agrega numa única window do VS Code" + workaround `window.openFoldersInNewWindow: on`.** Nova seção `## Opening files in your local editor` em `docs/MULTI-SERVER.md` com 3 partes: (a) explica o comportamento dual do botão "open editor" (local chama `/open-editor` → `code <cwd>` direto, remoto gera `vscode://vscode-remote/ssh-remote+<host>/<cwd>` e delega ao Remote-SSH do VS Code do browser); (b) **SSH alias for remote** documenta o campo `sshAlias` da v1.13.0 com exemplo de bloco `Host` no `~/.ssh/config` (necessário quando a conexão SSH usa IdentityFile/User/Port custom — VS Code Remote-SSH só pega isso de um `Host` block, não da URL); (c) **Group "open all" on a remote — VS Code single-instance gotcha** explica que ao clicar o botão de abrir todos num grupo remoto com N sessões, por padrão o VS Code **substitui** a folder na window existente em vez de abrir N windows — limitação do URL handler `vscode-remote://` que não tem query param público pra forçar nova window. Workaround: configurar `"window.openFoldersInNewWindow": "on"` no User Settings do VS Code do user (`Cmd/Ctrl+,` → buscar `openFoldersInNewWindow` → `on`). Local "open all" não tem esse problema porque a v1.13.1 já força `code -n <path>` no spawn (flag `-n` reconhecida pela whitelist Code-family). Entry no ToC, link cross-ref no `README.md` (linha 140) apontando pra essa seção via `docs/MULTI-SERVER.md#opening-files-in-your-local-editor`.
+
+### Changed
+
+- **Toast preventivo do "abrir todos editores do grupo" remoto agora orienta o user sobre o workaround do VS Code em vez de só explicar o stagger.** Mensagem da chave `groupSelector.openAllRemoteStaggerHint` reescrita nos 3 locales (pt-BR/en/es): incluiu menção a `window.openFoldersInNewWindow: on` direto no toast — o user vê a dica enquanto as N janelas vão abrindo escalonadas. `duration` do toast subiu para `Math.max(urls.length * 1500, 6000)` (mínimo 6s) pra garantir tempo de leitura do texto mais longo. Comentário no código (`frontend/src/components/GroupSelector.jsx` `openAllInGroup`) reescrito pra documentar com clareza que o stagger ataca **C1** (popup blocker / user gesture), mas **NÃO resolve C2** (VS Code Remote single-instance dedup é absoluto, não temporal — testes empíricos com 500ms na v1.13.3 e 1500ms na v1.13.4 ambos mostraram dedup quando a config padrão do VS Code está ativa). Aponta o leitor pra `docs/MULTI-SERVER.md` e pro workaround. Sem mudança de comportamento ou novas chaves i18n — só ajuste de copy + duration.
+
 ## [1.13.5] — 2026-04-24
 
 ### Changed
@@ -654,6 +664,7 @@ First public release.
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
 [Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.11.1...HEAD
+[1.13.6]: https://github.com/kevinzezel/pulse/releases/tag/v1.13.6
 [1.13.5]: https://github.com/kevinzezel/pulse/releases/tag/v1.13.5
 [1.13.4]: https://github.com/kevinzezel/pulse/releases/tag/v1.13.4
 [1.13.3]: https://github.com/kevinzezel/pulse/releases/tag/v1.13.3

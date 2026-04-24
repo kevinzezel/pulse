@@ -137,7 +137,7 @@ Mosaic layouts are saved per `project::group` pair *and* per browser tab — ope
 
 `POST /api/sessions/{id}/open-editor` launches `code <cwd>` on the machine where the client runs. Pulse resolves the binary across `apt`, `snap`, flatpak, and forces `DISPLAY=:0` so it works when the client runs under systemd without a login session. Override per server (Cursor / VSCodium / Windsurf) in **Settings → Editor**.
 
-For remote clients, the same button opens `vscode://vscode-remote/ssh-remote+<host><cwd>` — your local VSCode handles the URI and drops into the right directory via Remote-SSH. Available on every sidebar card, every mosaic pane, and group chips ("open all").
+For remote clients, the same button opens `vscode://vscode-remote/ssh-remote+<host><cwd>` — your local VSCode handles the URI and drops into the right directory via Remote-SSH. Available on every sidebar card, every mosaic pane, and group chips ("open all"). For custom SSH keys / ports, or to make group "open all" spawn multiple windows instead of overwriting one, see [`docs/MULTI-SERVER.md#opening-files-in-your-local-editor`](docs/MULTI-SERVER.md#opening-files-in-your-local-editor).
 
 ### Polish
 
