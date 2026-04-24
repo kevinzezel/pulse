@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [1.13.3] — 2026-04-24
+
+### Changed
+
+- **Delay do stagger das aberturas remotas em "abrir todos editores do grupo" reduzido de 1500ms para 500ms.** A v1.13.2 calibrou o `setTimeout(window.open, i * 1500)` em `frontend/src/components/GroupSelector.jsx` `openAllInGroup` no caminho remoto (3 sessões = 4.5s de espera total) com base na suposição de que o VS Code Remote precisava de ~1-2s pra processar o setup SSH+folder antes da próxima URL chegar — empiricamente o intervalo curto de 500ms já é suficiente pro VS Code tratar cada URL como nova janela e dispensa a espera longa que dava sensação de "travou". 3 sessões agora abrem em ~1.5s total. Toast `groupSelector.openAllRemoteStaggerHint` ("Aberturas remotas escalonadas a cada 0.5s pra evitar dedup do VS Code Remote.") e `duration: urls.length * 500` atualizados nos 3 locales (pt-BR/en/es). Comentário no código marca `500ms` como valor de teste — pode subir se algum cenário (rede mais lenta ao server, VS Code com extensões pesadas) começar a mostrar dedup novamente.
+
 ## [1.13.2] — 2026-04-24
 
 ### Added
@@ -630,6 +636,7 @@ First public release.
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
 [Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.11.1...HEAD
+[1.13.3]: https://github.com/kevinzezel/pulse/releases/tag/v1.13.3
 [1.13.2]: https://github.com/kevinzezel/pulse/releases/tag/v1.13.2
 [1.13.1]: https://github.com/kevinzezel/pulse/releases/tag/v1.13.1
 [1.13.0]: https://github.com/kevinzezel/pulse/releases/tag/v1.13.0

@@ -164,7 +164,7 @@
     "openAllDone": "Abrindo VS Code em {n} sessões",
     "openAllPartial": "Abriu {done} de {total} — {failed} falharam",
     "openAllBlocked": "{blocked} de {total} aberturas bloqueadas pelo browser. Permita popups pra este site nas configurações.",
-    "openAllRemoteStaggerHint": "Aberturas remotas escalonadas a cada 1.5s pra evitar dedup do VS Code Remote.",
+    "openAllRemoteStaggerHint": "Aberturas remotas escalonadas a cada 0.5s pra evitar dedup do VS Code Remote.",
     "hideGroup": "Ocultar grupo",
     "hidden": "Grupo ocultado",
     "showHidden": "Mostrar grupos ocultos",
