@@ -196,7 +196,12 @@ export default function TerminalPane({ session, onSessionEnded, isMobile = false
       ws.onmessage = (event) => {
         const msg = JSON.parse(event.data);
         if (msg.type === 'output') {
-          terminal.write(msg.data);
+          // Cancel any user scroll-up on each chunk so TUI apps (claude-code,
+          // htop, vim) that repaint near the cursor don't turn the viewport
+          // into a teleprompter: top of the viewport frozen at the stale
+          // scroll offset while the repaint region FIFOs underneath as the
+          // buffer grows. Matches default behavior of iTerm2/gnome-terminal.
+          terminal.write(msg.data, () => terminal.scrollToBottom());
         }
       };
 

@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [1.11.1] — 2026-04-24
+
+### Fixed
+
+- **Scroll do mouse pra cima durante stream de TUI apps (Claude Code, htop, vim, codex, gemini-cli) não vira mais "teleprompter".** Sintoma: durante streaming de resposta do Claude Code num pane, rolar um pouco pra cima com o wheel deixava o topo do viewport congelado num offset antigo, enquanto uma faixa de baixo virava FIFO — linhas novas entrando por baixo, antigas saindo por cima — à medida que o app continuava repintando a região ao redor do cursor (cursor positioning absoluto + clear line, padrão de renderização de apps TUI). Não era reconexão WebSocket nem re-replay do `capture-pane`: o scrollback que "congelava" acima era o snapshot do momento do scroll, e a região rolando embaixo era o buffer crescendo com o cursor continuando a escrever onde estava. Comportamento esperado em xterm.js default (preserva scroll do user), mas visualmente confuso porque terminais desktop (iTerm2, gnome-terminal, Terminal.app) tradicionalmente auto-cancelam o scroll ao chegar novo output. Fix em `frontend/src/components/TerminalPane.jsx`: o `ws.onmessage` chama `terminal.scrollToBottom()` via callback do `terminal.write()` a cada chunk de tipo `output` — cancela o scroll manual do user em toda escrita de TUI ou shell. Trade-off aceito (opção A discutida com user): não é possível rolar pra cima enquanto há output chegando — cada chunk pula de volta pro fim. Pra ler scrollback antigo, esperar o stream acabar.
+
 ## [1.11.0] — 2026-04-24
 
 ### Added
@@ -566,7 +572,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.11.0...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.11.1...HEAD
+[1.11.1]: https://github.com/kevinzezel/pulse/releases/tag/v1.11.1
 [1.11.0]: https://github.com/kevinzezel/pulse/releases/tag/v1.11.0
 [1.10.7]: https://github.com/kevinzezel/pulse/releases/tag/v1.10.7
 [1.10.6]: https://github.com/kevinzezel/pulse/releases/tag/v1.10.6
