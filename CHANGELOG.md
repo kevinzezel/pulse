@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [1.10.2] — 2026-04-23
+
+### Fixed
+
+- **Botão flutuante de Notes (FAB) e o `NotesManager` não aparecem mais na tela de `/login`.** Antes apareciam pré-autenticação porque o `InnerLayout.js` (root layout, monta tudo em todas as rotas) renderizava `<NotesFab />` e `<NotesManager />` incondicionalmente — visualmente confuso (FAB em cima do form de senha) e sem utilidade nenhuma já que o `NotesProvider` não tem dados pra exibir antes do user logar. Fix: novo sub-componente local `NotesUI` no próprio `InnerLayout.js` consulta `usePathname()` e devolve `null` quando `pathname === '/login'`. O `NotesProvider` continua montado em todas as rotas (custo zero, mantém a árvore de providers consistente entre transições) — apenas a UI flutuante é gateada. Mesma estratégia já usada implicitamente pelo `UpdateNotifierProvider` (que early-returna em `/login` no seu `useEffect`).
+
 ## [1.10.1] — 2026-04-23
 
 ### Fixed
@@ -512,7 +518,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.10.1...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.10.2...HEAD
+[1.10.2]: https://github.com/kevinzezel/pulse/releases/tag/v1.10.2
 [1.10.1]: https://github.com/kevinzezel/pulse/releases/tag/v1.10.1
 [1.10.0]: https://github.com/kevinzezel/pulse/releases/tag/v1.10.0
 [1.9.2]: https://github.com/kevinzezel/pulse/releases/tag/v1.9.2

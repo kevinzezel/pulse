@@ -1,6 +1,7 @@
 'use client';
 
 import { Toaster } from 'react-hot-toast';
+import { usePathname } from 'next/navigation';
 import { ThemeProvider } from '@/providers/ThemeProvider';
 import { I18nProvider } from '@/providers/I18nProvider';
 import { ProjectsProvider } from '@/providers/ProjectsProvider';
@@ -11,6 +12,18 @@ import { NotificationsProvider } from '@/providers/NotificationsProvider';
 import { NotesProvider } from '@/providers/NotesProvider';
 import { NotesFab } from '@/components/Notes/NotesFab';
 import { NotesManager } from '@/components/Notes/NotesManager';
+
+// FAB + manager don't make sense pre-auth — hide them on /login.
+function NotesUI() {
+  const pathname = usePathname();
+  if (pathname === '/login') return null;
+  return (
+    <>
+      <NotesFab />
+      <NotesManager />
+    </>
+  );
+}
 
 export default function InnerLayout({ children }) {
   return (
@@ -23,8 +36,7 @@ export default function InnerLayout({ children }) {
                 <NotificationsProvider>
                   <NotesProvider>
                     {children}
-                    <NotesFab />
-                    <NotesManager />
+                    <NotesUI />
                     <Toaster
                       position="bottom-right"
                       toastOptions={{
