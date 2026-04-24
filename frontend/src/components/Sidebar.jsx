@@ -352,14 +352,6 @@ export default function Sidebar({
             {session.notify_on_idle ? <Bell size={13} /> : <BellOff size={13} />}
           </button>
           <button
-            onClick={(e) => { e.stopPropagation(); onRequestCompose?.(session.id); }}
-            disabled={composeLoadingId === session.id}
-            className="p-1 text-muted-foreground hover:text-primary transition-colors disabled:opacity-50 disabled:pointer-events-none"
-            title={t('sidebar.compose')}
-          >
-            {composeLoadingId === session.id ? <Loader size={13} className="animate-spin" /> : <Keyboard size={13} />}
-          </button>
-          <button
             onClick={(e) => isLocal ? handleOpenEditor(e, session.id) : handleOpenRemoteEditor(e, session.id)}
             disabled={openingEditorId === session.id || openingRemoteId === session.id}
             className="p-1 text-muted-foreground hover:text-primary transition-colors"

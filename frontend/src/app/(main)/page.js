@@ -984,6 +984,9 @@ function Dashboard() {
           onActiveTerminalChange={setActiveTerminalId}
           mobileOpenIds={mobileOpenIds}
           onMobileClose={handleMobileClose}
+          onToggleNotify={handleToggleNotify}
+          onRequestCompose={handleRequestCompose}
+          composeLoadingId={composeLoadingId}
         />
         </div>
       </div>

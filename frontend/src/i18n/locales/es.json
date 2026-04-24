@@ -250,7 +250,6 @@
     "openEditorLocal": "Abrir VS Code (local)",
     "openEditorRemote": "Abrir VS Code (remoto vía SSH)",
     "capture": "Capturar salida como texto",
-    "captureLabel": "Copiar",
     "maximize": "Maximizar",
     "restore": "Restaurar",
     "close": "Cerrar"
@@ -290,7 +289,10 @@
     "connectionReplaced": "Conexión reemplazada por otro dispositivo",
     "connectionLost": "Conexión perdida",
     "connectionError": "Error de conexión",
-    "serverNotConfigured": "Servidor no configurado"
+    "serverNotConfigured": "Servidor no configurado",
+    "actions": {
+      "menu": "Acciones del terminal"
+    }
   },
   "toast": {
     "sessionEnded": "Sesión cerrada",

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Monitor, Columns2, Rows2, FolderOpen, ExternalLink, Maximize2, Minimize2, X, Loader, FileText, MessageSquareText } from 'lucide-react';
+import { Monitor, Columns2, Rows2, FolderOpen, ExternalLink, Maximize2, Minimize2, X, Loader } from 'lucide-react';
 import { Mosaic, MosaicWindow } from 'react-mosaic-component';
 import 'react-mosaic-component/react-mosaic-component.css';
 import { openEditor, getSessionCwd, splitSessionId } from '@/services/api';
@@ -12,9 +12,10 @@ import { isLocalHost } from '@/utils/host';
 import TerminalPane from './TerminalPane';
 import TerminalCaptureModal from './TerminalCaptureModal';
 import PromptSelectorModal from './prompts/PromptSelectorModal';
+import PaneActionsFab from './PaneActionsFab';
 import ServerTag from './ServerTag';
 
-function PaneToolbar({ t, sessionId, onSplitH, onSplitV, onOpenPrompts, onOpenEditor, openingEditor, onOpenRemoteEditor, openingRemoteEditor, onMaximize, isMaximized, onClose, isBusy, isLocal }) {
+function PaneToolbar({ t, sessionId, onSplitH, onSplitV, onOpenEditor, openingEditor, onOpenRemoteEditor, openingRemoteEditor, onMaximize, isMaximized, onClose, isBusy, isLocal }) {
   const opening = openingEditor || openingRemoteEditor;
   return (
     <div className="mosaic-toolbar-actions flex items-center gap-0.5 mr-1">
@@ -33,13 +34,6 @@ function PaneToolbar({ t, sessionId, onSplitH, onSplitV, onOpenPrompts, onOpenEd
         </>
       )}
       <button
-        onClick={(e) => { e.stopPropagation(); onOpenPrompts?.(sessionId); }}
-        className="mosaic-tool-btn"
-        title={t('toolbar.prompts')}
-      >
-        <MessageSquareText size={12} />
-      </button>
-      <button
         onClick={() => isLocal ? onOpenEditor(sessionId) : onOpenRemoteEditor(sessionId)}
         disabled={opening}
         className="mosaic-tool-btn"
@@ -54,26 +48,6 @@ function PaneToolbar({ t, sessionId, onSplitH, onSplitV, onOpenPrompts, onOpenEd
         <X size={12} />
       </button>
     </div>
-  );
-}
-
-// Floating "Capture as text" button overlaid on every pane (desktop + mobile).
-// Matches the "selected group chip" styling (primary accent on a tinted
-// background) so it's clearly a persistent action, without being as loud as
-// the brand-gradient CTA.
-function CaptureFloatingButton({ t, sessionId, onCapture }) {
-  return (
-    <button
-      onClick={() => onCapture(sessionId)}
-      title={t('toolbar.capture')}
-      aria-label={t('toolbar.capture')}
-      className="absolute top-2 right-4 z-10 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-primary/50 bg-primary/15 text-primary shadow-sm hover:bg-primary/25 active:scale-95 transition-all"
-    >
-      <FileText size={14} strokeWidth={2.25} />
-      <span className="hidden sm:inline text-xs font-semibold">
-        {t('toolbar.captureLabel')}
-      </span>
-    </button>
   );
 }
 
@@ -141,6 +115,9 @@ export default function TerminalMosaic({
   onActiveTerminalChange,
   mobileOpenIds,
   onMobileClose,
+  onToggleNotify,
+  onRequestCompose,
+  composeLoadingId,
 }) {
   const { t } = useTranslation();
   const showError = useErrorToast();
@@ -150,6 +127,7 @@ export default function TerminalMosaic({
   const [captureSessionId, setCaptureSessionId] = useState(null);
   const [promptsModalSessionId, setPromptsModalSessionId] = useState(null);
   const [isLocal, setIsLocal] = useState(false);
+  const [openFabSessionId, setOpenFabSessionId] = useState(null);
 
   function handleCapture(sessionId) {
     setCaptureSessionId(sessionId);
@@ -223,7 +201,17 @@ export default function TerminalMosaic({
                     isMobile={true}
                   />
                   {id === activeTerminalId && (
-                    <CaptureFloatingButton t={t} sessionId={id} onCapture={handleCapture} />
+                    <PaneActionsFab
+                      sessionId={id}
+                      session={session}
+                      isOpen={openFabSessionId === id}
+                      onToggle={() => setOpenFabSessionId(prev => prev === id ? null : id)}
+                      onCapture={handleCapture}
+                      onOpenPrompts={setPromptsModalSessionId}
+                      onToggleNotify={onToggleNotify}
+                      onRequestCompose={onRequestCompose}
+                      composeLoading={composeLoadingId === id}
+                    />
                   )}
                 </div>
               );
@@ -238,6 +226,12 @@ export default function TerminalMosaic({
             onClose={() => setCaptureSessionId(null)}
           />
         )}
+        <PromptSelectorModal
+          sessionId={promptsModalSessionId}
+          open={!!promptsModalSessionId}
+          onClose={() => setPromptsModalSessionId(null)}
+          currentProjectId={activeProjectId}
+        />
       </>
     );
   }
@@ -266,7 +260,6 @@ export default function TerminalMosaic({
                   sessionId={id}
                   onSplitH={onSplitH}
                   onSplitV={onSplitV}
-                  onOpenPrompts={setPromptsModalSessionId}
                   onOpenEditor={handleOpenEditor}
                   openingEditor={openingEditorId === id}
                   onOpenRemoteEditor={handleOpenRemoteEditor}
@@ -284,7 +277,17 @@ export default function TerminalMosaic({
                   session={session}
                   onSessionEnded={() => onSessionEnded(id)}
                 />
-                <CaptureFloatingButton t={t} sessionId={id} onCapture={handleCapture} />
+                <PaneActionsFab
+                  sessionId={id}
+                  session={session}
+                  isOpen={openFabSessionId === id}
+                  onToggle={() => setOpenFabSessionId(prev => prev === id ? null : id)}
+                  onCapture={handleCapture}
+                  onOpenPrompts={setPromptsModalSessionId}
+                  onToggleNotify={onToggleNotify}
+                  onRequestCompose={onRequestCompose}
+                  composeLoading={composeLoadingId === id}
+                />
               </div>
             </MosaicWindow>
           );

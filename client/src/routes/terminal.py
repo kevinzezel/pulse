@@ -269,6 +269,36 @@ EDITOR_FALLBACK_BINARIES = (
 # Common PATH names for editor CLIs — checked via shutil.which before the fallback list.
 EDITOR_PATH_NAMES = ("code", "cursor", "codium", "code-insiders", "windsurf")
 
+_GUI_ENV_KEYS = (
+    "DISPLAY", "WAYLAND_DISPLAY", "XAUTHORITY",
+    "DBUS_SESSION_BUS_ADDRESS", "XDG_RUNTIME_DIR",
+    "XDG_SESSION_TYPE", "XDG_CURRENT_DESKTOP",
+)
+
+
+def _import_from_user_manager(env):
+    # If pulse-client.service started before the graphical session (linger
+    # boot), ExecStartPre's `systemctl --user import-environment` had nothing
+    # to pull from the user manager and the service inherited a GUI-less env.
+    # Once the user logs in, PAM populates the user manager. Re-query it at
+    # click time so the spawned editor sees DISPLAY/XAUTHORITY/etc from the
+    # currently active graphical session instead of the (wrong) `:0` fallback.
+    try:
+        out = subprocess.run(
+            ["systemctl", "--user", "show-environment"],
+            capture_output=True, text=True, timeout=2.0, check=False,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return
+    if out.returncode != 0:
+        return
+    for line in out.stdout.splitlines():
+        if "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        if k in _GUI_ENV_KEYS and v and k not in env:
+            env[k] = v
+
 
 def _resolve_vscode_binary(env):
     # 1. User override from settings wins, if it points to an executable.
@@ -309,6 +339,7 @@ def open_editor(request: Request, session_id: str):
     inside_vscode = bool(ipc) and os.path.exists(ipc)
 
     if not inside_vscode:
+        _import_from_user_manager(env)
         uid = os.getuid()
         # DISPLAY / WAYLAND_DISPLAY: prefer Wayland when a compositor socket exists,
         # fall back to X11 :0 (the convention for single-seat systems).
