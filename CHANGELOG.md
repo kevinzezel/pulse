@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [1.10.7] — 2026-04-24
+
+### Fixed
+
+- **`install.sh` ainda mostrava "Add ~/.local/bin to your PATH manually" depois da v1.10.6 quando o `.bashrc` já tinha qualquer menção a `.local/bin` — incluindo a linha que o próprio `uv` installer adiciona.** Caso real: em VM nova, o `ensure_uv()` (linha 128 do `install.sh`) faz `curl -LsSf https://astral.sh/uv/install.sh | sh`, e o instalador do uv adiciona `. "$HOME/.local/bin/env"` ao `~/.bashrc` (e `~/.zshrc`). Esse `env` script do uv NÃO faz `export PATH="$HOME/.local/bin:..."` — ele só seta vars relacionadas ao uv. Mas o nosso check final fazia `grep -q '\.local/bin' ~/.bashrc` (greedy demais), encontrava a linha do uv e concluía erroneamente "tudo certo, PATH já configurado", pulava o append e mostrava "Add manually". Resultado: `pulse: command not found` mesmo em sessão nova até o usuário editar o `.bashrc` à mão. Fix em `install/install.sh`: (a) **grep refinado** — agora usa `grep -qE '^[[:space:]]*export[[:space:]]+PATH=.*\.local/bin'` que só conta como "já configurado" se houver um `export PATH=...` real apontando para `~/.local/bin` (ignora `. file/.local/bin/env`, comentários, aliases, qualquer outra menção); (b) **mensagem útil quando o rc já tem export real mas a sessão atual não pegou** — em vez de pular silencioso, mostra `! ~/.local/bin already in ~/.bashrc but not in your current shell. Run: source ~/.bashrc`, cobre casos de re-install ou de o rc ter sido atualizado por outro tool depois do login atual; (c) **detecção do shell de login mais robusta** — fallback para `getent passwd "$USER" | cut -d: -f7` quando `$SHELL` está vazio (sudo, cron, alguns ambientes não-interactive); (d) **teste de gravabilidade no arquivo** — antes era em `dirname "$rc_file"`, agora `[ -w "$rc_file" ] || ([ ! -e "$rc_file" ] && [ -w "$(dirname …) ])`, mais correto se o `~` é gravável mas o `.bashrc` específico não é (raro, mas determinístico).
+
 ## [1.10.6] — 2026-04-24
 
 ### Fixed
@@ -542,7 +548,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.10.6...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.10.7...HEAD
+[1.10.7]: https://github.com/kevinzezel/pulse/releases/tag/v1.10.7
 [1.10.6]: https://github.com/kevinzezel/pulse/releases/tag/v1.10.6
 [1.10.5]: https://github.com/kevinzezel/pulse/releases/tag/v1.10.5
 [1.10.4]: https://github.com/kevinzezel/pulse/releases/tag/v1.10.4

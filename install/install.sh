@@ -955,23 +955,49 @@ print_success() {
     case ":${PULSE_ORIGINAL_PATH:-$PATH}:" in
         *":$BIN_ROOT:"*) return 0 ;;
     esac
-    # Try to add to the active shell's rc file; fall back to manual instructions.
-    case "$(basename "${SHELL:-}")" in
+
+    # Resolve the user's login shell. $SHELL is usually right but can be
+    # empty under sudo/cron/non-login contexts; fall back to /etc/passwd.
+    user_shell="${SHELL:-}"
+    if [ -z "$user_shell" ] && need_cmd getent; then
+        user_shell="$(getent passwd "${USER:-$(id -un)}" 2>/dev/null | cut -d: -f7)"
+    fi
+    case "$(basename "$user_shell")" in
         zsh)  rc_file="$HOME/.zshrc"  ;;
         bash) rc_file="$HOME/.bashrc" ;;
         *)    rc_file=""              ;;
     esac
-    added=0
-    if [ -n "$rc_file" ] && [ -w "$(dirname "$rc_file")" ]; then
-        if ! grep -q '\.local/bin' "$rc_file" 2>/dev/null; then
-            # shellcheck disable=SC2016
-            printf '\n# Added by Pulse installer\nexport PATH="$HOME/.local/bin:$PATH"\n' >> "$rc_file"
-            added=1
+
+    # Detect whether the rc already has a real PATH export for ~/.local/bin.
+    # Match only `export PATH=...` lines (not comments, aliases, or things
+    # like `. "$HOME/.local/bin/env"` which the uv installer adds and which
+    # caused us to falsely think PATH was already set up — even though that
+    # `env` script doesn't actually prepend ~/.local/bin to PATH).
+    rc_has_export=0
+    if [ -n "$rc_file" ] && [ -f "$rc_file" ]; then
+        if grep -qE '^[[:space:]]*export[[:space:]]+PATH=.*\.local/bin' "$rc_file" 2>/dev/null; then
+            rc_has_export=1
         fi
     fi
+
+    added=0
+    if [ "$rc_has_export" = 0 ] && [ -n "$rc_file" ]; then
+        # Append. If the file doesn't exist yet, the redirect creates it.
+        if [ -w "$rc_file" ] || { [ ! -e "$rc_file" ] && [ -w "$(dirname "$rc_file")" ]; }; then
+            # shellcheck disable=SC2016
+            printf '\n# Added by Pulse installer\nexport PATH="$HOME/.local/bin:$PATH"\n' >> "$rc_file" 2>/dev/null && added=1
+        fi
+    fi
+
     if [ "$added" = 1 ]; then
         printf "  %b✓%b Added %s to PATH in %s. Restart your shell or run: %bsource %s%b\n\n" \
             "$GREEN" "$NC" "$BIN_ROOT" "$rc_file" "$BOLD" "$rc_file" "$NC"
+    elif [ "$rc_has_export" = 1 ]; then
+        # rc is correct but the current shell hasn't picked it up — typical
+        # right after a fresh install (the export was added by a previous
+        # tool, e.g. uv installer, but $PATH in this session predates it).
+        printf "  %b!%b %s already in %s but not in your current shell. Run: %bsource %s%b\n\n" \
+            "$YELLOW" "$NC" "$BIN_ROOT" "$rc_file" "$BOLD" "$rc_file" "$NC"
     else
         printf "  %b!%b Add %b%s%b to your PATH manually:\n"      "$YELLOW" "$NC" "$BOLD" "$BIN_ROOT" "$NC"
         printf "      export PATH=\"%s:\$PATH\"\n\n" "$BIN_ROOT"
