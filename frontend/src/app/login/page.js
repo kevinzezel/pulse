@@ -1,12 +1,30 @@
 'use client';
 
-import { Suspense, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Loader2, Lock } from 'lucide-react';
 import { useTranslation, useErrorToast } from '@/providers/I18nProvider';
 import LanguageSelector from '@/components/LanguageSelector';
 import ThemeSelector from '@/components/ThemeSelector';
 import PulseLogo from '@/components/PulseLogo';
+
+function VersionFooter() {
+  const [version, setVersion] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/local-version')
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => { if (!cancelled && data?.version) setVersion(data.version); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+  if (!version) return null;
+  return (
+    <footer className="text-center py-3 text-xs text-muted-foreground">
+      Pulse v{version}
+    </footer>
+  );
+}
 
 function LoginForm() {
   const { t } = useTranslation();
@@ -101,6 +119,7 @@ export default function LoginPage() {
           <LoginForm />
         </Suspense>
       </div>
+      <VersionFooter />
     </div>
   );
 }

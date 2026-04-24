@@ -16,6 +16,12 @@ let cache = {
   rateLimitResetAt: null,
 };
 
+// Coalesce concurrent cold-start fetches into one. Without this, the first N
+// requests that hit a cold cache (or right after TTL expiry across multiple
+// browser tabs) would each spawn a parallel GitHub round-trip — wasting the
+// 60 req/h unauthenticated budget and racing on the cache assignment.
+let inFlight = null;
+
 function stripV(tag) {
   return typeof tag === 'string' && tag.startsWith('v') ? tag.slice(1) : tag;
 }
@@ -131,7 +137,10 @@ export const GET = withAuth(async () => {
     });
   }
 
-  const result = await fetchLatestReleaseWithBackoff();
+  if (!inFlight) {
+    inFlight = fetchLatestReleaseWithBackoff().finally(() => { inFlight = null; });
+  }
+  const result = await inFlight;
 
   if (result.ok) {
     cache.latestVersion = stripV(result.tagName);

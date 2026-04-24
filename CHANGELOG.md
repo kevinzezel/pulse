@@ -6,6 +6,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [1.10.1] — 2026-04-23
+
+### Fixed
+
+- **Versão reportada pelo client congelava em upgrade — modal de update introduzido em v1.10.0 ficava preso para sempre.** O `seed_client_env()` do installer (`install/install.sh`) preserva o `client.env` durante upgrades para não perder `API_KEY`/`API_HOST`/`API_PORT` do usuário, mas até v1.10.0 a linha `VERSION=` também era mantida intacta — então o serviço Python continuava lendo a versão pré-upgrade mesmo depois de `pulse upgrade`. Resultado: o modal de "nova versão disponível" continuava abrindo logo após o usuário atualizar, porque `/api/version` reportava a versão antiga (ex: `1.4.14 → 1.10.0` mesmo já estando em 1.10.0). Fix em duas camadas: **(a)** `client/src/envs/load.py` agora prioriza `$INSTALL_ROOT/VERSION` (o arquivo que o installer já reescrevia a cada upgrade como single source of truth para `pulse version` / `pulse check-updates`) sobre o `.env` — o serviço Python passa a ler a versão fresca diretamente do arquivo que o installer garantidamente atualiza. Em dev (sem install) o arquivo não existe e o load cai no fallback do `.env` como antes. **(b)** `install/install.sh` foi ajustado para também reescrever a linha `VERSION=` no `client.env` preservado durante upgrade — defesa em profundidade que mantém o `client.env` honesto e evita confundir quem inspeciona o arquivo manualmente (`grep VERSION client.env`).
+
+### Added
+
+- **Versão visível na página de login.** Rodapé do `/login` agora mostra `Pulse v{version}` lendo do novo endpoint público `GET /api/local-version` (`frontend/src/app/api/local-version/route.js`), que por sua vez resolve o single source of truth `$INSTALL_ROOT/VERSION` (via `PULSE_FRONTEND_ROOT/..` — mesma convenção de `jsonStore.js`/`storage.js` para sobreviver a worker spawn no systemd). Cache de 1min em memória para múltiplos refreshes baratos. Em dev sem install, o arquivo não existe → o footer simplesmente não renderiza. Adicionado a `PUBLIC_API` no middleware (sem auth, mesmo padrão de `/api/auth/*`). Útil para diagnosticar rapidamente "qual versão estou rodando aqui?" antes de logar — especialmente quando o usuário gerencia vários hosts.
+
+### Changed
+
+- **Hardening do `UpdateNotifierProvider` e do cache do `/api/update-status` apontados em code review.** Quatro pequenos fixes defensivos: (1) `update-status/route.js` ganhou in-flight dedup (`let inFlight`) — N requests concorrentes em cold cache agora compartilham 1 fetch ao GitHub em vez de cada uma disparar a sua, fechando uma janela do orçamento de 60 req/h; (2) o `useEffect` do provider deps mudou de referência do array `servers` (que troca em todo focus refetch do `ServersProvider`) para um hash dos ids ordenados — evita disparar `runUpdateCheck` desnecessariamente em cada visibility-change e poupar `N` HTTPs por server cadastrado; (3) `readDismiss`/`writeDismiss` ganharam guard `typeof window === 'undefined'` para tolerar SSR caso alguém venha a importar essas helpers em outro lugar; (4) `UpdateAvailableModal` agora fecha com `Escape` (event listener no `document`, cleanup no unmount). E `_read_install_version()` em `client/src/envs/load.py` agora loga `WARNING` em `OSError` em vez de engolir silenciosamente — torna visível um possível problema de permissão no `$INSTALL_ROOT/VERSION`.
+
 ## [1.10.0] — 2026-04-23
 
 ### Added
@@ -498,7 +512,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.10.0...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.10.1...HEAD
+[1.10.1]: https://github.com/kevinzezel/pulse/releases/tag/v1.10.1
 [1.10.0]: https://github.com/kevinzezel/pulse/releases/tag/v1.10.0
 [1.9.2]: https://github.com/kevinzezel/pulse/releases/tag/v1.9.2
 [1.9.1]: https://github.com/kevinzezel/pulse/releases/tag/v1.9.1

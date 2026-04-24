@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { X, Copy, Check, ExternalLink } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useTranslation } from '@/providers/I18nProvider';
@@ -11,6 +11,12 @@ const RELEASE_NOTES_BASE = 'https://github.com/kevinzezel/pulse/releases/tag/v';
 export default function UpdateAvailableModal({ latestVersion, outdatedServers, onDismiss }) {
   const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    function handleKey(e) { if (e.key === 'Escape') onDismiss(); }
+    document.addEventListener('keydown', handleKey);
+    return () => document.removeEventListener('keydown', handleKey);
+  }, [onDismiss]);
 
   async function handleCopy() {
     try {

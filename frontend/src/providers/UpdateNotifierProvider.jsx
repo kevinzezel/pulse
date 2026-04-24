@@ -13,6 +13,7 @@ const DISMISS_STORAGE_KEY = 'rt:updateDismiss';
 const UpdateContext = createContext(null);
 
 function readDismiss() {
+  if (typeof window === 'undefined') return null;
   try {
     const raw = localStorage.getItem(DISMISS_STORAGE_KEY);
     if (!raw) return null;
@@ -27,6 +28,7 @@ function readDismiss() {
 }
 
 function writeDismiss(version) {
+  if (typeof window === 'undefined') return;
   try {
     localStorage.setItem(DISMISS_STORAGE_KEY, JSON.stringify({
       version,
@@ -116,13 +118,23 @@ export function UpdateNotifierProvider({ children }) {
     }
   }, [pathname, servers]);
 
+  // Stable signature of the server set — derived from sorted IDs, not the
+  // array reference. ServersProvider re-fetches on focus and assigns a fresh
+  // array each time even when nothing changed; without this gate, every tab
+  // focus would re-trigger runUpdateCheck and burn N HTTP calls per server.
+  const serversSignature = (Array.isArray(servers) ? servers : [])
+    .map((s) => s.id)
+    .sort()
+    .join(',');
+
   useEffect(() => {
     if (pathname === '/login') return;
     if (!loaded) return;
     runUpdateCheck();
     const id = setInterval(runUpdateCheck, CHECK_INTERVAL_MS);
     return () => clearInterval(id);
-  }, [pathname, loaded, runUpdateCheck]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname, loaded, serversSignature]);
 
   const dismiss = useCallback(() => {
     if (latestVersion) writeDismiss(latestVersion);

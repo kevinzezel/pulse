@@ -603,7 +603,20 @@ seed_client_env() {
     [ "$PULSE_DASHBOARD_ONLY" = 1 ] && return 0
     env_file="$CONFIG_ROOT/client.env"
     if [ -f "$env_file" ] && grep -qE '^API_KEY=.+' "$env_file"; then
-        log "client.env already exists — preserving"
+        # Upgrade path: keep user's API_KEY/HOST/PORT, but refresh VERSION
+        # so client.env mirrors the installed release. load.py also reads
+        # $INSTALL_ROOT/VERSION (single source of truth) and overrides this
+        # value at runtime — but updating client.env keeps the file honest
+        # and avoids confusing ops that grep client.env for the version.
+        if grep -qE '^VERSION=' "$env_file"; then
+            tmp_file="${env_file}.upgrade-tmp"
+            sed -e "s|^VERSION=.*|VERSION=$PULSE_INSTALLED_VERSION|" "$env_file" > "$tmp_file"
+            mv "$tmp_file" "$env_file"
+            chmod 600 "$env_file"
+        else
+            printf 'VERSION=%s\n' "$PULSE_INSTALLED_VERSION" >> "$env_file"
+        fi
+        log "client.env preserved (VERSION refreshed to $PULSE_INSTALLED_VERSION)"
         return 0
     fi
     api_key="$(hex_secret)"
