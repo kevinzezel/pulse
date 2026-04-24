@@ -14,7 +14,7 @@
     <array>
         <string>/bin/sh</string>
         <string>-c</string>
-        <string>set -a; . "$HOME/.config/pulse/client.env"; set +a; exec "$HOME/.local/share/pulse/client/.venv/bin/uvicorn" service:app --host "$API_HOST" --port "$API_PORT"</string>
+        <string>set -a; . "$HOME/.config/pulse/client.env"; set +a; if [ "${TLS_ENABLED:-false}" = "true" ]; then exec "$HOME/.local/share/pulse/client/.venv/bin/uvicorn" service:app --host "$API_HOST" --port "$API_PORT" --ssl-keyfile "$TLS_KEY_PATH" --ssl-certfile "$TLS_CERT_PATH"; else exec "$HOME/.local/share/pulse/client/.venv/bin/uvicorn" service:app --host "$API_HOST" --port "$API_PORT"; fi</string>
     </array>
     <key>WorkingDirectory</key>
     <string>@@HOME@@/.local/share/pulse/client/src</string>

@@ -160,6 +160,16 @@ if [ ! -f "$STAMP" ] || [ "$SCRIPT_DIR/requirements.txt" -nt "$STAMP" ]; then
     touch "$STAMP"
 fi
 
-pulse_log "uvicorn at http://$API_HOST:$API_PORT"
 cd src
+if [ "${TLS_ENABLED:-false}" = "true" ]; then
+    : "${TLS_CERT_PATH:?TLS_ENABLED=true but TLS_CERT_PATH unset (run: pulse config tls on)}"
+    : "${TLS_KEY_PATH:?TLS_ENABLED=true but TLS_KEY_PATH unset (run: pulse config tls on)}"
+    [ -r "$TLS_CERT_PATH" ] || pulse_die "cert not readable: $TLS_CERT_PATH (run: pulse config tls on)"
+    [ -r "$TLS_KEY_PATH"  ] || pulse_die "key not readable: $TLS_KEY_PATH (run: pulse config tls on)"
+    pulse_log "uvicorn at https://$API_HOST:$API_PORT (TLS)"
+    exec "$VENV/bin/uvicorn" service:app --host "$API_HOST" --port "$API_PORT" \
+        --ssl-keyfile "$TLS_KEY_PATH" --ssl-certfile "$TLS_CERT_PATH" $RELOAD
+fi
+
+pulse_log "uvicorn at http://$API_HOST:$API_PORT"
 exec "$VENV/bin/uvicorn" service:app --host "$API_HOST" --port "$API_PORT" $RELOAD

@@ -244,11 +244,22 @@ export default function GroupSelector({
 
     let done = 0;
     let failed = 0;
+    let blocked = 0;
 
-    // Remoto: pré-fetch todos os cwds em paralelo (1 await só), depois dispara
-    // todos os window.open em burst sync — minimiza a janela em que o popup
-    // blocker pode intervir. Safari ainda pode limitar múltiplas aberturas
-    // por política do usuário; nesses casos o browser mostra o prompt padrão.
+    // Remoto: pré-fetch todos os cwds em paralelo, depois dispara cada
+    // window.open com setTimeout escalonado a cada 1500ms. Dois motivos pro
+    // delay (não é cosmético):
+    //   1. C2 — VS Code Remote tem single-instance via URL handler: 2 URLs
+    //      `vscode://vscode-remote/...` em rajada são processadas pela mesma
+    //      instância e só a última pasta vira a folder ativa (não há query
+    //      param público pra forçar nova janela). 1500ms dá tempo do VS Code
+    //      processar o setup SSH+folder antes da próxima URL chegar.
+    //   2. C1 — browsers consumem "transient activation" a cada window.open;
+    //      após o primeiro, popup blocker pode atacar os subsequentes. Em
+    //      Chrome/Firefox protocol handlers ganham relax, mas Safari é
+    //      estrito. Stagger reduz a janela onde o blocker percebe rajada.
+    // Toast de "blocked" notifica o user quando window.open retorna null
+    // (Safari hard-block, ou popup blocker explicitando rejeição).
     if (remoteEntries.length > 0) {
       const cwdResults = await Promise.allSettled(
         remoteEntries.map(({ session }) => getSessionCwd(session.id)),
@@ -271,11 +282,25 @@ export default function GroupSelector({
         }
         urls.push(url);
       });
-      // Burst sync — zero await entre os opens.
-      for (const url of urls) {
-        window.open(url, '_blank');
-        done += 1;
+      // Aviso preventivo enquanto o stagger roda (user vê janelas se abrindo
+      // espaçadas e não fica com a sensação de "travou").
+      if (urls.length > 1) {
+        toast(t('groupSelector.openAllRemoteStaggerHint'), { icon: '⏳', duration: urls.length * 1500 });
       }
+      const remoteResults = await Promise.all(urls.map((url, i) => (
+        new Promise((resolve) => {
+          setTimeout(() => {
+            const popup = window.open(url, '_blank');
+            // popup === null indica popup blocker. Pra protocol handler em
+            // sucesso, browser retorna um Window proxy que fecha imediatamente.
+            resolve(popup === null ? 'blocked' : 'sent');
+          }, i * 1500);
+        })
+      )));
+      remoteResults.forEach((r) => {
+        if (r === 'blocked') blocked += 1;
+        else done += 1;
+      });
     }
 
     // Local: paralelo via API. new_window=true força `code -n <path>` em cada
@@ -296,12 +321,15 @@ export default function GroupSelector({
     }
 
     setOpeningGroupKey(null);
-    if (failed === 0) {
+    const total = targets.length;
+    if (blocked > 0) {
+      showError(new Error(t('groupSelector.openAllBlocked', { blocked, total })));
+    } else if (failed === 0) {
       toast.success(t('groupSelector.openAllDone', { n: done }));
     } else if (done === 0) {
-      showError(new Error(t('groupSelector.openAllPartial', { done, total: targets.length, failed })));
+      showError(new Error(t('groupSelector.openAllPartial', { done, total, failed })));
     } else {
-      toast(t('groupSelector.openAllPartial', { done, total: targets.length, failed }), { icon: '⚠' });
+      toast(t('groupSelector.openAllPartial', { done, total, failed }), { icon: '⚠' });
     }
   }
 

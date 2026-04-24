@@ -24,7 +24,10 @@ Environment=TERM=xterm-256color
 # happened — cheap to re-run, failure is ignored.
 PassEnvironment=DISPLAY WAYLAND_DISPLAY XAUTHORITY DBUS_SESSION_BUS_ADDRESS XDG_RUNTIME_DIR XDG_SESSION_TYPE XDG_CURRENT_DESKTOP
 ExecStartPre=/bin/sh -c '/usr/bin/systemctl --user import-environment DISPLAY WAYLAND_DISPLAY XAUTHORITY DBUS_SESSION_BUS_ADDRESS XDG_RUNTIME_DIR 2>/dev/null || true'
-ExecStart=%h/.local/share/pulse/client/.venv/bin/uvicorn service:app --host ${API_HOST} --port ${API_PORT}
+# We re-source client.env inside the wrapper so the if/else branches see the
+# same values that EnvironmentFile= already loaded. systemd's ${VAR} expansion
+# can't do conditional arguments — the sh wrapper can.
+ExecStart=/bin/sh -c 'set -a; . "$HOME/.config/pulse/client.env"; set +a; if [ "${TLS_ENABLED:-false}" = "true" ]; then exec "$HOME/.local/share/pulse/client/.venv/bin/uvicorn" service:app --host "$API_HOST" --port "$API_PORT" --ssl-keyfile "$TLS_KEY_PATH" --ssl-certfile "$TLS_CERT_PATH"; else exec "$HOME/.local/share/pulse/client/.venv/bin/uvicorn" service:app --host "$API_HOST" --port "$API_PORT"; fi'
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal

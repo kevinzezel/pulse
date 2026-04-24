@@ -722,6 +722,17 @@ prompt_network() {
     fi
 }
 
+# Append a key=value line to an env file only if the key isn't already present.
+# Used by the upgrade path to backfill new keys introduced after the user's
+# install date without disturbing existing values.
+_backfill_env_key() {
+    env_file="$1"
+    key="$2"
+    val="$3"
+    grep -qE "^${key}=" "$env_file" 2>/dev/null && return 0
+    printf '%s=%s\n' "$key" "$val" >> "$env_file"
+}
+
 seed_client_env() {
     [ "$PULSE_DASHBOARD_ONLY" = 1 ] && return 0
     env_file="$CONFIG_ROOT/client.env"
@@ -739,6 +750,10 @@ seed_client_env() {
         else
             printf 'VERSION=%s\n' "$PULSE_INSTALLED_VERSION" >> "$env_file"
         fi
+        # Backfill TLS keys for installs predating 1.14.0.
+        _backfill_env_key "$env_file" TLS_ENABLED   false
+        _backfill_env_key "$env_file" TLS_CERT_PATH ""
+        _backfill_env_key "$env_file" TLS_KEY_PATH  ""
         log "client.env preserved (VERSION refreshed to $PULSE_INSTALLED_VERSION)"
         return 0
     fi
@@ -749,6 +764,9 @@ VERSION=$PULSE_INSTALLED_VERSION
 API_HOST=$PULSE_API_HOST
 API_PORT=$PULSE_API_PORT
 API_KEY=$api_key
+TLS_ENABLED=false
+TLS_CERT_PATH=
+TLS_KEY_PATH=
 EOF
     chmod 600 "$env_file"
     # Also symlink to install dir so load.py fallback works in rare cases
@@ -760,6 +778,10 @@ seed_frontend_env() {
     [ "$PULSE_CLIENT_ONLY" = 1 ] && return 0
     env_file="$CONFIG_ROOT/frontend.env"
     if [ -f "$env_file" ] && grep -qE '^AUTH_PASSWORD=.+' "$env_file"; then
+        # Backfill TLS keys for installs predating 1.14.0.
+        _backfill_env_key "$env_file" TLS_ENABLED   false
+        _backfill_env_key "$env_file" TLS_CERT_PATH ""
+        _backfill_env_key "$env_file" TLS_KEY_PATH  ""
         log "frontend.env already exists — preserving"
         return 0
     fi
@@ -771,6 +793,9 @@ WEB_PORT=$PULSE_WEB_PORT
 AUTH_PASSWORD=$auth_password
 AUTH_JWT_SECRET=$auth_secret
 AUTH_COOKIE_SECURE=false
+TLS_ENABLED=false
+TLS_CERT_PATH=
+TLS_KEY_PATH=
 EOF
     chmod 600 "$env_file"
     ln -sfn "$env_file" "$INSTALL_ROOT/frontend/.env" 2>/dev/null || true

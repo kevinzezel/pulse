@@ -15,11 +15,17 @@ Environment=NODE_ENV=production
 # systemd when Next spawns internal workers; pinning the path guarantees
 # sessions.json / notes.json / etc. land in the right directory.
 Environment=PULSE_FRONTEND_ROOT=%h/.local/share/pulse/frontend
+# server.js reads cert/key from $PULSE_CONFIG_ROOT/tls/ when TLS_CERT_PATH /
+# TLS_KEY_PATH are empty in frontend.env. The CLI normally fills those in, but
+# pinning the root here keeps the fallback honest under systemd.
+Environment=PULSE_CONFIG_ROOT=%h/.config/pulse
 # Systemd user services don't inherit the login shell's PATH, so node installed
 # via nvm/volta/fnm is invisible. Detect common user-level node managers and
-# prepend them to PATH before execing npx; system node in /usr/bin remains the
+# prepend them to PATH before execing node; system node in /usr/bin remains the
 # fallback via the Environment=PATH above.
-ExecStart=/bin/sh -c 'if [ -d "$HOME/.nvm/versions/node" ]; then v=$(ls -1 "$HOME/.nvm/versions/node" 2>/dev/null | sort -V | tail -n1); [ -n "$v" ] && PATH="$HOME/.nvm/versions/node/$v/bin:$PATH"; fi; [ -d "$HOME/.volta/bin" ] && PATH="$HOME/.volta/bin:$PATH"; [ -d "$HOME/.local/share/fnm/aliases/default/bin" ] && PATH="$HOME/.local/share/fnm/aliases/default/bin:$PATH"; export PATH; exec npx next start -H "$WEB_HOST" -p "$WEB_PORT"'
+# server.js (custom Next runner) handles HTTP/HTTPS branching from TLS_ENABLED
+# in frontend.env — same entrypoint regardless of TLS state.
+ExecStart=/bin/sh -c 'if [ -d "$HOME/.nvm/versions/node" ]; then v=$(ls -1 "$HOME/.nvm/versions/node" 2>/dev/null | sort -V | tail -n1); [ -n "$v" ] && PATH="$HOME/.nvm/versions/node/$v/bin:$PATH"; fi; [ -d "$HOME/.volta/bin" ] && PATH="$HOME/.volta/bin:$PATH"; [ -d "$HOME/.local/share/fnm/aliases/default/bin" ] && PATH="$HOME/.local/share/fnm/aliases/default/bin:$PATH"; export PATH; exec node server.js'
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal

@@ -163,8 +163,8 @@ Frontend só:
 
 Sem fallback — se faltar env, os scripts abortam com mensagem clara. Os `start.sh` copiam `.env.example` → `.env` na primeira execução.
 
-- `client/.env` (gitignored): `COMPOSE_PROJECT_NAME`, `VERSION`, `API_HOST`, `API_PORT`, `API_KEY`
-- `frontend/.env` (gitignored): `WEB_HOST`, `WEB_PORT`, `AUTH_PASSWORD`, `AUTH_JWT_SECRET`, `AUTH_COOKIE_SECURE`
+- `client/.env` (gitignored): `COMPOSE_PROJECT_NAME`, `VERSION`, `API_HOST`, `API_PORT`, `API_KEY` + opcionais TLS (`TLS_ENABLED`, `TLS_CERT_PATH`, `TLS_KEY_PATH` — default `false`/vazias, geridas via `pulse config tls`)
+- `frontend/.env` (gitignored): `WEB_HOST`, `WEB_PORT`, `AUTH_PASSWORD`, `AUTH_JWT_SECRET`, `AUTH_COOKIE_SECURE` + opcionais TLS (mesmo trio acima)
 
 Config de servidores do frontend continua em `frontend/data/servers.json` (gerenciada pela tela Settings → Servidores), não em env.
 
@@ -173,6 +173,14 @@ Config de servidores do frontend continua em `frontend/data/servers.json` (geren
 Gate de senha única + JWT HS256 24h em cookie httpOnly `rt:auth`. `AUTH_PASSWORD` é a senha compartilhada; `AUTH_JWT_SECRET` é auto-gerado pelo `start.sh` se estiver `change-me` ou ausente. `/login` e `/api/auth/*` são as únicas rotas públicas — `src/middleware.js` protege tudo o resto (UI + API). Cada API route com dados sensíveis (`/api/servers|groups|prompts`) também é envolvida por `withAuth()` de `@/lib/auth` (defense-in-depth / DAL).
 
 Em prod (atrás de NGINX/Cloudflare com TLS), manter `AUTH_COOKIE_SECURE=true`. Em dev local sem HTTPS, `AUTH_COOKIE_SECURE=false` — caso contrário o browser descarta o cookie. Recomenda-se também strip do header `x-middleware-subrequest` no proxy (defesa contra futuras variantes do CVE-2025-29927).
+
+### HTTPS auto-assinado (opcional)
+
+Pra usar o dashboard em outro device da rede sem perder secure context (notificações do browser, clipboard API, PWA service workers — todos exigem HTTPS quando não é localhost): `pulse config tls on` gera cert auto-assinado em `$CONFIG_ROOT/tls/{cert,key}.pem` via `openssl` (RSA 2048, validade 825 dias, SAN cobrindo `localhost`/`127.0.0.1`/`::1`/`$(hostname)`), seta `TLS_ENABLED=true` em ambos os `.env`, e em paralelo flipa `AUTH_COOKIE_SECURE=true` no dashboard. Restart automático dos serviços. `pulse config tls off` reverte. Flags `--client` / `--dashboard` permitem ativação parcial. `pulse config tls show` lista cert info + estado por serviço; `pulse config tls regen` força regenerar (invalida exceções já aceitas em browsers).
+
+Frontend usa custom server (`frontend/server.js`) em prod — `node server.js` faz branch HTTP/HTTPS lendo `TLS_ENABLED` do env. Modo `dev` (`npx next dev`) **não** suporta TLS (HMR conflita com HTTPS wrap); use `--prod` se quiser testar localmente. Client usa `uvicorn --ssl-keyfile/--ssl-certfile` quando `TLS_ENABLED=true`.
+
+**Cuidado com servers remotos**: dashboard em HTTPS bloqueia `ws://` / `http://` cross-origin (mixed content). Servers cadastrados no Settings → Servidores apontando pra outros hosts em HTTP precisam ser convertidos pra HTTPS individualmente (SSH na máquina remota, `pulse config tls on` lá, atualiza protocol no Settings). O CLI **avisa** mas não muda o JSON automaticamente.
 
 ## Verificação antes de commitar
 

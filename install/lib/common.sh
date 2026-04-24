@@ -197,3 +197,27 @@ pulse_check_port() {
 
     pulse_die "could not free port $port."
 }
+
+# Generate a self-signed RSA-2048 cert + key with SAN covering localhost
+# variants and this machine's hostname. Validity 825 days (Apple's max for
+# self-signed since 2020). Caller chooses paths; dir gets chmod 700, key 600,
+# cert 644. Requires openssl >= 1.1.1 for -addext.
+# Args: <cert_path> <key_path>
+pulse_generate_tls_cert() {
+    cert_path="$1"
+    key_path="$2"
+    pulse_need_cmd openssl || pulse_die "openssl is required to generate TLS certs"
+    cert_dir="$(dirname "$cert_path")"
+    mkdir -p "$cert_dir"
+    chmod 700 "$cert_dir"
+    host="$(hostname 2>/dev/null || echo localhost)"
+    san="DNS:localhost,DNS:${host},IP:127.0.0.1,IP:::1"
+    openssl req -x509 -newkey rsa:2048 -nodes -days 825 \
+        -keyout "$key_path" -out "$cert_path" \
+        -subj "/CN=pulse-${host}" \
+        -addext "subjectAltName=${san}" \
+        -addext "extendedKeyUsage=serverAuth" >/dev/null 2>&1 \
+        || pulse_die "openssl failed to generate cert (need openssl >= 1.1.1)"
+    chmod 600 "$key_path"
+    chmod 644 "$cert_path"
+}

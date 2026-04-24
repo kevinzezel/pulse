@@ -121,10 +121,18 @@ fi
 pulse_check_port "$WEB_PORT" "frontend"
 
 if [ "$MODE" = "prod" ]; then
-    pulse_log "build + start at http://$WEB_HOST:$WEB_PORT"
+    scheme="http"
+    [ "${TLS_ENABLED:-false}" = "true" ] && scheme="https"
+    pulse_log "build + start at $scheme://$WEB_HOST:$WEB_PORT"
     npm run build
-    exec npx next start -p "$WEB_PORT" -H "$WEB_HOST"
+    # server.js handles HTTP/HTTPS branching from TLS_ENABLED. Keeping the
+    # same entrypoint regardless of mode means systemd/launchd templates
+    # don't need to know about TLS.
+    exec node server.js
 fi
 
+# Dev mode stays on plain `next dev` even when TLS_ENABLED=true — Next dev's
+# HMR doesn't combine cleanly with our custom HTTPS server. Run with --prod
+# locally if you need to test the HTTPS path.
 pulse_log "dev at http://$WEB_HOST:$WEB_PORT"
 exec npx next dev -p "$WEB_PORT" -H "$WEB_HOST"
