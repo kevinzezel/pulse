@@ -247,14 +247,15 @@ export default function GroupSelector({
     let blocked = 0;
 
     // Remoto: pré-fetch todos os cwds em paralelo, depois dispara cada
-    // window.open com setTimeout escalonado a cada 500ms. Dois motivos pro
+    // window.open com setTimeout escalonado a cada 1500ms. Dois motivos pro
     // delay (não é cosmético):
     //   1. C2 — VS Code Remote tem single-instance via URL handler: 2 URLs
     //      `vscode://vscode-remote/...` em rajada são processadas pela mesma
     //      instância e só a última pasta vira a folder ativa (não há query
-    //      param público pra forçar nova janela). 500ms dá um intervalo curto
-    //      pro VS Code começar a processar a URL antes da próxima chegar
-    //      (valor de teste — pode subir se o dedup persistir).
+    //      param público pra forçar nova janela). 1500ms dá tempo do VS Code
+    //      processar o setup SSH+folder antes da próxima URL chegar — valor
+    //      empiricamente seguro. Tentamos 500ms na v1.13.3 e o dedup voltou
+    //      (o handshake SSH não termina nesse intervalo), então revertido.
     //   2. C1 — browsers consumem "transient activation" a cada window.open;
     //      após o primeiro, popup blocker pode atacar os subsequentes. Em
     //      Chrome/Firefox protocol handlers ganham relax, mas Safari é
@@ -286,7 +287,7 @@ export default function GroupSelector({
       // Aviso preventivo enquanto o stagger roda (user vê janelas se abrindo
       // espaçadas e não fica com a sensação de "travou").
       if (urls.length > 1) {
-        toast(t('groupSelector.openAllRemoteStaggerHint'), { icon: '⏳', duration: urls.length * 500 });
+        toast(t('groupSelector.openAllRemoteStaggerHint'), { icon: '⏳', duration: urls.length * 1500 });
       }
       const remoteResults = await Promise.all(urls.map((url, i) => (
         new Promise((resolve) => {
@@ -295,7 +296,7 @@ export default function GroupSelector({
             // popup === null indica popup blocker. Pra protocol handler em
             // sucesso, browser retorna um Window proxy que fecha imediatamente.
             resolve(popup === null ? 'blocked' : 'sent');
-          }, i * 500);
+          }, i * 1500);
         })
       )));
       remoteResults.forEach((r) => {
