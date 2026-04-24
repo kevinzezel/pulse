@@ -246,6 +246,7 @@
   "toolbar": {
     "splitH": "Split horizontal",
     "splitV": "Split vertical",
+    "prompts": "Saved prompts",
     "openEditorLocal": "Open VS Code (local)",
     "openEditorRemote": "Open VS Code (remote SSH)",
     "capture": "Capture output as text",
@@ -613,7 +614,9 @@
     "sendSubtitle": "Pick a terminal to send \"{name}\"",
     "sendOnly": "Send",
     "sendEnter": "Send + ↵",
-    "noSessions": "No active sessions"
+    "noSessions": "No active sessions",
+    "selectorTitle": "Send prompt to terminal",
+    "sentToTerminal": "Prompt sent"
   },
   "notifications": {
     "idleTitle": "{context} is idle",

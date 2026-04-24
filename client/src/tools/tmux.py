@@ -56,6 +56,8 @@ def create_session(session_id, cols=80, rows=24, start_directory=None):
     cmd = ['tmux', 'new-session', '-d', '-s', session_id, '-x', str(cols), '-y', str(rows)]
     if start_directory and os.path.isabs(start_directory) and os.path.isdir(start_directory):
         cmd.extend(['-c', start_directory])
+    shell = os.environ.get("SHELL") or "/bin/bash"
+    cmd.extend([shell, "-l"])
     subprocess.run(cmd, check=True)
     # Now that we've just guaranteed a tmux server exists, persist our
     # terminal-overrides. On cold starts this is the first time the set-option

@@ -246,6 +246,7 @@
   "toolbar": {
     "splitH": "Dividir horizontal",
     "splitV": "Dividir vertical",
+    "prompts": "Prompts guardados",
     "openEditorLocal": "Abrir VS Code (local)",
     "openEditorRemote": "Abrir VS Code (remoto vía SSH)",
     "capture": "Capturar salida como texto",
@@ -613,7 +614,9 @@
     "sendSubtitle": "Selecciona un terminal para enviar \"{name}\"",
     "sendOnly": "Enviar",
     "sendEnter": "Enviar + ↵",
-    "noSessions": "No hay sesiones activas"
+    "noSessions": "No hay sesiones activas",
+    "selectorTitle": "Enviar prompt al terminal",
+    "sentToTerminal": "Prompt enviado"
   },
   "notifications": {
     "idleTitle": "{context} está inactivo",

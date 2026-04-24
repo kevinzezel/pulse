@@ -25,23 +25,21 @@ function joinPath(base, name) {
   return `${base}/${name}`;
 }
 
-function CwdBrowser({ serverId, showHidden, onToggleHidden, onPick, onServerOffline }) {
+function CwdBrowser({ serverId, showHidden, onToggleHidden, onPick, onServerOffline, initialPath }) {
   const { t } = useTranslation();
   const [path, setPath] = useState(null);
   const [entries, setEntries] = useState([]);
   const [parent, setParent] = useState(null);
   const [truncated, setTruncated] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
+  const [loading, setLoading] = useState(true);
   const reqIdRef = useRef(0);
 
   function navigate(targetPath) {
     const myReqId = ++reqIdRef.current;
     setLoading(true);
-    setError(null);
     listRemoteDirectory(serverId, targetPath)
       .then((res) => {
-        if (myReqId !== reqIdRef.current) return; // Stale response.
+        if (myReqId !== reqIdRef.current) return;
         setPath(res.path);
         setEntries(Array.isArray(res.entries) ? res.entries : []);
         setParent(res.parent || null);
@@ -50,10 +48,9 @@ function CwdBrowser({ serverId, showHidden, onToggleHidden, onPick, onServerOffl
       })
       .catch((err) => {
         if (myReqId !== reqIdRef.current) return;
-        const msg = err?.detail || err?.message || 'Error';
-        setError(msg);
-        // If the server is unreachable, surface it to parent so the browse
-        // button can be disabled and tooltip swapped.
+        // Only surface "server is down" — other failures (path not found,
+        // permission denied during transient typing) are silently ignored so
+        // the UI doesn't flash a red bar and shift layout per keystroke.
         if (err?.reason === 'unreachable' || err?.reason === 'timeout') {
           onServerOffline?.();
         }
@@ -63,12 +60,23 @@ function CwdBrowser({ serverId, showHidden, onToggleHidden, onPick, onServerOffl
       });
   }
 
-  // Initial load + reload on serverId change.
+  // Unified nav: serverId change + parent-driven updates (recent click,
+  // typing in cwd input). Empty initialPath → root "/" (NOT $HOME — backend
+  // falls back to $HOME for null/empty, but users clearing the input expect
+  // root). Debounced 250ms so typing partial paths doesn't spam the API with
+  // not-found errors. Skip when target === path (our onPick echoed back).
+  // When parent's initialPath is empty but target is "/", sync back to "/"
+  // so the input doesn't stay visually empty while the browser shows root.
+  // Deps exclude `path` — we only react to parent changes, not our own nav.
   useEffect(() => {
     if (!serverId) return;
-    navigate(null);
+    const target = initialPath || '/';
+    if (initialPath !== target) onPick?.(target);
+    if (target === path) return;
+    const handle = setTimeout(() => navigate(target), 250);
+    return () => clearTimeout(handle);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [serverId]);
+  }, [serverId, initialPath]);
 
   const visibleEntries = showHidden
     ? entries
@@ -92,6 +100,9 @@ function CwdBrowser({ serverId, showHidden, onToggleHidden, onPick, onServerOffl
           <span className="text-xs text-muted-foreground truncate" title={path || ''}>
             {path || ''}
           </span>
+          {loading && (
+            <Loader size={12} className="animate-spin text-muted-foreground flex-shrink-0" />
+          )}
         </div>
         <button
           type="button"
@@ -103,24 +114,19 @@ function CwdBrowser({ serverId, showHidden, onToggleHidden, onPick, onServerOffl
         </button>
       </div>
 
-      <div className="max-h-48 overflow-y-auto bg-card text-sm">
-        {loading && (
+      <div className="max-h-80 overflow-y-auto bg-card text-sm">
+        {loading && visibleEntries.length === 0 && (
           <div className="flex items-center justify-center py-4 text-muted-foreground">
             <Loader size={14} className="animate-spin mr-2" />
             {t('modal.newTerminal.browser.loading')}
           </div>
         )}
-        {!loading && error && (
-          <div className="px-3 py-2 text-xs text-destructive bg-destructive/10 border-b border-destructive/40">
-            {error}
-          </div>
-        )}
-        {!loading && !error && visibleEntries.length === 0 && (
+        {!loading && visibleEntries.length === 0 && (
           <div className="px-3 py-3 text-xs text-muted-foreground text-center">
             {t('modal.newTerminal.browser.empty')}
           </div>
         )}
-        {!loading && visibleEntries.map((entry) => (
+        {visibleEntries.map((entry) => (
           <button
             key={entry.name}
             type="button"
@@ -220,7 +226,7 @@ export default function NewTerminalModal({ onClose, onSubmit, loading, groups = 
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-overlay/60 px-4">
-      <div className="bg-card border border-border rounded-lg p-6 w-full max-w-md max-h-[90vh] overflow-y-auto">
+      <div className="bg-card border border-border rounded-lg p-6 w-full max-w-3xl max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-foreground font-semibold">{t('modal.newTerminal.title')}</h3>
           <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
@@ -254,33 +260,39 @@ export default function NewTerminalModal({ onClose, onSubmit, loading, groups = 
             </>
           )}
 
-          <label className="block text-sm text-muted-foreground mb-1">
-            {t('modal.newTerminal.nameLabel')}
-          </label>
-          <input
-            type="text"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder={t('modal.newTerminal.placeholder')}
-            maxLength={50}
-            autoFocus
-            className="w-full px-3 py-2 bg-input border border-border rounded-md text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring mb-4"
-          />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+            <div>
+              <label className="block text-sm text-muted-foreground mb-1">
+                {t('modal.newTerminal.nameLabel')}
+              </label>
+              <input
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder={t('modal.newTerminal.placeholder')}
+                maxLength={50}
+                autoFocus
+                className="w-full px-3 py-2 bg-input border border-border rounded-md text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+              />
+            </div>
 
-          <label className="block text-sm text-muted-foreground mb-1">
-            {t('modal.newTerminal.groupLabel')}
-          </label>
-          <select
-            value={groupId || ''}
-            onChange={(e) => setGroupId(e.target.value || null)}
-            disabled={loading}
-            className="w-full px-3 py-2 bg-input border border-border rounded-md text-foreground text-sm focus:outline-none focus:ring-1 focus:ring-ring mb-4"
-          >
-            <option value="">{t('modal.newTerminal.noGroup')}</option>
-            {groups.map((g) => (
-              <option key={g.id} value={g.id}>{g.name}</option>
-            ))}
-          </select>
+            <div>
+              <label className="block text-sm text-muted-foreground mb-1">
+                {t('modal.newTerminal.groupLabel')}
+              </label>
+              <select
+                value={groupId || ''}
+                onChange={(e) => setGroupId(e.target.value || null)}
+                disabled={loading}
+                className="w-full px-3 py-2 bg-input border border-border rounded-md text-foreground text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+              >
+                <option value="">{t('modal.newTerminal.noGroup')}</option>
+                {groups.map((g) => (
+                  <option key={g.id} value={g.id}>{g.name}</option>
+                ))}
+              </select>
+            </div>
+          </div>
 
           <label className="block text-sm text-muted-foreground mb-1">
             {t('modal.newTerminal.cwdLabel')}
@@ -317,6 +329,7 @@ export default function NewTerminalModal({ onClose, onSubmit, loading, groups = 
               onToggleHidden={handleToggleHidden}
               onPick={setCwd}
               onServerOffline={() => setServerOnline(false)}
+              initialPath={cwd}
             />
           )}
 
@@ -333,7 +346,7 @@ export default function NewTerminalModal({ onClose, onSubmit, loading, groups = 
                   >
                     <button
                       type="button"
-                      onClick={() => setCwd(p)}
+                      onClick={() => { setCwd(p); setBrowserOpen(true); }}
                       title={p}
                       className="flex-1 min-w-0 text-left px-3 py-1.5 text-sm text-foreground truncate"
                     >

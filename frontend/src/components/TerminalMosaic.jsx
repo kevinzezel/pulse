@@ -1,18 +1,20 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Monitor, Columns2, Rows2, FolderOpen, ExternalLink, Maximize2, Minimize2, X, Loader, FileText } from 'lucide-react';
+import { Monitor, Columns2, Rows2, FolderOpen, ExternalLink, Maximize2, Minimize2, X, Loader, FileText, MessageSquareText } from 'lucide-react';
 import { Mosaic, MosaicWindow } from 'react-mosaic-component';
 import 'react-mosaic-component/react-mosaic-component.css';
 import { openEditor, getSessionCwd, splitSessionId } from '@/services/api';
 import { useTranslation, useErrorToast } from '@/providers/I18nProvider';
 import { getServerById } from '@/providers/ServersProvider';
+import { useProjects } from '@/providers/ProjectsProvider';
 import { isLocalHost } from '@/utils/host';
 import TerminalPane from './TerminalPane';
 import TerminalCaptureModal from './TerminalCaptureModal';
+import PromptSelectorModal from './prompts/PromptSelectorModal';
 import ServerTag from './ServerTag';
 
-function PaneToolbar({ t, sessionId, onSplitH, onSplitV, onOpenEditor, openingEditor, onOpenRemoteEditor, openingRemoteEditor, onMaximize, isMaximized, onClose, isBusy, isLocal }) {
+function PaneToolbar({ t, sessionId, onSplitH, onSplitV, onOpenPrompts, onOpenEditor, openingEditor, onOpenRemoteEditor, openingRemoteEditor, onMaximize, isMaximized, onClose, isBusy, isLocal }) {
   const opening = openingEditor || openingRemoteEditor;
   return (
     <div className="mosaic-toolbar-actions flex items-center gap-0.5 mr-1">
@@ -30,6 +32,13 @@ function PaneToolbar({ t, sessionId, onSplitH, onSplitV, onOpenEditor, openingEd
           </button>
         </>
       )}
+      <button
+        onClick={(e) => { e.stopPropagation(); onOpenPrompts?.(sessionId); }}
+        className="mosaic-tool-btn"
+        title={t('toolbar.prompts')}
+      >
+        <MessageSquareText size={12} />
+      </button>
       <button
         onClick={() => isLocal ? onOpenEditor(sessionId) : onOpenRemoteEditor(sessionId)}
         disabled={opening}
@@ -135,9 +144,11 @@ export default function TerminalMosaic({
 }) {
   const { t } = useTranslation();
   const showError = useErrorToast();
+  const { activeProjectId } = useProjects();
   const [openingEditorId, setOpeningEditorId] = useState(null);
   const [openingRemoteId, setOpeningRemoteId] = useState(null);
   const [captureSessionId, setCaptureSessionId] = useState(null);
+  const [promptsModalSessionId, setPromptsModalSessionId] = useState(null);
   const [isLocal, setIsLocal] = useState(false);
 
   function handleCapture(sessionId) {
@@ -255,6 +266,7 @@ export default function TerminalMosaic({
                   sessionId={id}
                   onSplitH={onSplitH}
                   onSplitV={onSplitV}
+                  onOpenPrompts={setPromptsModalSessionId}
                   onOpenEditor={handleOpenEditor}
                   openingEditor={openingEditorId === id}
                   onOpenRemoteEditor={handleOpenRemoteEditor}
@@ -287,6 +299,12 @@ export default function TerminalMosaic({
         onClose={() => setCaptureSessionId(null)}
       />
     )}
+    <PromptSelectorModal
+      sessionId={promptsModalSessionId}
+      open={!!promptsModalSessionId}
+      onClose={() => setPromptsModalSessionId(null)}
+      currentProjectId={activeProjectId}
+    />
     </>
   );
 }
