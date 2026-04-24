@@ -818,3 +818,26 @@ export async function getServerVersion(serverId) {
 export function getUpdateStatus({ force = false } = {}) {
   return localRequest(`/api/update-status${force ? '?force=1' : ''}`);
 }
+
+// ===== FS browser + recent cwds =====
+
+export function listRemoteDirectory(serverId, path = null) {
+  const qs = path ? `?path=${encodeURIComponent(path)}` : '';
+  return request(serverId, `/api/fs/list${qs}`);
+}
+
+export function getRecentCwds(serverId) {
+  return localRequest(`/api/recent-cwds?serverId=${encodeURIComponent(serverId)}`);
+}
+
+export function addRecentCwd(serverId, path) {
+  return localRequest('/api/recent-cwds', {
+    method: 'POST',
+    body: JSON.stringify({ serverId, path }),
+  });
+}
+
+export function deleteRecentCwd(serverId, path) {
+  const qs = `?serverId=${encodeURIComponent(serverId)}&path=${encodeURIComponent(path)}`;
+  return localRequest(`/api/recent-cwds${qs}`, { method: 'DELETE' });
+}

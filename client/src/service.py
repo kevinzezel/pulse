@@ -49,7 +49,7 @@ def health():
     return JSONResponse(status_code=200, content={"status": "UP"})
 
 
-from routes import terminal, settings as settings_route, version as version_route
+from routes import terminal, settings as settings_route, version as version_route, fs as fs_route
 from resources.terminal import recover_sessions
 from resources.settings import load_settings
 from resources.notifications import notification_watcher
@@ -60,6 +60,7 @@ app.include_router(terminal.router, prefix="/api", tags=["Terminal"], dependenci
 app.include_router(terminal.ws_router, tags=["WebSocket"])
 app.include_router(settings_route.router, prefix="/api", tags=["Settings"], dependencies=_auth)
 app.include_router(version_route.router, prefix="/api", tags=["Version"], dependencies=_auth)
+app.include_router(fs_route.router, prefix="/api", tags=["FS"], dependencies=_auth)
 
 load_settings()
 recover_sessions()

@@ -196,7 +196,22 @@
       "creating": "Criando...",
       "copyTooltip": "Copiar comando tmux",
       "serverLabel": "Servidor",
-      "noServers": "Nenhum servidor cadastrado. Vá em Configurações › Servidores."
+      "noServers": "Nenhum servidor cadastrado. Vá em Configurações › Servidores.",
+      "cwdLabel": "Caminho inicial (opcional)",
+      "cwdPlaceholder": "Diretório padrão do tmux",
+      "browseTooltip": "Navegar pastas do servidor",
+      "recentLabel": "Caminhos recentes",
+      "recentPlaceholder": "Escolha um caminho recente...",
+      "recentEmpty": "Nenhum caminho recente ainda",
+      "recentRemoveTooltip": "Remover dos recentes",
+      "browser": {
+        "parent": "Subir para {path}",
+        "empty": "Sem subpastas",
+        "showHidden": "Mostrar ocultas",
+        "truncated": "Mostrando {n} de {total}+ pastas — digite um caminho manualmente para acesso direto",
+        "loading": "Carregando...",
+        "serverOffline": "Servidor inacessível — digite um caminho manualmente"
+      }
     },
     "confirmKill": {
       "title": "Encerrar sessão?",

@@ -203,10 +203,10 @@ export default function Sidebar({
     setTimeout(() => setCopiedId(null), 2000);
   }
 
-  async function handleCreate(serverId, name, groupId) {
+  async function handleCreate(serverId, name, groupId, cwd) {
     setCreating(true);
     try {
-      await onCreateSession(serverId, name, groupId);
+      await onCreateSession(serverId, name, groupId, cwd);
       setShowModal(false);
     } finally {
       setCreating(false);

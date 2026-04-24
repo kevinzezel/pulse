@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [1.10.4] — 2026-04-24
+
+### Added
+
+- **Browser de pastas no modal "New Terminal" + histórico de paths recentes por server.** O `NewTerminalModal` (`frontend/src/components/NewTerminalModal.jsx`) ganhou um campo "Start path" + botão de pasta que abre um painel inline (`<CwdBrowser>`) navegando o FS do server selecionado. Listagem só de pastas, ordenada alfabeticamente case-insensitive, cap de 1000 itens com flag `truncated` para diretórios anormalmente grandes (ex: `node_modules`). Toggle "Show hidden" controla se pastas começando com `.` aparecem (default off, persiste em `localStorage.rt:browserShowHidden`). Click numa pasta navega para dentro dela; setinha "↑" sobe para o parent. Default da primeira abertura é `$HOME` do user do client. Endpoint novo no client Python (`client/src/routes/fs.py` + `client/src/resources/fs.py`): `GET /api/fs/list?path=<absolute>` sob `Depends(require_api_key)`, valida path absoluto + ausência de null bytes, canonicaliza via `realpath`, distingue 4 erros (`fs_path_invalid`/`_not_found`/`_denied`/`_not_directory`) i18n nas 3 línguas. Cada terminal criado com `cwd` não-nulo registra o path em `data/recent-cwds.json` via nova rota local `app/api/recent-cwds/route.js` (GET + POST + DELETE), persistida pelo `storage.js` — segue o driver ativo (file/mongo/s3). Schema `{servers: {<id>: {paths: [{path, last_used_at}]}}}`, cap configurável `RECENT_CWDS_MAX = 100` (alterar = editar arquivo + rebuild), eviction LRU pelo `last_used_at` quando estoura. Sort do dropdown via `Intl.Collator('en', {sensitivity:'base', numeric:true})` para ordem alfabética estável independente de locale do host. Lista "Recent paths" no modal renderiza inline (não dropdown) abaixo do campo "Start path", scrollável até `max-h-40`, com cada item clicável preenchendo o campo + botão `X` à direita para remover daquele server (delete instantâneo, otimista, com refetch on failure). Modal expandido para `max-w-md` para acomodar paths longos. Recents segmentados por server: trocar o select do server reseta o campo, fecha o browser e recarrega a lista de recentes daquele server específico. Hook em `PUT /api/servers` limpa entries órfãs em `recent-cwds.json` quando um server é removido (defesa contra acúmulo). Server offline ao abrir o browser: ícone de pasta fica desabilitado com tooltip `serverOffline`, campo continua editável e recents continuam funcionando (são locais). Race-protection via `reqIdRef` no `<CwdBrowser>` evita responses stale sobrescreverem state quando o user clica rápido entre pastas. Adicionado a `DATA_REL_PATHS` (`frontend/src/lib/storage.js`) para entrar no sync local↔cloud. i18n completo em pt-BR/en/es sob `modal.newTerminal.{cwdLabel,cwdPlaceholder,browseTooltip,recentLabel,recentEmpty,recentRemoveTooltip,browser.*}` e `errors.fs_path_*`.
+
 ## [1.10.3] — 2026-04-23
 
 ### Changed
@@ -524,7 +530,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.10.3...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.10.4...HEAD
+[1.10.4]: https://github.com/kevinzezel/pulse/releases/tag/v1.10.4
 [1.10.3]: https://github.com/kevinzezel/pulse/releases/tag/v1.10.3
 [1.10.2]: https://github.com/kevinzezel/pulse/releases/tag/v1.10.2
 [1.10.1]: https://github.com/kevinzezel/pulse/releases/tag/v1.10.1

@@ -4,6 +4,7 @@ import { withAuth } from '@/lib/auth';
 import { readStore, writeStore, withStoreLock } from '@/lib/storage';
 
 const REL = 'data/servers.json';
+const RECENT_CWDS_REL = 'data/recent-cwds.json';
 const EMPTY = { servers: [] };
 
 async function readServers() {
@@ -54,5 +55,28 @@ export const PUT = withAuth(async (req) => {
     await writeStore(REL, { servers: next });
     return next;
   });
+
+  // Cleanup órfão: dropar entries em recent-cwds.json para serverIds que
+  // não existem mais. Fire-and-forget — perda dessa limpeza é cosmética
+  // (lixo no JSON) e não bloqueia o save de servers. Lock do recent-cwds
+  // garante coerência com POST /api/recent-cwds que possa rodar concorrente.
+  try {
+    const aliveIds = new Set(servers.map((s) => s.id));
+    await withStoreLock(RECENT_CWDS_REL, async () => {
+      const data = await readStore(RECENT_CWDS_REL, { servers: {} });
+      const cur = data.servers;
+      const ids = Object.keys(cur);
+      const stale = ids.filter((id) => !aliveIds.has(id));
+      if (stale.length === 0) return;
+      const next = {};
+      for (const id of ids) {
+        if (aliveIds.has(id)) next[id] = cur[id];
+      }
+      await writeStore(RECENT_CWDS_REL, { servers: next });
+    });
+  } catch (err) {
+    console.warn('[servers PUT] recent-cwds cleanup failed:', err);
+  }
+
   return NextResponse.json({ servers });
 });

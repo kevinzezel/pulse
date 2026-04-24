@@ -196,7 +196,22 @@
       "creating": "Creando...",
       "copyTooltip": "Copiar comando tmux",
       "serverLabel": "Servidor",
-      "noServers": "No hay servidores configurados. Ve a Configuración › Servidores."
+      "noServers": "No hay servidores configurados. Ve a Configuración › Servidores.",
+      "cwdLabel": "Ruta inicial (opcional)",
+      "cwdPlaceholder": "Directorio por defecto de tmux",
+      "browseTooltip": "Explorar carpetas del servidor",
+      "recentLabel": "Rutas recientes",
+      "recentPlaceholder": "Elige una ruta reciente...",
+      "recentEmpty": "Aún no hay rutas recientes",
+      "recentRemoveTooltip": "Eliminar de recientes",
+      "browser": {
+        "parent": "Subir a {path}",
+        "empty": "Sin subcarpetas",
+        "showHidden": "Mostrar ocultas",
+        "truncated": "Mostrando {n} de {total}+ carpetas — escribe una ruta manualmente para acceso directo",
+        "loading": "Cargando...",
+        "serverOffline": "Servidor inalcanzable — escribe una ruta manualmente"
+      }
     },
     "confirmKill": {
       "title": "¿Cerrar sesión?",

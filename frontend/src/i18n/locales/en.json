@@ -196,7 +196,22 @@
       "creating": "Creating...",
       "copyTooltip": "Copy tmux command",
       "serverLabel": "Server",
-      "noServers": "No servers configured. Go to Settings › Servers."
+      "noServers": "No servers configured. Go to Settings › Servers.",
+      "cwdLabel": "Start path (optional)",
+      "cwdPlaceholder": "Default tmux directory",
+      "browseTooltip": "Browse server folders",
+      "recentLabel": "Recent paths",
+      "recentPlaceholder": "Pick a recent path...",
+      "recentEmpty": "No recent paths yet",
+      "recentRemoveTooltip": "Remove from recents",
+      "browser": {
+        "parent": "Up to {path}",
+        "empty": "No subfolders",
+        "showHidden": "Show hidden",
+        "truncated": "Showing {n} of {total}+ folders — type a path manually for direct access",
+        "loading": "Loading...",
+        "serverOffline": "Server unreachable — type a path manually"
+      }
     },
     "confirmKill": {
       "title": "Close session?",

@@ -9,6 +9,7 @@ import {
   composeSessionId, splitSessionId,
   getSessionsSnapshot, setSessionsSnapshot, restoreSessions,
   getComposeDrafts, setComposeDrafts as putComposeDrafts,
+  addRecentCwd,
 } from '@/services/api';
 import { bootTabSession, tabKey, listTabKeysForScope } from '@/lib/tabSession';
 import { readJSON, writeJSON, removeKey } from '@/lib/localState';
@@ -654,11 +655,11 @@ function Dashboard() {
     };
   }
 
-  async function handleCreate(serverId, name, groupId) {
+  async function handleCreate(serverId, name, groupId, cwd) {
     if (!serverId) return;
     try {
       const group = groupId ? groups.find(g => g.id === groupId) : null;
-      const data = await createSession(serverId, name, groupId, null, {
+      const data = await createSession(serverId, name, groupId, cwd, {
         groupName: group?.name || null,
         projectName: activeProject?.name || null,
       });
@@ -679,6 +680,14 @@ function Dashboard() {
         };
       });
       if (isMobile) setActiveTerminalId(session.id);
+      // Fire-and-forget: persist this cwd as a recent for the dropdown next
+      // time the user opens the modal. Failure to persist doesn't undo the
+      // created terminal — log and move on.
+      if (cwd) {
+        addRecentCwd(serverId, cwd).catch(err => {
+          console.warn('addRecentCwd failed:', err);
+        });
+      }
     } catch (err) {
       showError(err);
     }
