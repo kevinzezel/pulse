@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [1.10.5] — 2026-04-24
+
+### Fixed
+
+- **Installer agora se recusa a continuar quando a porta escolhida (client ou dashboard) já está em uso.** Antes, em VMs onde algo já escutava em `:3000` ou `:7845` (caso real: GCP Compute Engine com Jupyter/Notebook na 3000), o `install.sh` aceitava o default sem checar — a instalação completava com sucesso, os systemd services entravam em crashloop com `Error: listen EADDRINUSE: address already in use 0.0.0.0:3000`, `pulse status` mostrava "failed", e o usuário não tinha pista nenhuma do que aconteceu sem abrir `pulse logs dashboard`. Fix em `install/install.sh`: novos helpers `_port_in_use` (tenta `ss` → `lsof` → `fuser` → `python3` socket bind, com warn-and-skip se nada estiver disponível — não bloqueia install por falta de tool) e `_pids_on_port` (best-effort para mostrar PID + comando do processo conflitante via `ps -o pid=,user=,etime=,args=`). O `prompt_port_loop` ganhou 3º arg `host` e passou a chamar `_port_in_use` após `is_valid_port` — se a porta estiver ocupada, mostra o processo e re-pergunta (não oferece kill, diferente do `pulse_check_port` em `install/lib/common.sh:124` que é runtime e mata; aqui é install e seria hostil matar processo alheio sem contexto). Validação final non-interactive (`prompt_network`) ganhou `_assert_port_free` com retry 5×250ms — necessário para o upgrade path, onde `stop_services_if_running` para os próprios units mas o socket pode demorar um instante para liberar (TIME_WAIT, shutdown lento do uvicorn/Next). Se conflito persistir, `die` com mensagem que mostra o PID, sugere parar o processo OU re-rodar com `PULSE_CLIENT_PORT=<other>`/`PULSE_DASHBOARD_PORT=<other>`, e lembra que os arquivos já foram instalados (re-rodar é seguro, install é idempotente). Cobre ambos os caminhos: prompt interativo (re-loop) e env-var/non-interactive (`die`).
+
 ## [1.10.4] — 2026-04-24
 
 ### Added
@@ -530,7 +536,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.10.4...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.10.5...HEAD
+[1.10.5]: https://github.com/kevinzezel/pulse/releases/tag/v1.10.5
 [1.10.4]: https://github.com/kevinzezel/pulse/releases/tag/v1.10.4
 [1.10.3]: https://github.com/kevinzezel/pulse/releases/tag/v1.10.3
 [1.10.2]: https://github.com/kevinzezel/pulse/releases/tag/v1.10.2

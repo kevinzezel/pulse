@@ -481,6 +481,121 @@ is_valid_port() {
     [ "$_p" -ge 1 ] 2>/dev/null && [ "$_p" -le 65535 ] 2>/dev/null
 }
 
+# Detect whether a TCP port is already bound. Returns 0 if in use, non-zero if
+# free (or if no detector is available — we never block install on a missing
+# tool). Tries ss → lsof → fuser → python3 in that order. Linux distros ship
+# at least one of these; macOS has lsof natively. Python3 is a runtime dep
+# of the client so it's available on dashboard+client installs.
+_port_in_use() {
+    _piu_port="$1"
+    _piu_host="${2:-0.0.0.0}"
+    if need_cmd ss; then
+        # ss prints a header even when no rows match; filter it out.
+        _piu_lines="$(ss -ltn "sport = :$_piu_port" 2>/dev/null | tail -n +2)"
+        [ -n "$_piu_lines" ] && return 0
+        return 1
+    fi
+    if need_cmd lsof; then
+        lsof -iTCP:"$_piu_port" -sTCP:LISTEN >/dev/null 2>&1 && return 0
+        return 1
+    fi
+    if need_cmd fuser; then
+        fuser -n tcp "$_piu_port" >/dev/null 2>&1 && return 0
+        return 1
+    fi
+    if need_cmd python3; then
+        # Bind to the host the user actually picked so we don't false-positive
+        # against a 127.0.0.1-only binder when the user picked 0.0.0.0 (or vice
+        # versa). SO_REUSEADDR off so we faithfully simulate the real bind.
+        python3 - "$_piu_host" "$_piu_port" <<'PY' >/dev/null 2>&1
+import socket, sys
+host, port = sys.argv[1], int(sys.argv[2])
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 0)
+try:
+    s.bind((host, port))
+finally:
+    s.close()
+PY
+        # Exit 0 from python = bind succeeded = port free.
+        if [ "$?" = 0 ]; then return 1; fi
+        return 0
+    fi
+    warn "cannot detect whether port $_piu_port is in use (no ss/lsof/fuser/python3) — skipping check"
+    return 1
+}
+
+# Best-effort list of PIDs listening on a TCP port, space-separated. Empty
+# output is fine — caller falls back to a generic message.
+_pids_on_port() {
+    _pop_port="$1"
+    if need_cmd lsof; then
+        lsof -t -iTCP:"$_pop_port" -sTCP:LISTEN 2>/dev/null | tr '\n' ' '
+        return 0
+    fi
+    if need_cmd ss; then
+        ss -H -lptn "sport = :$_pop_port" 2>/dev/null \
+            | grep -oE 'pid=[0-9]+' \
+            | cut -d= -f2 \
+            | sort -u \
+            | tr '\n' ' '
+        return 0
+    fi
+    if need_cmd fuser; then
+        fuser -n tcp "$_pop_port" 2>/dev/null | tr -s ' \t' '\n' | grep -E '^[0-9]+$' | sort -u | tr '\n' ' '
+        return 0
+    fi
+}
+
+# Block until the port is free, or die with a clear message after a brief
+# retry. The retry covers the upgrade path: stop_services_if_running stops
+# our own units but uvicorn/Next can take a moment to release the socket
+# (TIME_WAIT, slow shutdown). 5 × 250ms is enough in practice.
+# Usage: _assert_port_free <port> <host> <label> <env-var>
+# Print the in-use warning + ps info for a port. Used by both the interactive
+# prompt loop and the final non-interactive die path.
+_print_port_in_use() {
+    _ppiu_port="$1"
+    _ppiu_label="$2"
+    _ppiu_dest="${3:-/dev/tty}"   # /dev/tty for prompts, /dev/stderr for die
+    _ppiu_pids="$(_pids_on_port "$_ppiu_port")"
+    _ppiu_pids="$(printf '%s' "$_ppiu_pids" | tr -s ' ')"
+    _ppiu_pids="${_ppiu_pids# }"
+    _ppiu_pids="${_ppiu_pids% }"
+    printf "    %b⚠ port %s (%s) already in use%b\n" "$YELLOW" "$_ppiu_port" "$_ppiu_label" "$NC" > "$_ppiu_dest"
+    if [ -n "$_ppiu_pids" ]; then
+        for _ppiu_pid in $_ppiu_pids; do
+            _ppiu_info="$(ps -o pid=,user=,etime=,args= -p "$_ppiu_pid" 2>/dev/null | sed 's/^[[:space:]]*//')"
+            if [ -n "$_ppiu_info" ]; then
+                printf "        %s\n" "$_ppiu_info" > "$_ppiu_dest"
+            else
+                printf "        pid %s (no longer running?)\n" "$_ppiu_pid" > "$_ppiu_dest"
+            fi
+        done
+    else
+        printf "        (process owner unknown — may need 'sudo lsof -i:%s' to identify)\n" "$_ppiu_port" > "$_ppiu_dest"
+    fi
+}
+
+# Block until the port is free, or die with a clear message after a brief
+# retry. The retry covers the upgrade path: stop_services_if_running stops
+# our own units but uvicorn/Next can take a moment to release the socket
+# (TIME_WAIT, slow shutdown). 5 × 250ms is enough in practice.
+# Usage: _assert_port_free <port> <host> <label> <env-var>
+_assert_port_free() {
+    _apf_port="$1"; _apf_host="$2"; _apf_label="$3"; _apf_env="$4"
+    _apf_i=0
+    while [ "$_apf_i" -lt 5 ]; do
+        if ! _port_in_use "$_apf_port" "$_apf_host"; then
+            return 0
+        fi
+        _apf_i=$((_apf_i + 1))
+        [ "$_apf_i" -lt 5 ] && sleep 0.25
+    done
+    _print_port_in_use "$_apf_port" "$_apf_label" /dev/stderr
+    die "port $_apf_port ($_apf_label) is still in use — stop the process above or re-run with $_apf_env=<other-port>. Files were already installed at $INSTALL_ROOT, so re-running with a different port is safe."
+}
+
 prompt_host_loop() {
     # Keeps reprompting until a valid host lands in stdout.
     _phl_label="$1"; _phl_default="$2"
@@ -495,14 +610,20 @@ prompt_host_loop() {
 }
 
 prompt_port_loop() {
-    _ppl_label="$1"; _ppl_default="$2"
+    _ppl_label="$1"; _ppl_default="$2"; _ppl_host="${3:-0.0.0.0}"
     while :; do
         _ppl_val="$(prompt_line "$_ppl_label" "$_ppl_default")"
-        if is_valid_port "$_ppl_val"; then
-            printf '%s' "$_ppl_val"
-            return 0
+        if ! is_valid_port "$_ppl_val"; then
+            printf "    %b⚠ invalid port%b — must be a whole number between 1 and 65535.\n" "$YELLOW" "$NC" > /dev/tty
+            continue
         fi
-        printf "    %b⚠ invalid port%b — must be a whole number between 1 and 65535.\n" "$YELLOW" "$NC" > /dev/tty
+        if _port_in_use "$_ppl_val" "$_ppl_host"; then
+            _print_port_in_use "$_ppl_val" "$_ppl_label" /dev/tty
+            printf "    %bChoose a different port (or stop the process and retry).%b\n" "$DIM" "$NC" > /dev/tty
+            continue
+        fi
+        printf '%s' "$_ppl_val"
+        return 0
     done
 }
 
@@ -556,11 +677,11 @@ prompt_network() {
 
         if [ "$PULSE_CLIENT_ONLY" = 0 ] && [ -z "$existing_web_host" ]; then
             PULSE_WEB_HOST="$(prompt_host_loop "Dashboard host" "$PULSE_WEB_HOST")"
-            PULSE_WEB_PORT="$(prompt_port_loop "Dashboard port" "$PULSE_WEB_PORT")"
+            PULSE_WEB_PORT="$(prompt_port_loop "Dashboard port" "$PULSE_WEB_PORT" "$PULSE_WEB_HOST")"
         fi
         if [ "$PULSE_DASHBOARD_ONLY" = 0 ] && [ -z "$existing_api_host" ]; then
             PULSE_API_HOST="$(prompt_host_loop "Client host   " "$PULSE_API_HOST")"
-            PULSE_API_PORT="$(prompt_port_loop "Client port   " "$PULSE_API_PORT")"
+            PULSE_API_PORT="$(prompt_port_loop "Client port   " "$PULSE_API_PORT" "$PULSE_API_HOST")"
         fi
         if [ "$PULSE_CLIENT_ONLY" = 0 ] && [ -z "${PULSE_SERVER_HOST:-}" ]; then
             printf "\n" > /dev/tty
@@ -583,10 +704,12 @@ prompt_network() {
     if [ "$PULSE_DASHBOARD_ONLY" = 0 ]; then
         is_valid_host "$PULSE_API_HOST" || die "invalid API_HOST: '$PULSE_API_HOST'. Edit $CONFIG_ROOT/client.env (or set PULSE_API_HOST) to a valid IPv4 like 0.0.0.0, 127.0.0.1 or your LAN IP."
         is_valid_port "$PULSE_API_PORT" || die "invalid API_PORT: '$PULSE_API_PORT'. Edit $CONFIG_ROOT/client.env to a number between 1 and 65535."
+        _assert_port_free "$PULSE_API_PORT" "$PULSE_API_HOST" "client" "PULSE_CLIENT_PORT"
     fi
     if [ "$PULSE_CLIENT_ONLY" = 0 ]; then
         is_valid_host "$PULSE_WEB_HOST" || die "invalid WEB_HOST: '$PULSE_WEB_HOST'. Edit $CONFIG_ROOT/frontend.env (or set PULSE_WEB_HOST) to a valid IPv4 like 0.0.0.0, 127.0.0.1 or your LAN IP."
         is_valid_port "$PULSE_WEB_PORT" || die "invalid WEB_PORT: '$PULSE_WEB_PORT'. Edit $CONFIG_ROOT/frontend.env to a number between 1 and 65535."
+        _assert_port_free "$PULSE_WEB_PORT" "$PULSE_WEB_HOST" "dashboard" "PULSE_DASHBOARD_PORT"
         if [ -z "${PULSE_SERVER_HOST:-}" ]; then
             # Upgrade path: servers.json already exists and is preserved, so PULSE_SERVER_HOST is unused.
             # Fresh install: we need a value and don't have one.
