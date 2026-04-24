@@ -6,6 +6,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [1.13.1] — 2026-04-24
+
+### Fixed
+
+- **"Abrir todos editores do grupo" agora abre os N editores em vez de só o primeiro — tanto no fluxo local (endpoint `/open-editor` spawnando `code <path>`) quanto no remoto (URL handler `vscode://vscode-remote/...`).** Antes, com 2+ terminais de paths distintos num grupo, clicar no ícone de "abrir todos" do chip do `GroupSelector` resultava em só o primeiro terminal abrir — dois bugs independentes atuando em cada caminho: (a) no local, `subprocess.Popen([binary, cwd], ...)` em `client/src/routes/terminal.py:386` era chamado em sequência pelo handler `openAllInGroup` (`for (const session of targets) { await openEditor(session.id) }`), mas o VS Code / Cursor / Codium tem single-instance lock — a 2ª chamada de `code <path>` é interceptada via IPC pela instância já rodando e silenciosamente *agregada* na janela existente (adicionando pasta ao workspace) ou simplesmente descartada, dependendo da config `window.openFoldersInNewWindow` do usuário; (b) no remoto, o handler fazia `await getSessionCwd(session.id)` antes de cada `window.open(url, '_blank')`, e qualquer `await` entre cliques consome o "user gesture" do browser — popup blockers (Safari o mais estrito, bloqueia tudo após o 1º await; Chrome/Firefox com blocker default bloqueiam a 2ª+ abertura) silenciosamente eliminam as aberturas subsequentes. Fix em duas camadas: 
+  - **Backend**: `client/src/routes/terminal.py` `open_editor` ganhou query param `new_window: bool = Query(False)`; quando `true` **e** o binário resolvido é da família Code (whitelist `_NEW_WINDOW_SAFE_NAMES` = `code` / `cursor` / `codium` / `code-insiders` / `windsurf` / `code-oss` / `vscodium`, basename sem extensão), o spawn vira `[binary, "-n", cwd]` em vez de `[binary, cwd]`. A flag `-n` é reconhecida por todos esses como "nova janela", burlando o single-instance lock. Se o usuário tem um `editor_override` custom fora da whitelist (ex: `nvim`, `emacs` — onde `-n` significa outra coisa, tipo "no swapfile" no nvim), o guard `_supports_new_window_flag(binary)` ignora o param e cai no spawn antigo sem `-n` — prefere que o bug de "só abre o primeiro" continue nesses editores exóticos a quebrá-los totalmente. Comportamento default (click individual) preservado — spawn continua sem `-n`, o editor lida como o usuário tem configurado.
+  - **Frontend API**: `frontend/src/services/api.js` `openEditor(compositeId, { newWindow = false } = {})` aceita o novo opcional e propaga como `?new_window=true`. Call individuais (Sidebar, PaneToolbar, PaneActionsFab, GroupSelector single) não mudam — continuam chamando sem opções → backend recebe `new_window=False`.
+  - **Frontend GroupSelector**: `openAllInGroup` reescrito pra separar targets em locais e remotos, e atacar cada bug diretamente. Locais: `Promise.all(localSessions.map(s => openEditor(s.id, { newWindow: true })))` em paralelo — cada spawn tem `-n` e abre sua própria janela. Remotos: pré-fetch de *todos* os cwds via `Promise.allSettled(remoteEntries.map(({ session }) => getSessionCwd(session.id)))` em paralelo (um único `await` antes do burst), depois loop sync puro `for (const url of urls) window.open(url, '_blank')` sem nenhum `await` entre aberturas — minimiza a janela de tempo em que o popup blocker pode intervir. Chrome e Firefox com blocker default passam a abrir todos; Safari ainda pode limitar múltiplas aberturas quando o usuário não permitiu popups pra este site (limitação intrínseca do browser, não contornável sem instalar algo do lado do browser). Toast final consolidado agrega sucesso/falha de ambos os caminhos num único feedback (`openAllDone` / `openAllPartial`).
+
 ## [1.13.0] — 2026-04-24
 
 ### Added
@@ -601,6 +610,7 @@ First public release.
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
 [Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.11.1...HEAD
+[1.13.1]: https://github.com/kevinzezel/pulse/releases/tag/v1.13.1
 [1.13.0]: https://github.com/kevinzezel/pulse/releases/tag/v1.13.0
 [1.12.0]: https://github.com/kevinzezel/pulse/releases/tag/v1.12.0
 [1.11.1]: https://github.com/kevinzezel/pulse/releases/tag/v1.11.1

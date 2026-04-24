@@ -255,9 +255,10 @@ export function cloneSession(compositeId) {
   return request(serverId, `/api/sessions/${sessionId}/clone`, { method: 'POST' });
 }
 
-export function openEditor(compositeId) {
+export function openEditor(compositeId, { newWindow = false } = {}) {
   const { serverId, sessionId } = sessionIdOf(compositeId);
-  return request(serverId, `/api/sessions/${sessionId}/open-editor`, { method: 'POST' });
+  const qs = newWindow ? '?new_window=true' : '';
+  return request(serverId, `/api/sessions/${sessionId}/open-editor${qs}`, { method: 'POST' });
 }
 
 export function getSessionCwd(compositeId) {

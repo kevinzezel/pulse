@@ -225,26 +225,76 @@ export default function GroupSelector({
       return;
     }
     setOpeningGroupKey(key);
+
+    // Separa local vs remoto: são caminhos diferentes (API call vs protocol
+    // handler do browser) e cada um tem um truque específico pra escapar da
+    // armadilha do bulk:
+    //   - local: sem new_window=true, a 2ª chamada de `code <path>` é
+    //     interceptada pelo single-instance lock do VS Code e descartada;
+    //   - remoto: qualquer `await` entre `window.open()` consome o user
+    //     gesture e o popup blocker bloqueia a 2ª+ tentativa (Safari é o pior).
+    const localSessions = [];
+    const remoteEntries = [];
+    for (const session of targets) {
+      const { serverId } = splitSessionId(session.id);
+      const server = getServerById(serverId);
+      if (isServerLocal(server)) localSessions.push(session);
+      else remoteEntries.push({ session, server });
+    }
+
     let done = 0;
     let failed = 0;
-    for (const session of targets) {
-      try {
-        const { serverId } = splitSessionId(session.id);
-        const server = getServerById(serverId);
-        if (isServerLocal(server)) {
-          await openEditor(session.id);
-        } else {
-          const data = await getSessionCwd(session.id);
-          const url = buildRemoteEditorUrl(server, data.cwd);
-          if (!url) throw new Error(t('errors.remote_editor_no_target'));
-          window.open(url, '_blank');
+
+    // Remoto: pré-fetch todos os cwds em paralelo (1 await só), depois dispara
+    // todos os window.open em burst sync — minimiza a janela em que o popup
+    // blocker pode intervir. Safari ainda pode limitar múltiplas aberturas
+    // por política do usuário; nesses casos o browser mostra o prompt padrão.
+    if (remoteEntries.length > 0) {
+      const cwdResults = await Promise.allSettled(
+        remoteEntries.map(({ session }) => getSessionCwd(session.id)),
+      );
+      const urls = [];
+      cwdResults.forEach((result, i) => {
+        if (result.status !== 'fulfilled') {
+          failed += 1;
+          console.warn('[openAllInGroup] cwd fetch failed for',
+            remoteEntries[i].session.id, result.reason);
+          return;
         }
+        const { server } = remoteEntries[i];
+        const url = buildRemoteEditorUrl(server, result.value.cwd);
+        if (!url) {
+          failed += 1;
+          console.warn('[openAllInGroup] no target url for',
+            remoteEntries[i].session.id);
+          return;
+        }
+        urls.push(url);
+      });
+      // Burst sync — zero await entre os opens.
+      for (const url of urls) {
+        window.open(url, '_blank');
         done += 1;
-      } catch (err) {
-        failed += 1;
-        console.warn('[openAllInGroup] failed for', session.id, err);
       }
     }
+
+    // Local: paralelo via API. new_window=true força `code -n <path>` em cada
+    // chamada, evitando o single-instance lock agregar as pastas numa janela só.
+    if (localSessions.length > 0) {
+      const results = await Promise.allSettled(
+        localSessions.map((session) => openEditor(session.id, { newWindow: true })),
+      );
+      results.forEach((r, i) => {
+        if (r.status === 'fulfilled') {
+          done += 1;
+        } else {
+          failed += 1;
+          console.warn('[openAllInGroup] openEditor failed for',
+            localSessions[i].id, r.reason);
+        }
+      });
+    }
+
     setOpeningGroupKey(null);
     if (failed === 0) {
       toast.success(t('groupSelector.openAllDone', { n: done }));

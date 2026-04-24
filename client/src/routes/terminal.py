@@ -5,7 +5,7 @@ import subprocess
 import tempfile
 import time
 
-from fastapi import APIRouter, Body, WebSocket, WebSocketDisconnect, UploadFile, File, Request
+from fastapi import APIRouter, Body, WebSocket, WebSocketDisconnect, UploadFile, File, Request, Query
 
 logger = logging.getLogger(__name__)
 from resources.terminal import create_session_request, list_sessions_request, kill_session_request, rename_session_request, sync_sessions_request, clone_session_request, websocket_terminal, sessions, set_session_notify_request, set_session_scope_names_request, restore_sessions_request, _sessions_lock
@@ -269,6 +269,22 @@ EDITOR_FALLBACK_BINARIES = (
 # Common PATH names for editor CLIs — checked via shutil.which before the fallback list.
 EDITOR_PATH_NAMES = ("code", "cursor", "codium", "code-insiders", "windsurf")
 
+# Editores da família VS Code onde a flag -n significa "nova janela". Vim,
+# Neovim, Emacs e afins usam -n com outra semântica (nvim -n = no swapfile),
+# então aplicar -n neles quebra a abertura. Só injetamos -n quando o binário
+# resolvido casa com esta lista.
+_NEW_WINDOW_SAFE_NAMES = (
+    "code", "cursor", "codium", "code-insiders", "windsurf",
+    "code-oss", "vscodium",
+)
+
+
+def _supports_new_window_flag(binary):
+    name = os.path.basename(binary).lower()
+    # Remove extensão (.exe no Windows, .cmd, etc.) antes de comparar.
+    base = name.rsplit(".", 1)[0] if "." in name else name
+    return base in _NEW_WINDOW_SAFE_NAMES
+
 _GUI_ENV_KEYS = (
     "DISPLAY", "WAYLAND_DISPLAY", "XAUTHORITY",
     "DBUS_SESSION_BUS_ADDRESS", "XDG_RUNTIME_DIR",
@@ -326,7 +342,19 @@ def _resolve_vscode_binary(env):
 
 
 @router.post("/sessions/{session_id}/open-editor")
-def open_editor(request: Request, session_id: str):
+def open_editor(
+    request: Request,
+    session_id: str,
+    new_window: bool = Query(
+        False,
+        description=(
+            "Se true, chama o binário com -n pra forçar nova janela. "
+            "Usado pelo 'abrir todos do grupo' — sem isso, a 2ª+ chamada "
+            "é interceptada pelo single-instance lock do VS Code/Cursor e "
+            "silenciosamente descartada."
+        ),
+    ),
+):
     with _sessions_lock:
         if session_id not in sessions:
             raise AppException(key="errors.session_not_found", status_code=404)
@@ -374,16 +402,20 @@ def open_editor(request: Request, session_id: str):
     # Log the GUI env state so future "button does nothing" reports can be
     # diagnosed from `journalctl --user -u pulse-client.service` without repro.
     logger.info(
-        "launching editor: binary=%s cwd=%s DISPLAY=%s WAYLAND_DISPLAY=%s "
+        "launching editor: binary=%s cwd=%s new_window=%s DISPLAY=%s WAYLAND_DISPLAY=%s "
         "DBUS=%s XAUTHORITY=%s XDG_RUNTIME_DIR=%s",
-        binary, cwd,
+        binary, cwd, new_window,
         env.get("DISPLAY") or "-",
         env.get("WAYLAND_DISPLAY") or "-",
         "set" if env.get("DBUS_SESSION_BUS_ADDRESS") else "-",
         "set" if env.get("XAUTHORITY") else "-",
         env.get("XDG_RUNTIME_DIR") or "-",
     )
-    subprocess.Popen([binary, cwd], env=env, start_new_session=True,
+    if new_window and _supports_new_window_flag(binary):
+        cmd = [binary, "-n", cwd]
+    else:
+        cmd = [binary, cwd]
+    subprocess.Popen(cmd, env=env, start_new_session=True,
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     return build_i18n_response(request, 200, {
         "detail_key": "success.editor_opened",
