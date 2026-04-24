@@ -7,7 +7,8 @@ Operating Pulse on your own infrastructure: CLI, config files, reverse proxy, an
 1. [The `pulse` CLI](#the-pulse-cli)
 2. [Config files](#config-files)
 3. [Behind a reverse proxy](#behind-a-reverse-proxy)
-4. [Networking defaults](#networking-defaults)
+4. [HTTPS without a reverse proxy (self-signed)](#https-without-a-reverse-proxy-self-signed)
+5. [Networking defaults](#networking-defaults)
 
 ## The `pulse` CLI
 
@@ -29,6 +30,10 @@ pulse config ports --client 8000 --dashboard 4000   # change them (auto-restarts
 pulse config host               # show current bind hosts
 pulse config host --dashboard 0.0.0.0               # expose on the LAN
 pulse config secure on          # AUTH_COOKIE_SECURE=true (behind HTTPS)
+pulse config tls show           # cert info + per-service TLS_ENABLED state
+pulse config tls on --client --dashboard  # enable self-signed HTTPS (asks for confirmation)
+pulse config tls off --dashboard          # disable on dashboard only
+pulse config tls regen          # regenerate cert/key (invalidates browser exceptions)
 pulse config rotate-jwt         # regenerate AUTH_JWT_SECRET (kicks every login)
 pulse config paths              # print install / config / logs paths
 pulse config open config        # open ~/.config/pulse in your file manager
@@ -41,8 +46,9 @@ All in `~/.config/pulse/`:
 
 | File              | Required keys |
 |-------------------|---|
-| `client.env`      | `API_HOST`, `API_PORT`, `API_KEY` |
-| `frontend.env`    | `WEB_HOST`, `WEB_PORT`, `AUTH_PASSWORD`, `AUTH_JWT_SECRET`, `AUTH_COOKIE_SECURE` |
+| `client.env`      | `API_HOST`, `API_PORT`, `API_KEY` &nbsp;·&nbsp; *(optional)* `TLS_ENABLED`, `TLS_CERT_PATH`, `TLS_KEY_PATH` |
+| `frontend.env`    | `WEB_HOST`, `WEB_PORT`, `AUTH_PASSWORD`, `AUTH_JWT_SECRET`, `AUTH_COOKIE_SECURE` &nbsp;·&nbsp; *(optional)* `TLS_ENABLED`, `TLS_CERT_PATH`, `TLS_KEY_PATH` |
+| `tls/cert.pem` &nbsp;·&nbsp; `tls/key.pem` *(optional)* | created by `pulse config tls on` — RSA-2048 self-signed pair, 825-day validity |
 | `../local/share/pulse/frontend/data/servers.json` | list of Pulse clients the dashboard connects to |
 | `../local/share/pulse/frontend/data/storage-config.json` *(optional)* | when present, the dashboard reads/writes through the configured remote driver (MongoDB or S3) instead of local JSON files |
 
@@ -55,6 +61,53 @@ If you put Pulse behind NGINX / Caddy / Cloudflare with TLS:
 1. Set `AUTH_COOKIE_SECURE=true` in `frontend.env`.
 2. Proxy WebSocket traffic (`/ws/*` on the client, the full dashboard URL on the frontend).
 3. Strip the `x-middleware-subrequest` header at the proxy (defense against future CVE-2025-29927 variants).
+
+## HTTPS without a reverse proxy (self-signed)
+
+If you don't have NGINX/Caddy in front of Pulse but still need HTTPS — for example because you want **browser notifications**, **clipboard API**, or **PWA install** to work from your **phone or another device on the LAN** (`http://192.168.x.y:3000` is not a secure context, only `localhost` is) — Pulse can serve a self-signed cert directly out of the dashboard and the client.
+
+### Why you'd want this
+
+The browser only treats `localhost` and HTTPS origins as **secure contexts**. Without one, `Notification.requestPermission()` returns `denied`, the clipboard API refuses to read, and service workers won't register. So as soon as you open `http://192.168.0.42:3000` from your phone the bell icon stops working — even though the dashboard renders fine.
+
+A self-signed cert solves that. The trade-off: every device that opens the dashboard for the first time has to **manually accept the certificate** (one click on desktop browsers, a few extra taps on mobile Safari).
+
+### Enable
+
+```sh
+pulse config tls on --client --dashboard
+```
+
+`--client` and `--dashboard` are **required** (you must say which side to flip — silently doing both was too easy a footgun). The command:
+
+1. Generates an RSA-2048 self-signed cert in `~/.config/pulse/tls/{cert.pem,key.pem}` if not already there. SAN covers `localhost`, `127.0.0.1`, `::1`, and the machine's `hostname`. Validity 825 days (Apple's hard cap for self-signed).
+2. Prints a preview of every change it will make (env files, services to restart, mixed-content warnings for any HTTP servers in `servers.json`).
+3. Asks `Continue? [y/N]` — pass `-y` to skip in scripts.
+4. On confirmation: writes `TLS_ENABLED=true` (plus `AUTH_COOKIE_SECURE=true` on the dashboard, required so the browser doesn't drop the cookie under HTTPS), restarts the affected services.
+
+You'll then access the dashboard at `https://<host>:3000`. First visit shows a self-signed warning — accept once per browser/device.
+
+### The mixed-content gotcha (remote clients)
+
+If your dashboard is HTTPS but you have other Pulse clients on **other hosts** registered as `http://` in **Settings → Servers**, the browser will **block** the WebSocket and REST calls to them (mixed-content rule — non-negotiable). When you run `pulse config tls on --dashboard`, the CLI lists those remotes and warns explicitly. It does **not** rewrite `servers.json` automatically: doing so would just point the dashboard at `https://remote-host` while the remote `uvicorn` is still serving HTTP, and the TLS handshake would fail.
+
+To convert each remote: SSH in, run `pulse config tls on --client --dashboard` there, then flip the entry's protocol to `https` in **Settings → Servers** on the dashboard.
+
+### Disable, inspect, regenerate
+
+```sh
+pulse config tls off --dashboard         # back to plain HTTP on the dashboard only
+pulse config tls show                    # cert path, expiry, CN, SAN, per-service state
+pulse config tls regen                   # overwrite cert/key (every device must re-accept)
+```
+
+`regen` exists for two cases: the cert expired, or you moved the machine to a new hostname and the SAN no longer matches. It always asks for confirmation because every previously-trusted browser exception becomes invalid.
+
+### Caveats
+
+- **Modo `dev` do frontend (`./frontend/start.sh --dev`) ignora TLS** — Next dev's HMR conflicts with the custom HTTPS server. Use `./frontend/start.sh --prod` (or just the systemd-managed install) to test HTTPS locally.
+- **Mobile Safari** is the strictest browser for self-signed certs — you may need to install the cert in iOS Settings → General → VPN & Device Management before the warning goes away. Chrome/Firefox/Safari on desktop just need one click on "Advanced → Proceed".
+- **`openssl ≥ 1.1.1` is required** (for the `-addext` flag). Ubuntu 20.04+ and macOS Monterey+ ship with it.
 
 ## Networking defaults
 

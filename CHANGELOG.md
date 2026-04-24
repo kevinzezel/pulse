@@ -6,6 +6,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [1.13.5] — 2026-04-24
+
+### Changed
+
+- **`pulse config tls on|off` agora exige flag explícita (`--client` e/ou `--dashboard`) e mostra preview + pede confirmação antes de aplicar mudanças.** A versão original em v1.13.2 assumia "ambos" quando o usuário não passava nenhuma flag — comportamento inspirado em `pulse config host` / `ports`, mas perigoso aqui porque `tls` toca em mais coisas: gera cert, escreve em ambos os `.env`, **flipa `AUTH_COOKIE_SECURE`** no dashboard, e **restarta dois serviços**. Bater Enter sem prestar atenção podia derrubar a sessão atual e deixar o usuário sem saber por quê. Fix em `install/pulse.sh`: scope flag virou **obrigatório** para `on` e `off` — `pulse config tls on` (sem flag) morre com `die "specify --client and/or --dashboard"`. Validação acontece antes do preview pra mensagem ser direta. Validação adicional pra escopo inválido: `--client` quando `client.env` não existe (ou `--dashboard` sem `frontend.env`) também morre antes de mexer em qualquer arquivo, em vez do silent skip da v1.13.2 que deixava o user adivinhando se algo aconteceu. `show` continua sem flag (read-only, sempre lista ambos); `regen` ignora flag (cert é compartilhado).
+
+- **Confirmação interativa antes de qualquer mudança no estado.** A v1.13.2 tinha o helper `_tls_warn_remote_servers` rodando **depois** do `update_env_key` — o aviso de "esses N servers remotos vão quebrar" aparecia quando o `.env` já estava modificado e o restart estava prestes a rolar (jeito errado: o aviso virava lamento, não escolha). Agora, `on`/`off`/`regen` mostram um bloco "About to ...:" listando exatamente o que vai mudar (cert path, env keys, services to restart, lista de remotes em mixed-content para o caso `--dashboard`) e param em `Continue? [y/N]`. Decline (`N`, Enter, qualquer coisa que não seja `y/Y/yes/YES`) imprime "aborted — no changes made" e retorna `0` sem ter tocado em nada — a chamada é totalmente atômica do ponto de vista de side-effects. Nova flag `-y|--yes` pula o prompt para uso em scripts/automação (mesmo padrão de `pulse config rotate-jwt`). Helper privado `_tls_confirm` extraído para deduplicar entre os 3 subcomandos. `regen` confirma **sempre** (até com `-y` o aviso aparece na preview, mas `-y` ainda pula o prompt — coerência com os outros) porque invalida exceções de cert em todo device que já confiou no antigo.
+
+### Added
+
+- **Documentação completa de TLS auto-assinado em `docs/SELF-HOSTING.md`.** A v1.13.2 introduziu `pulse config tls` mas só documentou no `CHANGELOG.md` e no `--help` da própria CLI. Nova seção `## HTTPS without a reverse proxy (self-signed)` em `docs/SELF-HOSTING.md` explica: motivação (browser secure context, notificações, clipboard, PWA quando acessado de outro device da LAN), como ligar (`pulse config tls on --client --dashboard`), o gotcha de mixed-content para servers remotos cadastrados como HTTP (com receita de SSH+`pulse config tls on` lá+update no Settings), comandos auxiliares (`off`/`show`/`regen`), e caveats (modo dev sem TLS, Mobile Safari mais estrito, openssl ≥ 1.1.1). Comandos novos adicionados ao bloco do `## The pulse CLI` (linhas 31-34: `tls show`/`on`/`off`/`regen`). Tabela de Config files agora lista `TLS_*` envs como opcionais e o par `tls/{cert,key}.pem` como arquivos criados sob demanda. ToC atualizado com a entrada nova. Menção curta de uma linha adicionada em `README.md` na seção `### Polish` (parágrafo "Optional self-signed HTTPS") com link direto para a seção do SELF-HOSTING.md — README continua sendo pitch, todo o detalhe vive na doc operacional.
+
 ## [1.13.4] — 2026-04-24
 
 ### Changed
@@ -642,6 +654,7 @@ First public release.
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
 [Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.11.1...HEAD
+[1.13.5]: https://github.com/kevinzezel/pulse/releases/tag/v1.13.5
 [1.13.4]: https://github.com/kevinzezel/pulse/releases/tag/v1.13.4
 [1.13.3]: https://github.com/kevinzezel/pulse/releases/tag/v1.13.3
 [1.13.2]: https://github.com/kevinzezel/pulse/releases/tag/v1.13.2

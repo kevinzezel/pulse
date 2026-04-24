@@ -728,92 +728,152 @@ print()
 PY
 }
 
+# Ask for [y/N] confirmation. Respects -y/--yes (callers set $yes=1 to skip).
+# Echoes nothing on accept, "aborted — no changes made" on decline. Returns
+# 0 = continue, 1 = abort.
+_tls_confirm() {
+    if [ "${yes:-0}" = 1 ]; then
+        return 0
+    fi
+    printf "\nContinue? [y/N] "
+    read -r ans
+    case "$ans" in
+        y|Y|yes|YES) return 0 ;;
+        *) log "aborted — no changes made"; return 1 ;;
+    esac
+}
+
 cmd_config_tls() {
     sub="${1:-show}"
     [ "$#" -gt 0 ] && shift || true
     scope_client=0
     scope_dashboard=0
+    yes=0
     while [ "$#" -gt 0 ]; do
         case "$1" in
             --client)    scope_client=1; shift ;;
             --dashboard) scope_dashboard=1; shift ;;
+            -y|--yes)    yes=1; shift ;;
             -h|--help)
-                printf "usage: pulse config tls <on|off|show|regen> [--client] [--dashboard]\n"
-                printf "  Without --client/--dashboard, applies to both.\n"
-                printf "  on    enable TLS (generate cert if missing) and restart\n"
-                printf "  off   disable TLS and restart\n"
-                printf "  show  print cert info + per-service TLS_ENABLED state\n"
-                printf "  regen overwrite cert/key with a fresh pair (invalidates browser exceptions)\n"
+                printf "usage: pulse config tls <subcommand> [--client] [--dashboard] [-y]\n\n"
+                printf "  on    enable TLS — REQUIRES --client and/or --dashboard.\n"
+                printf "        Generates self-signed cert if missing, prints a preview\n"
+                printf "        of the changes, and asks for confirmation before applying.\n"
+                printf "  off   disable TLS — same scope rule and confirmation as 'on'.\n"
+                printf "  show  print cert info + per-service TLS_ENABLED state (read-only).\n"
+                printf "  regen overwrite cert/key with a fresh pair, asking for\n"
+                printf "        confirmation (invalidates browser exceptions on every device).\n\n"
+                printf "  -y, --yes  skip the confirmation prompt (for scripting).\n"
                 return 0
                 ;;
-            *) die "unknown flag: $1 (use: --client, --dashboard, -h)" ;;
+            *) die "unknown flag: $1 (use: --client, --dashboard, -y, -h)" ;;
         esac
     done
-    # No flag = both. Mirrors `pulse config host` and `pulse config ports`.
-    if [ "$scope_client" = 0 ] && [ "$scope_dashboard" = 0 ]; then
-        scope_client=1
-        scope_dashboard=1
-    fi
 
     client_env="$CONFIG_ROOT/client.env"
     dash_env="$CONFIG_ROOT/frontend.env"
 
     case "$sub" in
         on)
-            _tls_ensure_cert
+            # Scope is mandatory for on/off — silently applying to both was
+            # too easy a footgun (it touches AUTH_COOKIE_SECURE and restarts
+            # services). The user must say which side they meant.
+            if [ "$scope_client" = 0 ] && [ "$scope_dashboard" = 0 ]; then
+                die "specify --client and/or --dashboard (e.g.: pulse config tls on --client --dashboard)"
+            fi
+            # Reject scope flags for services that aren't installed before
+            # showing the preview — clearer error than a silent skip.
+            if [ "$scope_client" = 1 ] && [ ! -f "$client_env" ]; then
+                die "client not installed (no $client_env) — drop --client"
+            fi
+            if [ "$scope_dashboard" = 1 ] && [ ! -f "$dash_env" ]; then
+                die "dashboard not installed (no $dash_env) — drop --dashboard"
+            fi
+
+            printf "%bAbout to enable TLS:%b\n" "$BOLD" "$NC"
+            if [ ! -f "$TLS_CERT" ] || [ ! -f "$TLS_KEY" ]; then
+                printf "  • generate self-signed cert (RSA-2048, 825 days) at %s\n" "$TLS_DIR"
+            else
+                printf "  • reuse existing cert at %s\n" "$TLS_DIR"
+            fi
             if [ "$scope_client" = 1 ]; then
-                if [ -f "$client_env" ]; then
-                    update_env_key "$client_env" TLS_ENABLED   true
-                    update_env_key "$client_env" TLS_CERT_PATH "$TLS_CERT"
-                    update_env_key "$client_env" TLS_KEY_PATH  "$TLS_KEY"
-                    log "client: TLS enabled"
-                else
-                    warn "client not installed (no client.env) — skipping"
-                    scope_client=0
-                fi
+                printf "  • set TLS_ENABLED=true in %s\n" "$client_env"
+                printf "  • restart pulse-client service\n"
             fi
             if [ "$scope_dashboard" = 1 ]; then
-                if [ -f "$dash_env" ]; then
-                    update_env_key "$dash_env" TLS_ENABLED        true
-                    update_env_key "$dash_env" TLS_CERT_PATH      "$TLS_CERT"
-                    update_env_key "$dash_env" TLS_KEY_PATH       "$TLS_KEY"
-                    update_env_key "$dash_env" AUTH_COOKIE_SECURE true
-                    log "dashboard: TLS enabled (AUTH_COOKIE_SECURE=true)"
-                    _tls_warn_remote_servers
-                else
-                    warn "dashboard not installed (no frontend.env) — skipping"
-                    scope_dashboard=0
-                fi
+                printf "  • set TLS_ENABLED=true + AUTH_COOKIE_SECURE=true in %s\n" "$dash_env"
+                printf "  • restart pulse dashboard service\n"
+                # Mixed-content warning only matters when dashboard goes HTTPS —
+                # browser policy applies to the dashboard's own origin only.
+                _tls_warn_remote_servers
+            fi
+
+            _tls_confirm || return 0
+
+            _tls_ensure_cert
+            if [ "$scope_client" = 1 ]; then
+                update_env_key "$client_env" TLS_ENABLED   true
+                update_env_key "$client_env" TLS_CERT_PATH "$TLS_CERT"
+                update_env_key "$client_env" TLS_KEY_PATH  "$TLS_KEY"
+                log "client: TLS enabled"
+            fi
+            if [ "$scope_dashboard" = 1 ]; then
+                update_env_key "$dash_env" TLS_ENABLED        true
+                update_env_key "$dash_env" TLS_CERT_PATH      "$TLS_CERT"
+                update_env_key "$dash_env" TLS_KEY_PATH       "$TLS_KEY"
+                update_env_key "$dash_env" AUTH_COOKIE_SECURE true
+                log "dashboard: TLS enabled (AUTH_COOKIE_SECURE=true)"
             fi
             warn "first browser visit will show a 'self-signed' warning — accept it once."
             [ "$scope_client"    = 1 ] && cmd_restart client
             [ "$scope_dashboard" = 1 ] && cmd_restart dashboard
             ;;
         off)
+            if [ "$scope_client" = 0 ] && [ "$scope_dashboard" = 0 ]; then
+                die "specify --client and/or --dashboard (e.g.: pulse config tls off --client --dashboard)"
+            fi
+            if [ "$scope_client" = 1 ] && [ ! -f "$client_env" ]; then
+                die "client not installed (no $client_env) — drop --client"
+            fi
+            if [ "$scope_dashboard" = 1 ] && [ ! -f "$dash_env" ]; then
+                die "dashboard not installed (no $dash_env) — drop --dashboard"
+            fi
+
+            printf "%bAbout to disable TLS:%b\n" "$BOLD" "$NC"
             if [ "$scope_client" = 1 ]; then
-                if [ -f "$client_env" ]; then
-                    update_env_key "$client_env" TLS_ENABLED false
-                    log "client: TLS disabled"
-                else
-                    scope_client=0
-                fi
+                printf "  • set TLS_ENABLED=false in %s\n" "$client_env"
+                printf "  • restart pulse-client service (back to plain HTTP)\n"
             fi
             if [ "$scope_dashboard" = 1 ]; then
-                if [ -f "$dash_env" ]; then
-                    update_env_key "$dash_env" TLS_ENABLED        false
-                    update_env_key "$dash_env" AUTH_COOKIE_SECURE false
-                    log "dashboard: TLS disabled (AUTH_COOKIE_SECURE=false)"
-                else
-                    scope_dashboard=0
-                fi
+                printf "  • set TLS_ENABLED=false + AUTH_COOKIE_SECURE=false in %s\n" "$dash_env"
+                printf "  • restart pulse dashboard service (back to plain HTTP)\n"
+            fi
+
+            _tls_confirm || return 0
+
+            if [ "$scope_client" = 1 ]; then
+                update_env_key "$client_env" TLS_ENABLED false
+                log "client: TLS disabled"
+            fi
+            if [ "$scope_dashboard" = 1 ]; then
+                update_env_key "$dash_env" TLS_ENABLED        false
+                update_env_key "$dash_env" AUTH_COOKIE_SECURE false
+                log "dashboard: TLS disabled (AUTH_COOKIE_SECURE=false)"
             fi
             [ "$scope_client"    = 1 ] && cmd_restart client
             [ "$scope_dashboard" = 1 ] && cmd_restart dashboard
             ;;
         regen)
+            # Cert is shared between client and dashboard, so scope flags are
+            # ignored here. Confirm regardless of -y because every previously
+            # trusted device will be locked out until it re-accepts the new cert.
+            printf "%bAbout to regenerate the TLS cert at %s%b\n" "$BOLD" "$TLS_DIR" "$NC"
+            printf "  Every device that previously trusted the old cert must accept the new one.\n"
+
+            _tls_confirm || return 0
+
             rm -f "$TLS_CERT" "$TLS_KEY"
             _tls_ensure_cert
-            warn "every device that previously trusted the old cert must accept the new one."
             log "restart services to pick it up: pulse restart"
             ;;
         ''|show)
@@ -830,7 +890,7 @@ cmd_config_tls() {
             printf "\n%bclient    TLS_ENABLED:%b %s\n" "$BOLD" "$NC" "${cli_state:-?}"
             printf "%bdashboard TLS_ENABLED:%b %s\n"   "$BOLD" "$NC" "${dsh_state:-?}"
             ;;
-        *) die "usage: pulse config tls <on|off|show|regen> [--client|--dashboard]" ;;
+        *) die "usage: pulse config tls <on|off|show|regen> [--client|--dashboard] [-y]" ;;
     esac
 }
 
@@ -859,8 +919,8 @@ ${BOLD}Subcommands:${NC}
   host [--client H] [--dashboard H]
                                 show current bind hosts, or change them (use 0.0.0.0 to expose)
   secure <on|off>               toggle AUTH_COOKIE_SECURE (on = behind HTTPS, off = dev)
-  tls <on|off|show|regen> [--client|--dashboard]
-                                toggle self-signed HTTPS (default: both services)
+  tls <on|off|show|regen> [--client] [--dashboard] [-y|--yes]
+                                toggle self-signed HTTPS (on/off REQUIRE --client and/or --dashboard)
   rotate-jwt [-y|--yes]         regenerate AUTH_JWT_SECRET (logs everyone out)
   paths                         print install / config / logs / data paths
   open <config|install|logs|data-dashboard|data-client>
@@ -944,8 +1004,8 @@ ${BOLD}Config:${NC}
   config host  [--client H] [--dashboard H]
                                         show or change bind hosts (0.0.0.0 exposes)
   config secure <on|off>                toggle AUTH_COOKIE_SECURE
-  config tls <on|off|show|regen> [--client|--dashboard]
-                                        toggle self-signed HTTPS (default: both)
+  config tls <on|off|show|regen> [--client] [--dashboard] [-y]
+                                        toggle self-signed HTTPS (on/off require --client and/or --dashboard)
   config rotate-jwt                     rotate AUTH_JWT_SECRET (logs everyone out)
   config paths                          print install / config / logs paths
   config open <config|install|logs|data-dashboard|data-client>

@@ -147,6 +147,8 @@ For remote clients, the same button opens `vscode://vscode-remote/ssh-remote+<ho
 
 **Optional cloud sync** — point Pulse at MongoDB or S3-compatible storage (Cloudflare R2, MinIO, B2, GCS, DO Spaces) to share `projects` / `flows` / `notes` / `prompts` / `servers` between machines. Hot-swappable in the UI, no restart. → [`docs/STORAGE.md`](docs/STORAGE.md).
 
+**Optional self-signed HTTPS** — `pulse config tls on --client --dashboard` generates a self-signed cert (no extra deps, just `openssl`) so the dashboard answers on `https://`. Required for browser notifications, clipboard API, and PWA install when accessing from another LAN device (only `localhost` is treated as a secure context over HTTP). → [`docs/SELF-HOSTING.md#https-without-a-reverse-proxy-self-signed`](docs/SELF-HOSTING.md#https-without-a-reverse-proxy-self-signed).
+
 **Patches xterm.js to ignore the ED3 escape sequence** — your Claude Code scrollback survives `/compact` and friends (workaround for [anthropics/claude-code#16310](https://github.com/anthropics/claude-code/issues/16310)). Most browser terminals lose history here. Pulse doesn't.
 
 ## How it works
