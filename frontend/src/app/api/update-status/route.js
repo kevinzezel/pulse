@@ -101,11 +101,15 @@ async function fetchLatestReleaseWithBackoff() {
   return { ok: false, kind: 'transient' };
 }
 
-export const GET = withAuth(async () => {
+export const GET = withAuth(async (req) => {
   const now = Date.now();
+  // ?force=1 bypasses positive + negative cache (used after login to guarantee
+  // a fresh check). Still respects rateLimitResetAt — forcing past a GitHub
+  // 403/rate-limit window only buys us another 403, so we honor the reset.
+  const force = new URL(req.url).searchParams.get('force') === '1';
 
   // Fresh cache
-  if (cache.checkedAt && (now - cache.checkedAt) < CACHE_TTL_MS) {
+  if (!force && cache.checkedAt && (now - cache.checkedAt) < CACHE_TTL_MS) {
     return NextResponse.json({
       latestVersion: cache.latestVersion,
       checkedAt: cache.checkedAt,
@@ -113,7 +117,7 @@ export const GET = withAuth(async () => {
     });
   }
 
-  // Respect GitHub rate limit reset
+  // Respect GitHub rate limit reset (force can't bypass this)
   if (cache.rateLimitResetAt && now < cache.rateLimitResetAt) {
     return NextResponse.json({
       latestVersion: cache.latestVersion,
@@ -123,7 +127,7 @@ export const GET = withAuth(async () => {
   }
 
   // Negative cache: don't hammer GitHub right after a failure
-  if (cache.lastErrorAt && (now - cache.lastErrorAt) < NEGATIVE_CACHE_TTL_MS) {
+  if (!force && cache.lastErrorAt && (now - cache.lastErrorAt) < NEGATIVE_CACHE_TTL_MS) {
     if (cache.latestVersion) {
       return NextResponse.json({
         latestVersion: cache.latestVersion,

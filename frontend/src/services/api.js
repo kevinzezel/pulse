@@ -815,6 +815,6 @@ export async function getServerVersion(serverId) {
   }
 }
 
-export function getUpdateStatus() {
-  return localRequest('/api/update-status');
+export function getUpdateStatus({ force = false } = {}) {
+  return localRequest(`/api/update-status${force ? '?force=1' : ''}`);
 }

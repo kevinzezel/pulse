@@ -51,12 +51,12 @@ export function UpdateNotifierProvider({ children }) {
   const [isOpen, setIsOpen] = useState(false);
   const inFlightRef = useRef(false);
 
-  const runUpdateCheck = useCallback(async () => {
+  const runUpdateCheck = useCallback(async ({ force = false } = {}) => {
     if (pathname === '/login') return;
     if (inFlightRef.current) return;
     inFlightRef.current = true;
     try {
-      const status = await getUpdateStatus().catch((err) => {
+      const status = await getUpdateStatus({ force }).catch((err) => {
         console.warn('[UpdateNotifier] getUpdateStatus failed:', err);
         return null;
       });
@@ -127,10 +127,21 @@ export function UpdateNotifierProvider({ children }) {
     .sort()
     .join(',');
 
+  // Force a fresh GitHub fetch on the /login → app transition so the user
+  // sees an up-to-date status right after authenticating, instead of being
+  // served the up-to-1h-old server-side cache. Periodic ticks (setInterval)
+  // continue without force — they pay the rate-limit budget more carefully.
+  const prevPathRef = useRef(pathname);
+
   useEffect(() => {
-    if (pathname === '/login') return;
+    if (pathname === '/login') {
+      prevPathRef.current = pathname;
+      return;
+    }
     if (!loaded) return;
-    runUpdateCheck();
+    const cameFromLogin = prevPathRef.current === '/login';
+    prevPathRef.current = pathname;
+    runUpdateCheck({ force: cameFromLogin });
     const id = setInterval(runUpdateCheck, CHECK_INTERVAL_MS);
     return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [1.10.3] — 2026-04-23
+
+### Changed
+
+- **Login agora dispara um check fresco de versão (bypassa cache server-side de 1h).** Antes da v1.10.3, depois de publicar uma release, o usuário precisava esperar até ~1h para o modal aparecer mesmo após logoff/login — o cache em memória do `/api/update-status` (TTL 1h, projetado para ficar bem abaixo do orçamento de 60 req/h não-autenticadas do GitHub) servia o `latestVersion` antigo independente da transição `/login → /` no browser. Agora a rota aceita `?force=1` (`frontend/src/app/api/update-status/route.js`) que ignora o cache positivo e o cache negativo de 5min — mas continua respeitando o `rateLimitResetAt` (forçar quando o GitHub disse "espera" só compraria outro 403). O `UpdateNotifierProvider` (`frontend/src/providers/UpdateNotifierProvider.jsx`) ganhou um `useRef` que rastreia o `pathname` anterior; quando detecta a transição `/login → outra rota`, passa `force: true` para o `runUpdateCheck()`. Demais ticks (o `setInterval` de 1h e qualquer foco/mudança de servers) seguem **sem** force, para preservar o orçamento. O dismiss de 24h via `localStorage.rt:updateDismiss` continua sendo respeitado mesmo com force — ele controla "deve abrir o modal?", separado de "qual a `latestVersion`?". Cobre os fluxos: primeiro login do dia, logoff/login manual, e relogin após token expirar (24h).
+
 ## [1.10.2] — 2026-04-23
 
 ### Fixed
@@ -518,7 +524,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.10.2...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.10.3...HEAD
+[1.10.3]: https://github.com/kevinzezel/pulse/releases/tag/v1.10.3
 [1.10.2]: https://github.com/kevinzezel/pulse/releases/tag/v1.10.2
 [1.10.1]: https://github.com/kevinzezel/pulse/releases/tag/v1.10.1
 [1.10.0]: https://github.com/kevinzezel/pulse/releases/tag/v1.10.0
