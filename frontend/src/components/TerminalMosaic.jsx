@@ -1,14 +1,14 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Monitor, Columns2, Rows2, FolderOpen, ExternalLink, Maximize2, Minimize2, X, Loader } from 'lucide-react';
 import { Mosaic, MosaicWindow } from 'react-mosaic-component';
 import 'react-mosaic-component/react-mosaic-component.css';
 import { openEditor, getSessionCwd, splitSessionId } from '@/services/api';
 import { useTranslation, useErrorToast } from '@/providers/I18nProvider';
-import { getServerById } from '@/providers/ServersProvider';
+import { getServerById, isServerLocal, useServers } from '@/providers/ServersProvider';
 import { useProjects } from '@/providers/ProjectsProvider';
-import { isLocalHost } from '@/utils/host';
+import { buildRemoteEditorUrl } from '@/utils/host';
 import TerminalPane from './TerminalPane';
 import TerminalCaptureModal from './TerminalCaptureModal';
 import PromptSelectorModal from './prompts/PromptSelectorModal';
@@ -122,11 +122,12 @@ export default function TerminalMosaic({
   const { t } = useTranslation();
   const showError = useErrorToast();
   const { activeProjectId } = useProjects();
+  // Depend on localReachable so probe results re-render the isLocal decision.
+  useServers();
   const [openingEditorId, setOpeningEditorId] = useState(null);
   const [openingRemoteId, setOpeningRemoteId] = useState(null);
   const [captureSessionId, setCaptureSessionId] = useState(null);
   const [promptsModalSessionId, setPromptsModalSessionId] = useState(null);
-  const [isLocal, setIsLocal] = useState(false);
   const [openFabSessionId, setOpenFabSessionId] = useState(null);
 
   function handleCapture(sessionId) {
@@ -135,10 +136,13 @@ export default function TerminalMosaic({
 
   const activeCaptureSession = captureSessionId ? findSession(captureSessionId) : null;
 
-  useEffect(() => { setIsLocal(isLocalHost()); }, []);
-
   function findSession(id) {
     return sessions.find(s => s.id === id);
+  }
+
+  function isSessionLocal(sessionId) {
+    const { serverId } = splitSessionId(sessionId);
+    return isServerLocal(getServerById(serverId));
   }
 
   async function handleOpenEditor(sessionId) {
@@ -160,8 +164,8 @@ export default function TerminalMosaic({
       const data = await getSessionCwd(sessionId);
       const { serverId } = splitSessionId(sessionId);
       const server = getServerById(serverId);
-      const host = server?.host || window.location.hostname;
-      const url = `vscode://vscode-remote/ssh-remote+${host}${data.cwd}`;
+      const url = buildRemoteEditorUrl(server, data.cwd);
+      if (!url) throw new Error(t('errors.remote_editor_no_target'));
       window.open(url, '_self');
     } catch (err) {
       showError(err);
@@ -268,7 +272,7 @@ export default function TerminalMosaic({
                   isMaximized={isMaximized}
                   onClose={onClose}
                   isBusy={busySessionIds.has(id)}
-                  isLocal={isLocal}
+                  isLocal={isSessionLocal(id)}
                 />
               }
             >

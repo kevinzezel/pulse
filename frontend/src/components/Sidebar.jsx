@@ -10,9 +10,9 @@ import {
 } from 'lucide-react';
 import { openEditor, getSessionCwd, splitSessionId } from '@/services/api';
 import { useTranslation, useErrorToast } from '@/providers/I18nProvider';
-import { getServerById, useServers } from '@/providers/ServersProvider';
+import { getServerById, isServerLocal, useServers } from '@/providers/ServersProvider';
 import { useNotifications } from '@/providers/NotificationsProvider';
-import { isLocalHost } from '@/utils/host';
+import { buildRemoteEditorUrl } from '@/utils/host';
 import NewTerminalModal from './NewTerminalModal';
 import RenameSessionModal from './RenameSessionModal';
 import ClipboardGallery from './ClipboardGallery';
@@ -48,7 +48,9 @@ export default function Sidebar({
   const showServerTag = servers.length > 1;
   const { t } = useTranslation();
   const showError = useErrorToast();
-  const { save: saveServers } = useServers();
+  // `localReachable` vem desestruturado só pra forçar re-render quando probes
+  // completam — o valor em si é lido via isServerLocal() abaixo.
+  const { save: saveServers, localReachable: _localReachable } = useServers();
   const { supported: notifySupported, permission: notifyPermission, permissionReason: notifyPermissionReason, requestBrowserPermission } = useNotifications();
   const [showModal, setShowModal] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -69,9 +71,6 @@ export default function Sidebar({
   const [creatingInlineFor, setCreatingInlineFor] = useState(null);
   const [inlineGroupName, setInlineGroupName] = useState('');
   const [assigningGroup, setAssigningGroup] = useState(false);
-  const [isLocal, setIsLocal] = useState(false);
-
-  useEffect(() => { setIsLocal(isLocalHost()); }, []);
 
   useEffect(() => {
     try {
@@ -148,8 +147,8 @@ export default function Sidebar({
       const data = await getSessionCwd(sessionId);
       const { serverId } = splitSessionId(sessionId);
       const server = getServerById(serverId);
-      const host = server?.host || window.location.hostname;
-      const url = `vscode://vscode-remote/ssh-remote+${host}${data.cwd}`;
+      const url = buildRemoteEditorUrl(server, data.cwd);
+      if (!url) throw new Error(t('errors.remote_editor_no_target'));
       window.open(url, '_self');
     } catch (err) {
       showError(err);
@@ -267,6 +266,7 @@ export default function Sidebar({
     const isVisible = visibleSessionIds.has(session.id);
     const showActions = isVisible;
     const popoverOpen = assignPopoverSessionId === session.id;
+    const sessionLocal = isServerLocal(getServerById(splitSessionId(session.id).serverId));
     return (
       <div
         key={session.id}
@@ -352,14 +352,14 @@ export default function Sidebar({
             {session.notify_on_idle ? <Bell size={13} /> : <BellOff size={13} />}
           </button>
           <button
-            onClick={(e) => isLocal ? handleOpenEditor(e, session.id) : handleOpenRemoteEditor(e, session.id)}
+            onClick={(e) => sessionLocal ? handleOpenEditor(e, session.id) : handleOpenRemoteEditor(e, session.id)}
             disabled={openingEditorId === session.id || openingRemoteId === session.id}
             className="p-1 text-muted-foreground hover:text-primary transition-colors"
-            title={isLocal ? t('sidebar.openEditorLocal') : t('sidebar.openEditorRemote')}
+            title={sessionLocal ? t('sidebar.openEditorLocal') : t('sidebar.openEditorRemote')}
           >
             {(openingEditorId === session.id || openingRemoteId === session.id)
               ? <Loader size={13} className="animate-spin" />
-              : (isLocal ? <FolderOpen size={13} /> : <ExternalLink size={13} />)}
+              : (sessionLocal ? <FolderOpen size={13} /> : <ExternalLink size={13} />)}
           </button>
           <button
             onClick={(e) => handleCopyTmux(e, session.id)}

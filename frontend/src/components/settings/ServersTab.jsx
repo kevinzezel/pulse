@@ -18,7 +18,7 @@ const COLOR_PRESETS = [
 ];
 
 function emptyDraft() {
-  return { id: null, name: '', protocol: 'http', host: '', port: 8000, apiKey: '', color: COLOR_PRESETS[0] };
+  return { id: null, name: '', protocol: 'http', host: '', port: 8000, apiKey: '', sshAlias: '', color: COLOR_PRESETS[0] };
 }
 
 function ColorSwatch({ value, active, onClick }) {
@@ -147,6 +147,7 @@ export default function ServersTab({ initialEditId = null }) {
       host: server.host || '',
       port: server.port || 8000,
       apiKey: server.apiKey || '',
+      sshAlias: server.sshAlias || '',
       color: server.color || COLOR_PRESETS[0],
     });
     setShowKey(false);
@@ -189,7 +190,7 @@ export default function ServersTab({ initialEditId = null }) {
       return;
     }
     const protocol = draft.protocol === 'https' ? 'https' : 'http';
-    const candidate = { name, protocol, host, port: portNum, apiKey: draft.apiKey, color: draft.color };
+    const candidate = { name, protocol, host, port: portNum, apiKey: draft.apiKey, sshAlias: (draft.sshAlias || '').trim(), color: draft.color };
     setSaving(true);
     try {
       const probe = await testServer(candidate);
@@ -217,7 +218,7 @@ export default function ServersTab({ initialEditId = null }) {
       return;
     }
     const protocol = draft.protocol === 'https' ? 'https' : 'http';
-    const candidate = { name, protocol, host, port: portNum, apiKey: draft.apiKey, color: draft.color };
+    const candidate = { name, protocol, host, port: portNum, apiKey: draft.apiKey, sshAlias: (draft.sshAlias || '').trim(), color: draft.color };
     setSaving(true);
     try {
       await persistDraft(candidate);
@@ -344,6 +345,20 @@ export default function ServersTab({ initialEditId = null }) {
                   {showKey ? <EyeOff size={14} /> : <Eye size={14} />}
                 </button>
               </div>
+            </div>
+
+            <div className="flex flex-col gap-1 sm:col-span-2">
+              <label className="text-xs text-muted-foreground">{t('settings.servers.sshAliasLabel')}</label>
+              <input
+                type="text"
+                value={draft.sshAlias}
+                onChange={e => updateDraft({ sshAlias: e.target.value })}
+                placeholder={t('settings.servers.sshAliasPlaceholder')}
+                disabled={saving}
+                autoComplete="off"
+                className="px-3 py-2 rounded-md bg-input border border-border text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring font-mono"
+              />
+              <p className="text-[11px] text-muted-foreground">{t('settings.servers.sshAliasHint')}</p>
             </div>
           </div>
 

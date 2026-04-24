@@ -30,9 +30,9 @@ import {
   deleteGroup,
   setGroupHidden,
 } from '@/services/api';
-import { getServerById } from '@/providers/ServersProvider';
+import { getServerById, isServerLocal, useServers } from '@/providers/ServersProvider';
 import { useTranslation, useErrorToast } from '@/providers/I18nProvider';
-import { isLocalHost } from '@/utils/host';
+import { buildRemoteEditorUrl } from '@/utils/host';
 
 export const NO_GROUP_VALUE = null;
 
@@ -113,9 +113,10 @@ export default function GroupSelector({
   const hiddenGroups = useMemo(() => groups.filter((g) => g.hidden), [groups]);
   const { t } = useTranslation();
   const showError = useErrorToast();
+  // Depend on localReachable so probe results re-render the chip icons.
+  const { localReachable: _localReachable } = useServers();
 
   const [openingGroupKey, setOpeningGroupKey] = useState(null);
-  const [isLocal, setIsLocal] = useState(false);
 
   // popover = null | { type: 'hidden', anchor }
   const [popover, setPopover] = useState(null);
@@ -128,10 +129,6 @@ export default function GroupSelector({
 
   const createInputRef = useRef(null);
   const editInputRef = useRef(null);
-
-  useEffect(() => {
-    setIsLocal(isLocalHost());
-  }, []);
 
   useEffect(() => {
     if (creatingOpen) {
@@ -190,6 +187,30 @@ export default function GroupSelector({
     return counts;
   }, [sessions, visibleGroups]);
 
+  // Per-group "all sessions are local to this browser". Usado pra decidir o
+  // ícone do botão "abrir todos editors": FolderOpen se tudo é local, senão
+  // ExternalLink. Grupo vazio cai no false (o botão fica desabilitado).
+  const allLocalByGroup = useMemo(() => {
+    const validGroupIds = new Set(visibleGroups.map((g) => g.id));
+    const perGroup = new Map();
+    perGroup.set('__none__', { total: 0, localCount: 0 });
+    for (const g of visibleGroups) perGroup.set(g.id, { total: 0, localCount: 0 });
+    for (const s of sessions) {
+      const gid = s.group_id && validGroupIds.has(s.group_id) ? s.group_id : '__none__';
+      const bucket = perGroup.get(gid);
+      if (!bucket) continue;
+      bucket.total += 1;
+      if (isServerLocal(getServerById(splitSessionId(s.id).serverId))) {
+        bucket.localCount += 1;
+      }
+    }
+    const out = new Map();
+    for (const [k, v] of perGroup) {
+      out.set(k, v.total > 0 && v.localCount === v.total);
+    }
+    return out;
+  }, [sessions, visibleGroups, _localReachable]);
+
   async function openAllInGroup(e, groupId) {
     e.stopPropagation();
     const key = groupId ?? '__none__';
@@ -208,14 +229,14 @@ export default function GroupSelector({
     let failed = 0;
     for (const session of targets) {
       try {
-        if (isLocal) {
+        const { serverId } = splitSessionId(session.id);
+        const server = getServerById(serverId);
+        if (isServerLocal(server)) {
           await openEditor(session.id);
         } else {
           const data = await getSessionCwd(session.id);
-          const { serverId } = splitSessionId(session.id);
-          const server = getServerById(serverId);
-          const host = server?.host || window.location.hostname;
-          const url = `vscode://vscode-remote/ssh-remote+${host}${data.cwd}`;
+          const url = buildRemoteEditorUrl(server, data.cwd);
+          if (!url) throw new Error(t('errors.remote_editor_no_target'));
           window.open(url, '_blank');
         }
         done += 1;
@@ -332,6 +353,7 @@ export default function GroupSelector({
     const isActive = selectedGroupId === id;
     const isOpening = openingGroupKey === countKey;
     const disabledBtn = count === 0 || isOpening;
+    const chipAllLocal = allLocalByGroup.get(countKey) === true;
     const canReorderThis = !isMobile && !!onReorder && !isNoGroup;
 
     return (
@@ -379,7 +401,7 @@ export default function GroupSelector({
           >
             {isOpening
               ? <Loader size={12} className="animate-spin" />
-              : isLocal ? <FolderOpen size={12} /> : <ExternalLink size={12} />}
+              : chipAllLocal ? <FolderOpen size={12} /> : <ExternalLink size={12} />}
           </span>
         )}
         {!isNoGroup && (

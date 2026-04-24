@@ -29,6 +29,7 @@ function normalize(list) {
       host,
       port,
       apiKey,
+      sshAlias: String(s.sshAlias ?? '').trim(),
       color: s.color ? String(s.color) : null,
       createdAt: s.createdAt || now,
     };

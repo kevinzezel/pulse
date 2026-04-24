@@ -339,6 +339,7 @@
     "project_default_protected": "O projeto padrão não pode ser deletado",
     "editor_binary_not_found": "Binário do editor não encontrado no host. Instale VSCode / Cursor / VSCodium, ou defina o caminho em Configurações → Editor.",
     "editor_binary_not_executable": "Caminho não é executável: {path}",
+    "remote_editor_no_target": "Servidor sem host/alias SSH configurado. Edite o servidor em Configurações → Servidores.",
     "storage": {
       "not_configured": "Nenhum storage remoto configurado.",
       "unavailable": "Storage indisponível. Verifique a conexão remota.",
@@ -471,6 +472,9 @@
       "portLabel": "Porta",
       "apiKeyLabel": "API Key",
       "apiKeyPlaceholder": "conteúdo do API_KEY do client",
+      "sshAliasLabel": "Alias SSH (opcional)",
+      "sshAliasPlaceholder": "ex: google-dev",
+      "sshAliasHint": "Se preenchido, o botão \"abrir editor remoto\" usa este alias do seu ~/.ssh/config em vez do IP. Necessário quando o servidor usa chave SSH customizada (ssh -i).",
       "colorLabel": "Cor (tag visual)",
       "save": "Salvar",
       "saving": "Salvando...",
