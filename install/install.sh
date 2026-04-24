@@ -949,8 +949,10 @@ print_success() {
     printf "\n"
     printf "  Run %bpulse help%b anytime for the full command list and options.\n" "$BOLD" "$NC"
     printf "\n"
-    # If ~/.local/bin is already on PATH, nothing to do.
-    case ":$PATH:" in
+    # If ~/.local/bin is already on the user's real PATH, nothing to do.
+    # Use PULSE_ORIGINAL_PATH (snapshot from main() before ensure_uv mutated
+    # PATH), not the live $PATH — otherwise we always think it's set.
+    case ":${PULSE_ORIGINAL_PATH:-$PATH}:" in
         *":$BIN_ROOT:"*) return 0 ;;
     esac
     # Try to add to the active shell's rc file; fall back to manual instructions.
@@ -980,6 +982,12 @@ print_success() {
 # Main
 # -----------------------------------------------------------------------------
 main() {
+    # Snapshot the user's real PATH before ensure_uv / ensure_node mutate it
+    # to make uv/node visible during install. The post-install PATH check
+    # uses this snapshot — otherwise it would always see ~/.local/bin in
+    # PATH (because we just added it) and skip writing it to ~/.bashrc.
+    PULSE_ORIGINAL_PATH="$PATH"
+
     greet
     need_cmd curl || die "curl is required"
     need_cmd tar  || die "tar is required"

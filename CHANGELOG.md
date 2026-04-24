@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [1.10.6] — 2026-04-24
+
+### Fixed
+
+- **`pulse: command not found` logo após instalar em conta nova (caso real: VM GCP Compute Engine com usuário sem `~/.local/bin` pré-existente).** O `install.sh` copia o launcher para `~/.local/bin/pulse` (via `BIN_ROOT="$HOME/.local/bin"`) e tem uma rotina no fim que detecta se esse diretório está no `$PATH` do user e, se não estiver, adiciona `export PATH=...` ao `~/.bashrc`/`~/.zshrc` + mostra `✓ Added ~/.local/bin to PATH in ~/.bashrc. Restart your shell or run: source ~/.bashrc`. Acontece que o `ensure_uv()` no início do mesmo script faz `PATH="$HOME/.local/bin:$PATH"; export PATH` para conseguir invocar `uv` durante a instalação — isso **contamina o `$PATH` da própria sessão do install**. Quando a checagem final rodava (`case ":$PATH:" in *":$BIN_ROOT:"*) return 0 ;; esac`), via `~/.local/bin` no PATH (do próprio script), retornava silenciosamente, **e nem a linha era escrita no rc nem a mensagem aparecia**. Resultado: o usuário via "Pulse 1.10.x installed" + lista de comandos, abria `pulse status` e levava `bash: pulse: command not found`, sem nenhuma pista do que houve. No Ubuntu o `~/.profile` adiciona `~/.local/bin` ao PATH automaticamente, mas só se o diretório existir **no momento do login** — em VM nova onde o diretório foi criado agora pelo install, a sessão SSH atual já passou. Fix em `install/install.sh`: snapshot `PULSE_ORIGINAL_PATH="$PATH"` no topo de `main()` (antes de qualquer função que mexe no PATH — `ensure_uv`/`ensure_node`/etc), e a checagem final passou a usar `case ":${PULSE_ORIGINAL_PATH:-$PATH}:"` em vez do `$PATH` ao vivo. Agora em VMs novas o `.bashrc` é atualizado e o usuário vê a mensagem `✓ Added ~/.local/bin to PATH...`. Em sistemas onde `~/.local/bin` já estava configurado legitimamente (via `~/.profile`/`~/.bashrc` antigos), o snapshot vê e o check segue retornando cedo sem alterar nada — sem regressão.
+
 ## [1.10.5] — 2026-04-24
 
 ### Fixed
@@ -536,7 +542,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.10.5...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.10.6...HEAD
+[1.10.6]: https://github.com/kevinzezel/pulse/releases/tag/v1.10.6
 [1.10.5]: https://github.com/kevinzezel/pulse/releases/tag/v1.10.5
 [1.10.4]: https://github.com/kevinzezel/pulse/releases/tag/v1.10.4
 [1.10.3]: https://github.com/kevinzezel/pulse/releases/tag/v1.10.3
