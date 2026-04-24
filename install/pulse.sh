@@ -693,39 +693,45 @@ _tls_ensure_cert() {
     log "SAN:  $san"
 }
 
-# Print a warning listing remote pulse-clients registered in servers.json that
-# would break when the dashboard switches to HTTPS (mixed-content rule). We
-# never modify the JSON — the user has to SSH to each remote host, run
-# `pulse config tls on` there, and update protocol→https in Settings.
-_tls_warn_remote_servers() {
+# Print a snapshot of every server registered in servers.json plus a warning
+# that the user MUST cross-check protocol fields after this command. Runs on
+# every on/off/regen invocation regardless of scope — toggling TLS on either
+# side breaks the dashboard↔client wire if the registered protocol no longer
+# matches what the client is actually serving (HTTPS dashboard + HTTP server
+# = mixed-content block; HTTP dashboard + HTTPS server = silent fetch fail;
+# regen = browser exception invalid until re-accepted on every device).
+_tls_print_breakage_warning() {
     servers_file="$INSTALL_ROOT/frontend/data/servers.json"
-    [ -f "$servers_file" ] || return 0
-    need_cmd python3 || return 0
-    host="$(hostname 2>/dev/null || echo localhost)"
-    SERVERS_FILE="$servers_file" LOCAL_HOST="$host" python3 <<'PY' || true
+    printf "\n  %b!! Heads-up: this will likely break some servers until you fix them up.%b\n" "$YELLOW" "$NC"
+    printf "  After the restart, open %bSettings -> Servidores%b in the dashboard and:\n" "$BOLD" "$NC"
+    printf "    • flip %bprotocol%b to %bhttps%b for any server now serving TLS\n" "$BOLD" "$NC" "$BOLD" "$NC"
+    printf "    • flip %bprotocol%b back to %bhttp%b for any server now serving plain HTTP\n" "$BOLD" "$NC" "$BOLD" "$NC"
+    printf "    • for remote servers (other hosts), SSH there and run %bpulse config tls on%b\n" "$BOLD" "$NC"
+    printf "      before updating the protocol locally — otherwise the TLS handshake fails.\n"
+    if [ -f "$servers_file" ] && need_cmd python3; then
+        printf "\n  %bservers currently registered:%b\n" "$BOLD" "$NC"
+        SERVERS_FILE="$servers_file" python3 <<'PY' || true
 import json, os, sys
-local = {os.environ['LOCAL_HOST'], 'localhost', '127.0.0.1', '::1'}
 try:
     with open(os.environ['SERVERS_FILE']) as f:
         data = json.load(f)
 except Exception:
     sys.exit(0)
-remotes = [s for s in (data.get('servers') or [])
-           if s.get('host') not in local and s.get('protocol') == 'http']
-if not remotes:
+servers = data.get('servers') or []
+if not servers:
+    print("    (none registered yet)")
     sys.exit(0)
-print()
-print("  \033[1;33mRemote servers in HTTP — they will break under HTTPS dashboard\033[0m")
-print("  (the browser blocks ws:// and http:// from an https:// origin):")
-for s in remotes:
-    print(f"    - {s.get('name')}  http://{s.get('host')}:{s.get('port')}")
-print()
-print("  To fix each one:")
-print("    1. SSH into the remote host")
-print("    2. Run `pulse config tls on` there")
-print("    3. In this dashboard, Settings -> Servers, flip the entry to https")
-print()
+for s in servers:
+    name  = s.get('name') or '(unnamed)'
+    proto = s.get('protocol') or 'http'
+    host  = s.get('host')  or '?'
+    port  = s.get('port')  or '?'
+    print(f"    - {name}  {proto}://{host}:{port}")
 PY
+    elif [ ! -f "$servers_file" ]; then
+        printf "\n  %b(servers.json not found — check the dashboard once it's up)%b\n" "$DIM" "$NC"
+    fi
+    printf "\n"
 }
 
 # Ask for [y/N] confirmation. Respects -y/--yes (callers set $yes=1 to skip).
@@ -803,10 +809,10 @@ cmd_config_tls() {
             if [ "$scope_dashboard" = 1 ]; then
                 printf "  • set TLS_ENABLED=true + AUTH_COOKIE_SECURE=true in %s\n" "$dash_env"
                 printf "  • restart pulse dashboard service\n"
-                # Mixed-content warning only matters when dashboard goes HTTPS —
-                # browser policy applies to the dashboard's own origin only.
-                _tls_warn_remote_servers
             fi
+            # Always print the breakage warning — toggling TLS on either side
+            # changes the wire protocol the dashboard expects from each server.
+            _tls_print_breakage_warning
 
             _tls_confirm || return 0
 
@@ -848,6 +854,7 @@ cmd_config_tls() {
                 printf "  • set TLS_ENABLED=false + AUTH_COOKIE_SECURE=false in %s\n" "$dash_env"
                 printf "  • restart pulse dashboard service (back to plain HTTP)\n"
             fi
+            _tls_print_breakage_warning
 
             _tls_confirm || return 0
 
@@ -869,6 +876,7 @@ cmd_config_tls() {
             # trusted device will be locked out until it re-accepts the new cert.
             printf "%bAbout to regenerate the TLS cert at %s%b\n" "$BOLD" "$TLS_DIR" "$NC"
             printf "  Every device that previously trusted the old cert must accept the new one.\n"
+            _tls_print_breakage_warning
 
             _tls_confirm || return 0
 

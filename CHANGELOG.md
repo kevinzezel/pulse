@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [1.13.7] — 2026-04-24
+
+### Changed
+
+- **Aviso de "isso pode quebrar servers cadastrados, atualize o `protocol` no Settings → Servidores depois" agora aparece em TODA execução de `pulse config tls on/off/regen` — independente do escopo (`--client`, `--dashboard`, ambos) e do estado anterior.** A v1.13.5 introduziu confirmação prévia mas só listava remotos quebrados quando o subcomando era `on --dashboard`; quem rodava `on --client` (ou qualquer `off`/`regen`) não era avisado de que o `protocol` registrado em `frontend/data/servers.json` ia ficar incoerente com o que o uvicorn passa a servir, e descobria sozinho depois — exatamente o "bug fantasma" que a confirmação tinha que evitar. Fix em `install/pulse.sh`: o helper `_tls_warn_remote_servers` (filtrava só remotos `host != local && protocol == http`) foi substituído por `_tls_print_breakage_warning` que **sempre** roda. Imprime um bloco `!! Heads-up: this will likely break some servers until you fix them up.` com receita explícita ("flip protocol → https para servers agora servindo TLS, ou → http para servers agora em plano; pra remotos: SSH lá, `pulse config tls on`, depois atualiza o protocol localmente") e em seguida lista **todos** os servers cadastrados em `servers.json` no formato `name  protocol://host:port` para o user cruzar visualmente. Se `servers.json` não existe (ex: dashboard não instalado), imprime nota dim "(servers.json not found — check the dashboard once it's up)" em vez de pular silencioso. Chamado de `on`, `off` E `regen` antes do prompt `Continue? [y/N]` — três pontos no código, mesmo helper. Motivação dos cenários cobertos: (1) `tls on --client` quebra a request `http://server:porta` que o dashboard ainda faz contra o uvicorn que agora exige TLS; (2) `tls off --client` quebra `https://server:porta` que o dashboard tenta contra uvicorn que voltou a HTTP plano; (3) `tls on --dashboard` aciona mixed-content para qualquer server `http` na lista; (4) `tls off --dashboard` é o cenário menos crítico mas ainda pode quebrar se o user tinha flipado entries pra `https` quando ligou TLS antes; (5) `regen` invalida exception de cert em todo device — não muda protocol mas todos param até re-aceitar.
+
 ## [1.13.6] — 2026-04-24
 
 ### Added
@@ -664,6 +670,7 @@ First public release.
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
 [Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.11.1...HEAD
+[1.13.7]: https://github.com/kevinzezel/pulse/releases/tag/v1.13.7
 [1.13.6]: https://github.com/kevinzezel/pulse/releases/tag/v1.13.6
 [1.13.5]: https://github.com/kevinzezel/pulse/releases/tag/v1.13.5
 [1.13.4]: https://github.com/kevinzezel/pulse/releases/tag/v1.13.4
