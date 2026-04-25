@@ -644,6 +644,12 @@
     "insecureContextLearnMore": "Learn more about secure contexts",
     "muteSound": "Mute sound",
     "muteSoundHint": "Do not play a sound when a notification arrives.",
+    "presencePolicyLabel": "When to consider this terminal visible",
+    "presencePolicyStrict": "Strict",
+    "presencePolicyStrictHint": "Requires a visible tab, focused window, and recent activity.",
+    "presencePolicyVisible": "Multi-monitor",
+    "presencePolicyVisibleHint": "A visible tab and on-screen terminal are enough, even without focus.",
+    "presencePolicyNote": "Browsers cannot know which monitor you are physically watching; they only expose window focus, tab visibility, and viewport.",
     "connectionLost": "Reconnecting notifications...",
     "connectionRestored": "Notifications reconnected",
     "unsupported": "Your browser does not support native notifications"

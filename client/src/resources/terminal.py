@@ -431,6 +431,15 @@ def set_session_notify_request(session_id, notify_on_idle):
     }
 
 
+def record_session_viewing(session_id):
+    with _sessions_lock:
+        s = sessions.get(session_id)
+        if s is None:
+            return False
+        s["last_viewing_ts"] = time.time()
+        return True
+
+
 def kill_session_request(session_id):
     with _sessions_lock:
         if session_id not in sessions:
@@ -582,10 +591,7 @@ async def websocket_terminal(websocket: WebSocket, session_id: str):
                 # está vendo este terminal (aba visível, janela em foco,
                 # terminal na viewport, mouse/teclado ativos). Suprime alerta
                 # idle no watcher (Rule 5) durante a janela de grace.
-                with _sessions_lock:
-                    s = sessions.get(session_id)
-                    if s is not None:
-                        s["last_viewing_ts"] = time.time()
+                record_session_viewing(session_id)
             elif msg_type == "resize":
                 set_pty_size(fd, msg["rows"], msg["cols"])
                 try:

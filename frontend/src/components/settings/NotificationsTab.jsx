@@ -9,6 +9,9 @@ import { useServers } from '@/providers/ServersProvider';
 import { useNotifications } from '@/providers/NotificationsProvider';
 import ServerSelector from './ServerSelector';
 
+const PRESENCE_POLICY_STRICT = 'strict';
+const PRESENCE_POLICY_VISIBLE = 'visible';
+
 function clampTimeout(v) {
   const n = parseInt(v, 10);
   if (Number.isNaN(n)) return 30;
@@ -46,7 +49,16 @@ export default function NotificationsTab() {
   const { t } = useTranslation();
   const showError = useErrorToast();
   const { servers } = useServers();
-  const { supported: notifySupported, permission: notifyPermission, permissionReason: notifyPermissionReason, requestBrowserPermission, muted, setMuted } = useNotifications();
+  const {
+    supported: notifySupported,
+    permission: notifyPermission,
+    permissionReason: notifyPermissionReason,
+    requestBrowserPermission,
+    muted,
+    setMuted,
+    presencePolicy,
+    setPresencePolicy,
+  } = useNotifications();
   const insecureOrigin = typeof window !== 'undefined' ? window.location.origin : '';
   const insecurePort = typeof window !== 'undefined' ? window.location.port : '';
 
@@ -213,6 +225,41 @@ export default function NotificationsTab() {
             icon={muted ? <VolumeX size={14} /> : <Volume2 size={14} />}
           />
           <p className="text-[11px] text-muted-foreground -mt-1 pl-[46px]">{t('notifications.muteSoundHint')}</p>
+
+          <div className="flex flex-col gap-2 pt-2">
+            <label className="text-xs text-muted-foreground">{t('notifications.presencePolicyLabel')}</label>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2" role="radiogroup" aria-label={t('notifications.presencePolicyLabel')}>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={presencePolicy !== PRESENCE_POLICY_VISIBLE}
+                onClick={() => setPresencePolicy(PRESENCE_POLICY_STRICT)}
+                className={`rounded-md border px-3 py-2 text-left text-xs transition-colors ${
+                  presencePolicy !== PRESENCE_POLICY_VISIBLE
+                    ? 'border-primary bg-primary/10 text-foreground'
+                    : 'border-border text-muted-foreground hover:bg-muted/40'
+                }`}
+              >
+                <span className="block font-medium">{t('notifications.presencePolicyStrict')}</span>
+                <span className="block mt-1 leading-relaxed">{t('notifications.presencePolicyStrictHint')}</span>
+              </button>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={presencePolicy === PRESENCE_POLICY_VISIBLE}
+                onClick={() => setPresencePolicy(PRESENCE_POLICY_VISIBLE)}
+                className={`rounded-md border px-3 py-2 text-left text-xs transition-colors ${
+                  presencePolicy === PRESENCE_POLICY_VISIBLE
+                    ? 'border-primary bg-primary/10 text-foreground'
+                    : 'border-border text-muted-foreground hover:bg-muted/40'
+                }`}
+              >
+                <span className="block font-medium">{t('notifications.presencePolicyVisible')}</span>
+                <span className="block mt-1 leading-relaxed">{t('notifications.presencePolicyVisibleHint')}</span>
+              </button>
+            </div>
+            <p className="text-[11px] text-muted-foreground">{t('notifications.presencePolicyNote')}</p>
+          </div>
         </div>
       )}
     </div>

@@ -250,15 +250,22 @@ async def notification_watcher():
                 # sair de cena, a próxima rodada já avalia normal.
                 last_viewing = sess.get("last_viewing_ts", 0)
                 if last_viewing > 0 and (now - last_viewing) < VIEWING_GRACE_SECONDS:
+                    logger.debug(
+                        "Idle notification suppressed for %s: viewing heartbeat %.1fs ago",
+                        sid,
+                        now - last_viewing,
+                    )
                     continue
 
                 name = sess.get("name", sid)
                 context = _compose_context(sess)
                 snippet = _format_pane_snippet(content)
+                event_id = f"{sid}:{int(last_output)}:{h.hex()}"
 
                 if "browser" in channels:
                     event = {
                         "type": "idle",
+                        "event_id": event_id,
                         "session_id": sid,
                         "name": name,
                         "project_name": sess.get("project_name"),
@@ -290,6 +297,14 @@ async def notification_watcher():
                     except Exception as exc:
                         logger.warning(f"Telegram notification exception for {sid}: {exc}")
 
+                last_viewing_age = int(now - last_viewing) if last_viewing > 0 else None
+                logger.info(
+                    "Idle notification emitted for %s after %ss (channels=%s, last_viewing_age=%s)",
+                    sid,
+                    int(idle_seconds),
+                    ",".join(sorted(channels)) or "-",
+                    last_viewing_age if last_viewing_age is not None else "-",
+                )
                 state["last_notified_hash"] = h
                 state["last_notified_ts"] = now
                 state["notified"] = True

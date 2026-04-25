@@ -14,7 +14,8 @@ A parte mais delicada é o **anti-spam**: tem várias regras que suprimem alerta
 |---|---|---|
 | `notification_watcher` | `client/src/resources/notifications.py:117` | Asyncio task única que roda a cada 5s, captura o pane via tmux, aplica as 5 regras e decide se notifica |
 | `notification_broadcast` | `client/src/resources/notification_broadcast.py` | Set de WebSockets conectados em `/ws/notifications` — envio paralelo via `asyncio.gather` |
-| Heartbeat de viewing | `frontend/src/components/TerminalPane.jsx:367` | Cada `<TerminalPane>` manda `{type: 'viewing'}` a cada 10s no WS do terminal quando 4 condições são verdadeiras |
+| Heartbeat de viewing | `frontend/src/components/TerminalPane.jsx:367` + `frontend/src/providers/NotificationsProvider.jsx` | Cada `<TerminalPane>` manda `{type: 'viewing', session_id}` a cada 10s pelo WS multi-cliente de notificações quando a política local considera o pane visível |
+| Dedup de browser | `frontend/src/providers/NotificationsProvider.jsx` | Usa `event_id` + `BroadcastChannel`/`localStorage` para evitar toast/som/notificação nativa duplicados entre abas do mesmo browser |
 | `_state[sid]` (watcher) | `client/src/resources/notifications.py:67` | Estado in-memory do watcher (hash, last_output_ts, notified flag, last_notified_hash) |
 | `sessions[sid]` (terminal) | `client/src/resources/terminal.py:34` | Dict canônico da sessão (group, project, last_viewing_ts, bytes_since_enter, etc.) |
 
@@ -24,9 +25,9 @@ A parte mais delicada é o **anti-spam**: tem várias regras que suprimem alerta
 Frontend                         Backend (client)                 Canais
 ────────                         ────────────────                 ──────
 TerminalPane (visível)           sessions[sid].last_viewing_ts
-  ├─ a cada 10s, se 4 cond ──→   atualizado em terminal.py:580
-  │  envia {type:'viewing'}
-  │  pelo WS do terminal
+  ├─ a cada 10s, se política ─→  atualizado via /ws/notifications
+  │  local aprovar, envia         (fallback também aceito no WS
+  │  {type:'viewing', sid}        exclusivo do terminal)
   ▼
                                  notification_watcher (loop 5s)
                                  ├─ snapshot de sessions
@@ -111,16 +112,16 @@ if last_viewing > 0 and (now - last_viewing) < VIEWING_GRACE_SECONDS:
 
 ## Heartbeat de viewing (frontend)
 
-Implementação em `frontend/src/components/TerminalPane.jsx:367-390` (heartbeat) e `:357-365` (IntersectionObserver).
+Implementação em `frontend/src/components/TerminalPane.jsx:367-405` (heartbeat) e `:357-365` (IntersectionObserver). O envio primário passa por `NotificationsProvider.sendViewing()` no `/ws/notifications`, que aceita múltiplos clientes. O WS exclusivo do terminal continua aceitando `{type:'viewing'}` como fallback.
 
-### As 4 condições (todas devem ser verdadeiras)
+### Políticas locais de presença
 
-```js
-if (document.visibilityState !== 'visible') return;     // aba visível
-if (!document.hasFocus()) return;                       // janela em foco
-if (!intersectingRef.current) return;                   // terminal na viewport
-if (Date.now() - lastUserActivityTs > 30000) return;    // user ativo nos últimos 30s
-```
+O browser não expõe "o usuário está olhando fisicamente para este monitor". O Pulse só consegue combinar sinais disponíveis: visibilidade da aba, foco da janela, viewport e atividade recente.
+
+- **Estrito (default)**: `document.visibilityState === 'visible'`, `document.hasFocus()`, terminal na viewport, e atividade nos últimos 30s.
+- **Multi-monitor**: `document.visibilityState === 'visible'` e terminal na viewport. Útil quando o dashboard fica aberto em outro monitor enquanto o foco está no editor.
+
+O modo é preferência local do browser em `localStorage.rt:notify-presence-policy`, configurável em Settings → Notifications.
 
 `lastUserActivityTs` é atualizado por listeners globais em `mousemove`, `keydown`, `pointerdown`, `wheel`, `touchstart` (linha 20-26). É **module-level**, compartilhado por todos os `<TerminalPane>` da página — ou seja, atividade em qualquer canto do app (inclusive sidebar, modal) conta como "user ativo".
 
@@ -207,11 +208,13 @@ Qualquer cenário onde o `<TerminalPane>` desmonta/remonta com slot momentaneame
 
 ### 3. Múltiplas abas no mesmo browser
 
-Cada aba é independente (per-tab UUID via `rt:tab-uuid` em sessionStorage — v1.9.0). Cada `<TerminalPane>` em qualquer aba que tenha visibilidade + foco + viewport + atividade manda heartbeat. **Dedup natural no backend**: `last_viewing_ts` só guarda o timestamp mais recente, então qualquer uma das abas suprimindo já é suficiente.
+Cada aba é independente (per-tab UUID via `rt:tab-uuid` em sessionStorage — v1.9.0). Cada `<TerminalPane>` em qualquer aba que satisfaça a política local manda heartbeat. **Dedup natural no backend**: `last_viewing_ts` só guarda o timestamp mais recente, então qualquer uma das abas suprimindo já é suficiente.
+
+Para o caminho inverso (alerta browser), o watcher inclui `event_id` no evento idle. O frontend grava esse id em memória + `localStorage` e propaga via `BroadcastChannel`, evitando que várias abas do mesmo browser toquem/mostrem a mesma notificação.
 
 ### 4. WS substituído (código 4000)
 
-O backend só permite 1 WS por sessão (`_active_ws[session_id]` em `client/src/resources/terminal.py:35`). Conexão nova fecha a antiga com código 4000 "Replaced by new connection". A aba antiga perde o WS imediatamente, heartbeat para nela. A nova aba assume — desde que ela esteja com as 4 condições satisfeitas.
+O backend só permite 1 WS de terminal por sessão (`_active_ws[session_id]` em `client/src/resources/terminal.py:35`). Conexão nova fecha a antiga com código 4000 "Replaced by new connection". Antes isso também derrubava a presença do desktop quando o celular abria a mesma sessão. Agora o heartbeat principal usa `/ws/notifications`, que é multi-cliente, então a aba antiga pode continuar provando presença mesmo que o stream interativo do terminal tenha sido substituído.
 
 ### 5. Compose drafts via `/send-text`
 
@@ -244,14 +247,16 @@ Antes era silenciado junto com `FileNotFoundError` — sem alerta + sem log = ca
 | `DEFAULT_TIMEOUT` | `30` | `client/src/resources/settings.py:15` |
 | `VIEWING_HEARTBEAT_MS` | `10000` | `frontend/src/components/TerminalPane.jsx:17` |
 | `USER_ACTIVITY_THRESHOLD_MS` | `30000` | `frontend/src/components/TerminalPane.jsx:18` |
+| `rt:notify-presence-policy` | `strict`/`visible` | `frontend/src/providers/NotificationsProvider.jsx` |
+| `EVENT_DEDUPE_TTL_MS` | `600000` | `frontend/src/providers/NotificationsProvider.jsx` |
 
 ## Para futuras alterações (checklist)
 
 ### Adicionar nova condição no heartbeat (frontend)
 
-1. Adicionar a condição no `sendHeartbeat` em `TerminalPane.jsx:367-390` antes do `ws.send`.
+1. Adicionar a condição no `sendHeartbeat` em `TerminalPane.jsx:367-405` antes do `sendViewing`.
 2. Considerar se a condição precisa de cleanup (ex: novo listener global).
-3. Atualizar a seção "As 4 condições" deste doc.
+3. Atualizar a seção "Políticas locais de presença" deste doc.
 
 ### Adicionar nova regra no watcher (backend)
 
@@ -278,15 +283,18 @@ Tentação: mover o `setInterval` pra um hook global que itera `terminalCache` e
 
 **Cuidado**: o `IntersectionObserver` precisa de um DOM node mounted pra funcionar. Sem `<TerminalPane>` montado não dá pra saber se o terminal está "na viewport". A condição "tô olhando" se reduziria a "WS aberto + janela focada + atividade recente" — semanticamente diferente do atual.
 
-Decisão atual (v1.9.2): manter heartbeat dentro do componente, com IO bootstrap robusto + grace no backend pra cobrir a janela de unmount/remount.
+Decisão atual: manter a detecção dentro do componente, porque ela depende do DOM montado, mas enviar a presença pelo WS multi-cliente de notificações para não depender do WS exclusivo do terminal.
 
 ## Checklist de verificação ao mexer no sistema
 
 1. Reproduz o cenário do bug original (terminal visível em "Sem grupo", mover pra "Teste", abrir lá, esperar idle): **NÃO DEVE NOTIFICAR**.
 2. Reproduz "tô olhando padrão": terminal visível, esperar idle: **NÃO DEVE NOTIFICAR**.
-3. Reproduz "saí da tela": minimizar / trocar de aba / sair pra outro grupo, esperar idle: **DEVE NOTIFICAR**.
-4. Reproduz mid-composition: digitar parcial sem Enter, esperar idle: **NÃO DEVE NOTIFICAR**.
-5. Reproduz dedup: agente alerta, responder, agente volta pro mesmo prompt: **NÃO DEVE NOTIFICAR de novo dentro de 30 min**.
-6. Reproduz fresh enable: marcar `notify_on_idle` numa sessão dormente: **NÃO DEVE NOTIFICAR até a próxima saída real do tmux**.
+3. Reproduz multi-monitor: modo `Multi-monitor`, Pulse visível em outro monitor sem foco, esperar idle: **NÃO DEVE NOTIFICAR**.
+4. Reproduz "saí da tela": minimizar / trocar de aba / sair pra outro grupo, esperar idle: **DEVE NOTIFICAR**.
+5. Reproduz celular + desktop: abrir mesma sessão no celular enquanto desktop está visível, esperar idle: desktop **NÃO DEVE** perder a supressão por causa do código 4000.
+6. Reproduz múltiplas abas: duas abas do mesmo browser conectadas, gerar 1 idle alert: **DEVE TOCAR/MOSTRAR UMA VEZ**.
+7. Reproduz mid-composition: digitar parcial sem Enter, esperar idle: **NÃO DEVE NOTIFICAR**.
+8. Reproduz dedup: agente alerta, responder, agente volta pro mesmo prompt: **NÃO DEVE NOTIFICAR de novo dentro de 30 min**.
+9. Reproduz fresh enable: marcar `notify_on_idle` numa sessão dormente: **NÃO DEVE NOTIFICAR até a próxima saída real do tmux**.
 
 Se algum desses quebrar, voltar pra este doc, identificar qual regra falhou, e corrigir.

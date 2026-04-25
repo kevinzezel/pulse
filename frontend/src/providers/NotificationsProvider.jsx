@@ -4,13 +4,21 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState } f
 import toast from 'react-hot-toast';
 import { useServers } from '@/providers/ServersProvider';
 import { useTranslation } from '@/providers/I18nProvider';
-import { composeSessionId } from '@/services/api';
+import { composeSessionId, splitSessionId } from '@/services/api';
 
 const NotificationsContext = createContext(null);
 
 const MUTE_STORAGE_KEY = 'rt:notify-mute';
+const PRESENCE_POLICY_STORAGE_KEY = 'rt:notify-presence-policy';
+const PRESENCE_POLICY_STRICT = 'strict';
+const PRESENCE_POLICY_VISIBLE = 'visible';
+const EVENT_DEDUPE_PREFIX = 'rt:notify-event:';
+const EVENT_DEDUPE_TTL_MS = 10 * 60 * 1000;
+const EVENT_DEDUPE_CHANNEL = 'rt:notify-dedupe';
 const BACKOFF_MS = [1000, 2000, 4000, 8000, 15000, 30000];
 const CONNECTION_LOST_TOAST_DELAY_MS = 5000;
+const handledEvents = new Map();
+let dedupeChannel = null;
 
 function getSupported() {
   return typeof window !== 'undefined' && 'Notification' in window;
@@ -35,6 +43,71 @@ function readInitialMute() {
   } catch {
     return false;
   }
+}
+
+function readInitialPresencePolicy() {
+  if (typeof window === 'undefined') return PRESENCE_POLICY_STRICT;
+  try {
+    const value = localStorage.getItem(PRESENCE_POLICY_STORAGE_KEY);
+    return value === PRESENCE_POLICY_VISIBLE ? PRESENCE_POLICY_VISIBLE : PRESENCE_POLICY_STRICT;
+  } catch {
+    return PRESENCE_POLICY_STRICT;
+  }
+}
+
+function rememberEvent(eventId, ts = Date.now()) {
+  handledEvents.set(eventId, ts);
+  try {
+    localStorage.setItem(`${EVENT_DEDUPE_PREFIX}${eventId}`, String(ts));
+  } catch {}
+}
+
+function pruneHandledEvents(now = Date.now()) {
+  for (const [eventId, ts] of handledEvents) {
+    if (now - ts > EVENT_DEDUPE_TTL_MS) {
+      handledEvents.delete(eventId);
+      try { localStorage.removeItem(`${EVENT_DEDUPE_PREFIX}${eventId}`); } catch {}
+    }
+  }
+}
+
+function ensureDedupeChannel() {
+  if (typeof window === 'undefined' || typeof BroadcastChannel === 'undefined') return null;
+  if (dedupeChannel) return dedupeChannel;
+  dedupeChannel = new BroadcastChannel(EVENT_DEDUPE_CHANNEL);
+  dedupeChannel.addEventListener('message', (event) => {
+    const msg = event.data;
+    if (!msg || msg.type !== 'handled' || typeof msg.eventId !== 'string') return;
+    rememberEvent(msg.eventId, typeof msg.ts === 'number' ? msg.ts : Date.now());
+  });
+  return dedupeChannel;
+}
+
+function claimEvent(eventId) {
+  if (!eventId) return true;
+  const now = Date.now();
+  pruneHandledEvents(now);
+
+  const localTs = handledEvents.get(eventId);
+  if (localTs && now - localTs < EVENT_DEDUPE_TTL_MS) return false;
+
+  try {
+    const storedTs = Number(localStorage.getItem(`${EVENT_DEDUPE_PREFIX}${eventId}`) || 0);
+    if (storedTs && now - storedTs < EVENT_DEDUPE_TTL_MS) {
+      handledEvents.set(eventId, storedTs);
+      return false;
+    }
+  } catch {}
+
+  rememberEvent(eventId, now);
+  try { ensureDedupeChannel()?.postMessage({ type: 'handled', eventId, ts: now }); } catch {}
+  return true;
+}
+
+function buildEventId(serverId, event) {
+  const raw = event?.event_id;
+  if (typeof raw === 'string' && raw) return `${serverId}:${raw}`.slice(0, 256);
+  return `${serverId}:${event?.session_id || ''}:${event?.timestamp || ''}:${event?.idle_seconds || ''}`.slice(0, 256);
 }
 
 const NOTIFY_SOUND_URL = '/sounds/notify.mp3';
@@ -90,6 +163,7 @@ export function NotificationsProvider({ children }) {
   // prompt (non-HTTPS / non-localhost). Everything else leaves it null.
   const [permissionReason, setPermissionReason] = useState(null);
   const [muted, setMutedState] = useState(false);
+  const [presencePolicy, setPresencePolicyState] = useState(PRESENCE_POLICY_STRICT);
 
   const connectionsRef = useRef(new Map());
   const mutedRef = useRef(false);
@@ -108,12 +182,22 @@ export function NotificationsProvider({ children }) {
       setPermissionReason('insecure-context');
     }
     setMutedState(readInitialMute());
+    setPresencePolicyState(readInitialPresencePolicy());
+    ensureDedupeChannel();
   }, []);
 
   const setMuted = useCallback((value) => {
     setMutedState(value);
     try {
       localStorage.setItem(MUTE_STORAGE_KEY, value ? 'true' : 'false');
+    } catch {}
+  }, []);
+
+  const setPresencePolicy = useCallback((value) => {
+    const next = value === PRESENCE_POLICY_VISIBLE ? PRESENCE_POLICY_VISIBLE : PRESENCE_POLICY_STRICT;
+    setPresencePolicyState(next);
+    try {
+      localStorage.setItem(PRESENCE_POLICY_STORAGE_KEY, next);
     } catch {}
   }, []);
 
@@ -147,6 +231,7 @@ export function NotificationsProvider({ children }) {
     if (!event || event.type !== 'idle') return;
     const backendSessionId = event.session_id;
     if (!backendSessionId) return;
+    if (!claimEvent(buildEventId(serverId, event))) return;
     const composedId = composeSessionId(serverId, backendSessionId);
     const name = event.name || backendSessionId;
     const context = [event.project_name, event.group_name, name]
@@ -167,13 +252,28 @@ export function NotificationsProvider({ children }) {
       try {
         const snippetTrimmed = snippet.length > 180 ? snippet.slice(-180) : snippet;
         const fullBody = snippetTrimmed ? `${body}\n${snippetTrimmed}` : body;
+        const notificationTag = event.event_id ? `${composedId}:${event.event_id}`.slice(0, 256) : composedId;
         new Notification(title, {
           body: fullBody,
-          tag: composedId,
-          renotify: true,
+          tag: notificationTag,
+          renotify: false,
           icon: '/favicon.ico',
         });
       } catch {}
+    }
+  }, []);
+
+  const sendViewing = useCallback((compositeId) => {
+    const { serverId, sessionId } = splitSessionId(compositeId);
+    if (!serverId || !sessionId) return false;
+    const ctrl = connectionsRef.current.get(serverId);
+    const ws = ctrl?.ws;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return false;
+    try {
+      ws.send(JSON.stringify({ type: 'viewing', session_id: sessionId }));
+      return true;
+    } catch {
+      return false;
     }
   }, []);
 
@@ -302,6 +402,9 @@ export function NotificationsProvider({ children }) {
     requestBrowserPermission,
     muted,
     setMuted,
+    presencePolicy,
+    setPresencePolicy,
+    sendViewing,
   };
 
   return (

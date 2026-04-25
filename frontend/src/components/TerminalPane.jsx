@@ -3,17 +3,17 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { useTheme } from '@/providers/ThemeProvider';
 import { useTranslation } from '@/providers/I18nProvider';
+import { useNotifications } from '@/providers/NotificationsProvider';
 import { getServerById } from '@/providers/ServersProvider';
 import { splitSessionId } from '@/services/api';
 import { getXtermTheme } from '@/themes/xterm';
 
 const terminalCache = new Map();
 
-// Heartbeat de presença ("tô olhando"): cada TerminalPane manda a cada 10s no
-// WS já existente do terminal SE: aba visível + janela em foco + terminal na
-// viewport + houve mouse/teclado nos últimos 30s. O backend usa esse sinal pra
-// suprimir alerta idle (Rule 5 do watcher) — você não recebe notificação do que
-// está olhando.
+// Heartbeat de presença ("tô olhando"): cada TerminalPane manda a cada 10s pelo
+// WS multi-cliente de notificações SE a aba está visível e o terminal está na
+// viewport. No modo estrito, também exige foco da janela + atividade recente.
+// O backend usa esse sinal pra suprimir alerta idle (Rule 5 do watcher).
 const VIEWING_HEARTBEAT_MS = 10000;
 const USER_ACTIVITY_THRESHOLD_MS = 30000;
 
@@ -84,6 +84,7 @@ export function hasDeadConnections() {
 export default function TerminalPane({ session, onSessionEnded, isMobile = false }) {
   const { theme } = useTheme();
   const { t } = useTranslation();
+  const { sendViewing, presencePolicy } = useNotifications();
   const slotRef = useRef(null);
   const onSessionEndedRef = useRef(onSessionEnded);
   const tRef = useRef(t);
@@ -354,7 +355,10 @@ export default function TerminalPane({ session, onSessionEnded, isMobile = false
     };
   }, [session.id, setupResizeObserver]);
 
-  // "Tô olhando": IntersectionObserver no slot + heartbeat 10s pelo WS existente.
+  // "Tô olhando": IntersectionObserver no slot + heartbeat 10s pelo WS de
+  // notificações. Como esse WS aceita múltiplos clientes, abrir a mesma sessão
+  // no celular não derruba a presença do desktop (o WS do terminal continua
+  // exclusivo e pode ser substituído).
   // Reage a montar/desmontar do componente (trocou de grupo / mosaico re-mount):
   // o intervalo é recriado no mount, parado no unmount → backend esquece após
   // VIEWING_GRACE_SECONDS (15s) e alerta volta a poder disparar.
@@ -381,11 +385,9 @@ export default function TerminalPane({ session, onSessionEnded, isMobile = false
   useEffect(() => {
     const sendHeartbeat = () => {
       const entry = terminalCache.get(session.id);
-      const ws = entry?.ws;
-      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      const fallbackWs = entry?.ws;
       if (typeof document === 'undefined') return;
       if (document.visibilityState !== 'visible') return;
-      if (!document.hasFocus()) return;
       if (!intersectingRef.current) {
         // Reconciliação: se o IO ficou preso em false após remount mas o slot
         // está visível agora (rect > 0), recupera. Custa um getBoundingClientRect
@@ -396,13 +398,19 @@ export default function TerminalPane({ session, onSessionEnded, isMobile = false
         if (rect.width <= 0 || rect.height <= 0) return;
         intersectingRef.current = true;
       }
-      if (Date.now() - lastUserActivityTs > USER_ACTIVITY_THRESHOLD_MS) return;
-      try { ws.send(JSON.stringify({ type: 'viewing' })); } catch {}
+      if (presencePolicy !== 'visible') {
+        if (!document.hasFocus()) return;
+        if (Date.now() - lastUserActivityTs > USER_ACTIVITY_THRESHOLD_MS) return;
+      }
+      if (sendViewing(session.id)) return;
+      if (fallbackWs?.readyState === WebSocket.OPEN) {
+        try { fallbackWs.send(JSON.stringify({ type: 'viewing' })); } catch {}
+      }
     };
     sendHeartbeat();
     const id = setInterval(sendHeartbeat, VIEWING_HEARTBEAT_MS);
     return () => clearInterval(id);
-  }, [session.id]);
+  }, [session.id, sendViewing, presencePolicy]);
 
   return (
     <div className="flex flex-col overflow-hidden" style={{ height: '100%', background: 'hsl(var(--terminal-bg))' }}>

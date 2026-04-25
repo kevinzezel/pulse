@@ -6,6 +6,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [1.14.0] — 2026-04-24
+
+### Added
+
+- **Notificações idle agora têm modo local "Multi-monitor" para considerar um terminal visível mesmo quando a janela do Pulse não está focada.** A configuração fica em Settings → Notifications, persiste em `localStorage.rt:notify-presence-policy` e deixa claro o limite real do browser: ele não sabe para qual monitor o usuário está olhando, só expõe visibilidade da aba, foco da janela e viewport. O modo `Estrito` continua sendo o default e preserva a regra anterior (`aba visível + janela focada + atividade recente + pane na viewport`); o modo `Multi-monitor` usa `aba visível + pane na viewport`, cobrindo o fluxo comum de Pulse aberto num monitor e editor focado em outro.
+
+### Changed
+
+- **Heartbeat de "estou vendo" foi desacoplado do WebSocket exclusivo do terminal e agora usa o `/ws/notifications` multi-cliente como canal primário.** Antes, abrir a mesma sessão no celular fechava o WS do desktop com `4000 "Replaced by new connection"`; o desktop podia continuar visualmente aberto, mas parava de mandar `{type:'viewing'}` e o watcher voltava a notificar após o grace de 15s. Agora `TerminalPane` envia presença por `NotificationsProvider.sendViewing()` para o WS de notificações do servidor, que aceita múltiplos clientes autenticados, mantendo o WS do terminal como fallback. O backend valida tamanho do payload e `session_id` antes de tocar `last_viewing_ts`.
+
+### Fixed
+
+- **Alertas idle do browser são deduplicados entre abas do mesmo navegador.** O watcher inclui `event_id` em cada evento `idle`, derivado da sessão, hash visual e timestamp de última saída; o frontend grava esse id em memória + `localStorage` e propaga via `BroadcastChannel`, evitando que duas abas conectadas ao mesmo `/ws/notifications` disparem toast, som e notificação nativa em duplicidade. `renotify` das notificações nativas também foi desativado para não re-alertar quando o browser reaproveita a mesma tag.
+
 ## [1.13.7] — 2026-04-24
 
 ### Changed

@@ -644,6 +644,12 @@
     "insecureContextLearnMore": "Más información sobre contextos seguros",
     "muteSound": "Silenciar sonido",
     "muteSoundHint": "No reproduce sonido al recibir una notificación.",
+    "presencePolicyLabel": "Cuándo considerar que estoy viendo",
+    "presencePolicyStrict": "Estricto",
+    "presencePolicyStrictHint": "Requiere pestaña visible, ventana enfocada y actividad reciente.",
+    "presencePolicyVisible": "Multi-monitor",
+    "presencePolicyVisibleHint": "Bastan la pestaña visible y el terminal en pantalla, incluso sin foco.",
+    "presencePolicyNote": "El navegador no sabe qué monitor estás mirando físicamente; solo informa foco de ventana, visibilidad de pestaña y viewport.",
     "connectionLost": "Reconectando notificaciones...",
     "connectionRestored": "Notificaciones reconectadas",
     "unsupported": "Tu navegador no admite notificaciones nativas"

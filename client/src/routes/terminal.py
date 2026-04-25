@@ -1,4 +1,5 @@
 import logging
+import json
 import os
 import shutil
 import subprocess
@@ -8,7 +9,7 @@ import time
 from fastapi import APIRouter, Body, WebSocket, WebSocketDisconnect, UploadFile, File, Request, Query
 
 logger = logging.getLogger(__name__)
-from resources.terminal import create_session_request, list_sessions_request, kill_session_request, rename_session_request, sync_sessions_request, clone_session_request, websocket_terminal, sessions, set_session_notify_request, set_session_scope_names_request, restore_sessions_request, _sessions_lock
+from resources.terminal import create_session_request, list_sessions_request, kill_session_request, rename_session_request, sync_sessions_request, clone_session_request, websocket_terminal, sessions, set_session_notify_request, set_session_scope_names_request, restore_sessions_request, record_session_viewing, _sessions_lock
 from resources.notification_broadcast import register as register_notification_client, unregister as unregister_notification_client
 from tools.tmux import get_pane_cwd, send_text_to_session, set_group_id, set_group_name
 from system.log import AppException
@@ -21,6 +22,8 @@ IMAGE_TMP_MAX_AGE_SECONDS = 24 * 3600
 
 router = APIRouter()
 ws_router = APIRouter()
+NOTIFICATIONS_WS_MAX_MESSAGE_BYTES = 1024
+SESSION_ID_MAX_LENGTH = 64
 
 
 def _cleanup_old_clipboard_images():
@@ -442,7 +445,22 @@ async def ws_notifications(websocket: WebSocket):
     await register_notification_client(websocket)
     try:
         while True:
-            await websocket.receive_text()
+            raw = await websocket.receive_text()
+            if len(raw.encode("utf-8", errors="ignore")) > NOTIFICATIONS_WS_MAX_MESSAGE_BYTES:
+                await websocket.close(code=1009)
+                break
+            try:
+                msg = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(msg, dict):
+                continue
+            if msg.get("type") != "viewing":
+                continue
+            session_id = msg.get("session_id")
+            if not isinstance(session_id, str) or len(session_id) > SESSION_ID_MAX_LENGTH:
+                continue
+            record_session_viewing(session_id)
     except WebSocketDisconnect:
         pass
     except Exception:
