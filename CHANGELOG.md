@@ -56,6 +56,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 - **Documentation updated** (`CLAUDE.md`, `README.md`, `NOTIFICATIONS.md`, `CONTRIBUTING.md`, `docs/MULTI-SERVER.md`): architecture sections, prerequisites (no tmux), watcher description, constants table, gotchas. `NOTIFICATIONS.md` got an explicit note explaining how pyte made the entire border-regex scheme unnecessary. Translated `NOTIFICATIONS.md` and `CLAUDE.md` to English to align with the rest of the public-facing docs.
 
+## [2.1.0] — 2026-04-25
+
+### Changed
+
+- **Per-tab UI state moved from `localStorage` + UUID coordination to `sessionStorage`.** Active project, active group per project, active flow per project, and the mosaic layout per `(project, group)` tuple are now persisted in `sessionStorage`, which the browser already isolates per tab. Opening 2, 3, 5 Pulse tabs in the same Chrome profile gives you that many independent working views — different active projects, groups, and mosaics — without the previous fragile UUID-claim choreography. F5 preserves state; closing the tab discards it (intentional). Switching projects no longer touches `frontend/data/projects.json`'s `active_project_id` — each tab owns its own pick locally. New keys (all in `sessionStorage`): `rt:activeProjectId`, `rt:view::<projectId>::group`, `rt:view::<projectId>::flow`, `rt:layout::<projectId>::<groupId|__none__>`.
+
+### Removed
+
+- **`frontend/src/lib/tabSession.js` deleted (~220 LOC).** With `sessionStorage` doing the isolation natively, the per-tab UUID generated via `crypto.randomUUID()`, the `rt:tab-profiles` registry in `localStorage`, the 10-tab LRU eviction, the `BroadcastChannel('rt:tab-coord')` claim/announce dance for race resolution, and the one-shot migration that backfilled state from `data/layouts.json` / `data/view-state.json` are all gone. The companion `GET /api/migrate-state` route and the now-unused `setActiveProject(projectId)` exported from `services/api.js` were removed alongside.
+
+### Added
+
+- **`frontend/src/lib/sessionState.js`**: thin helpers `ssRead`, `ssWrite`, `ssRemove`, `ssListKeysWithPrefix` mirroring `localState.js` but for `sessionStorage`.
+- **`frontend/src/lib/legacyCleanup.js`**: `cleanupLegacyKeys()` runs once on the first load of `(main)/page.js` and wipes the dead keys from the previous architecture (`rt:tab::*` in `localStorage`, `rt:tab-uuid` in `sessionStorage`, `rt:tab-profiles`, `rt:migrated-from-server`). Idempotent — safe to keep around indefinitely.
+
 ## [2.0.2] — 2026-04-25
 
 ### Fixed
@@ -754,7 +769,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v2.0.2...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v2.1.0...HEAD
+[2.1.0]: https://github.com/kevinzezel/pulse/releases/tag/v2.1.0
 [2.0.2]: https://github.com/kevinzezel/pulse/releases/tag/v2.0.2
 [2.0.1]: https://github.com/kevinzezel/pulse/releases/tag/v2.0.1
 [1.13.7]: https://github.com/kevinzezel/pulse/releases/tag/v1.13.7

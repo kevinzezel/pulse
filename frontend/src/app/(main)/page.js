@@ -11,8 +11,8 @@ import {
   getComposeDrafts, setComposeDrafts as putComposeDrafts,
   addRecentCwd,
 } from '@/services/api';
-import { bootTabSession, tabKey, listTabKeysForScope } from '@/lib/tabSession';
-import { readJSON, writeJSON, removeKey } from '@/lib/localState';
+import { ssRead, ssWrite, ssRemove, ssListKeysWithPrefix } from '@/lib/sessionState';
+import { cleanupLegacyKeys } from '@/lib/legacyCleanup';
 import { reorderById } from '@/utils/reorder';
 import { replaceInTree, removeFromTree, getVisibleSessionIds, validateTree } from '@/utils/mosaicHelpers';
 import { destroyTerminal, destroyAllTerminals, sendKey, hasDeadConnections, probeAllTerminals } from '@/components/TerminalPane';
@@ -100,35 +100,22 @@ function Dashboard() {
   }, []);
 
   useEffect(() => {
-    let alive = true;
-    (async () => {
-      try {
-        await bootTabSession();
-        if (!alive) return;
-        const prefix = 'layout::';
-        const keys = listTabKeysForScope('layout');
-        const normalized = {};
-        for (const fullKey of keys) {
-          // fullKey = `rt:tab::<uuid>::layout::<projectId>::<groupKey>`
-          const idx = fullKey.indexOf(`::${prefix}`);
-          if (idx === -1) continue;
-          const inner = fullKey.slice(idx + prefix.length + 2); // pula ::layout::
-          const value = readJSON(fullKey, null);
-          if (value && typeof value === 'object' && !Array.isArray(value) && 'mosaic' in value) {
-            normalized[inner] = value.mosaic ?? null;
-          } else {
-            normalized[inner] = value ?? null;
-          }
-        }
-        previousLayoutsRef.current = { ...normalized };
-        setMosaicLayouts(normalized);
-      } catch (err) {
-        console.warn('[bootTabSession] failed', err);
-      } finally {
-        if (alive) setHydratedLayouts(true);
+    cleanupLegacyKeys();
+    const prefix = 'rt:layout::';
+    const keys = ssListKeysWithPrefix(prefix);
+    const normalized = {};
+    for (const fullKey of keys) {
+      const inner = fullKey.slice(prefix.length);
+      const value = ssRead(fullKey, null);
+      if (value && typeof value === 'object' && !Array.isArray(value) && 'mosaic' in value) {
+        normalized[inner] = value.mosaic ?? null;
+      } else {
+        normalized[inner] = value ?? null;
       }
-    })();
-    return () => { alive = false; };
+    }
+    previousLayoutsRef.current = { ...normalized };
+    setMosaicLayouts(normalized);
+    setHydratedLayouts(true);
   }, []);
 
   useEffect(() => {
@@ -150,13 +137,11 @@ function Dashboard() {
     const prev = previousLayoutsRef.current || {};
     for (const [innerKey, value] of Object.entries(next)) {
       if (prev[innerKey] === value) continue;
-      const k = tabKey('layout', innerKey);
-      if (k) writeJSON(k, value);
+      ssWrite(`rt:layout::${innerKey}`, value);
     }
     for (const innerKey of Object.keys(prev)) {
       if (innerKey in next) continue;
-      const k = tabKey('layout', innerKey);
-      if (k) removeKey(k);
+      ssRemove(`rt:layout::${innerKey}`);
     }
     previousLayoutsRef.current = { ...next };
   }, []);

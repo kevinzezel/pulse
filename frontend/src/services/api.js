@@ -719,18 +719,6 @@ export async function reorderProjects(fromId, toId) {
   return { detail_key: 'success.project_reordered', state: res };
 }
 
-export async function setActiveProject(projectId) {
-  const state = await getProjects();
-  if (!state.projects.some(p => p.id === projectId)) {
-    const err = new Error('Project not found');
-    err.detail_key = 'errors.project_not_found';
-    throw err;
-  }
-  const next = { ...state, active_project_id: projectId };
-  const res = await saveProjects(next);
-  return { detail_key: 'success.project_activated', state: res };
-}
-
 export async function getProjectStats(projectId) {
   const url = `/api/projects/stats?project_id=${encodeURIComponent(projectId)}`;
   return localRequest(url);

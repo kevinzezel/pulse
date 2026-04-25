@@ -2,13 +2,15 @@
 
 import { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
-import { bootTabSession, tabKey, listTabKeysForScope } from '@/lib/tabSession';
-import { readJSON, writeJSON, removeKey } from '@/lib/localState';
+import { ssRead, ssWrite, ssRemove, ssListKeysWithPrefix } from '@/lib/sessionState';
 
 const ViewStateContext = createContext(null);
 
+const VIEW_PREFIX = 'rt:view::';
+
 function groupKey(projectId) { return `${projectId}::group`; }
 function flowKey(projectId) { return `${projectId}::flow`; }
+function fullKey(inner) { return `${VIEW_PREFIX}${inner}`; }
 
 export function ViewStateProvider({ children }) {
   const pathname = usePathname();
@@ -17,29 +19,17 @@ export function ViewStateProvider({ children }) {
 
   useEffect(() => {
     if (pathname === '/login') { setHydrated(false); return; }
-    let alive = true;
-    (async () => {
-      try {
-        await bootTabSession();
-        if (!alive) return;
-        const prefix = 'view::';
-        const keys = listTabKeysForScope('view');
-        const next = {};
-        for (const fullKey of keys) {
-          const idx = fullKey.indexOf(`::${prefix}`);
-          if (idx === -1) continue;
-          const inner = fullKey.slice(idx + prefix.length + 2);
-          const value = readJSON(fullKey, null);
-          if (typeof value === 'string' || value === null) {
-            next[inner] = value;
-          }
-        }
-        setViewStateLocal(next);
-      } finally {
-        if (alive) setHydrated(true);
+    const keys = ssListKeysWithPrefix(VIEW_PREFIX);
+    const next = {};
+    for (const fk of keys) {
+      const inner = fk.slice(VIEW_PREFIX.length);
+      const value = ssRead(fk, null);
+      if (typeof value === 'string' || value === null) {
+        next[inner] = value;
       }
-    })();
-    return () => { alive = false; };
+    }
+    setViewStateLocal(next);
+    setHydrated(true);
   }, [pathname]);
 
   const setKey = useCallback((key, value) => {
@@ -48,11 +38,9 @@ export function ViewStateProvider({ children }) {
       const nv = value ?? null;
       if (cur === nv) return prev;
       const next = { ...prev, [key]: nv };
-      const fullKey = tabKey('view', key);
-      if (fullKey) {
-        if (nv === null) removeKey(fullKey);
-        else writeJSON(fullKey, nv);
-      }
+      const fk = fullKey(key);
+      if (nv === null) ssRemove(fk);
+      else ssWrite(fk, nv);
       return next;
     });
   }, []);
