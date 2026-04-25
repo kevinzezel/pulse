@@ -100,6 +100,9 @@ fi
 # COMPOSE_PROJECT_NAME=pulse e VERSION=2.5.x acabavam no env do processo
 # Node — e dali no PTY, sequestrando docker-compose em projetos do usuário.
 unset COMPOSE_PROJECT_NAME VERSION API_HOST API_PORT API_KEY
+# Ignore user/global Node flags while running the dashboard. A stray
+# NODE_OPTIONS can break both `next build` and `node server.js`.
+unset NODE_OPTIONS
 if [ -f ".env" ]; then
     set -a
     # shellcheck disable=SC1091

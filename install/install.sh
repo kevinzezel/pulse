@@ -66,9 +66,10 @@ run_logged_tail() {
     log_file="$TEMP_DIR/command.log"
     if (cd "$workdir" && "$@") >"$log_file" 2>&1; then
         return 0
+    else
+        rc="$?"
     fi
 
-    rc="$?"
     err "$label failed (exit $rc); showing last $tail_lines log lines:"
     tail -n "$tail_lines" "$log_file" >&2 2>/dev/null || true
     return "$rc"
@@ -421,15 +422,15 @@ install_files() {
         # Install full deps — the build step needs devDependencies (tailwind, postcss).
         # We prune devDependencies after the build to reclaim disk space.
         if [ -f "$INSTALL_ROOT/frontend/package-lock.json" ]; then
-            run_logged_tail "npm ci" 20 "$INSTALL_ROOT/frontend" npm ci --loglevel=error || die "npm ci failed"
+            run_logged_tail "npm ci" 20 "$INSTALL_ROOT/frontend" env NODE_OPTIONS= npm ci --loglevel=error || die "npm ci failed"
         else
-            run_logged_tail "npm install" 20 "$INSTALL_ROOT/frontend" npm install --loglevel=error || die "npm install failed"
+            run_logged_tail "npm install" 20 "$INSTALL_ROOT/frontend" env NODE_OPTIONS= npm install --loglevel=error || die "npm install failed"
         fi
         log "building dashboard"
-        run_logged_tail "npm run build" 40 "$INSTALL_ROOT/frontend" npm run build || die "npm run build failed"
+        run_logged_tail "npm run build" 40 "$INSTALL_ROOT/frontend" env NODE_OPTIONS= npm run build || die "npm run build failed"
         [ -f "$INSTALL_ROOT/frontend/.next/BUILD_ID" ] || die "dashboard build did not create .next/BUILD_ID"
         log "pruning dev dependencies"
-        run_logged_tail "npm prune" 10 "$INSTALL_ROOT/frontend" npm prune --omit=dev --loglevel=error || warn "npm prune failed (non-fatal)"
+        run_logged_tail "npm prune" 10 "$INSTALL_ROOT/frontend" env NODE_OPTIONS= npm prune --omit=dev --loglevel=error || warn "npm prune failed (non-fatal)"
 
         # Restore preserved user data
         if [ -n "$data_backup" ] && [ -d "$data_backup" ]; then

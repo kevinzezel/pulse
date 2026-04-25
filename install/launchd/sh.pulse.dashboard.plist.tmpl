@@ -21,7 +21,7 @@
           explicitly at start time and prepend it to PATH — works on Apple
           Silicon and Intel without hard-coded paths in the plist.
         -->
-        <string>for brew_bin in /opt/homebrew/bin/brew /usr/local/bin/brew; do [ -x "$brew_bin" ] &amp;&amp; eval "$("$brew_bin" shellenv)" &amp;&amp; break; done; node_prefix="$(brew --prefix node@20 2>/dev/null)"; [ -n "$node_prefix" ] &amp;&amp; PATH="$node_prefix/bin:$PATH"; export PATH; set -a; . "$HOME/.config/pulse/frontend.env"; set +a; exec node server.js</string>
+        <string>unset NODE_OPTIONS; for brew_bin in /opt/homebrew/bin/brew /usr/local/bin/brew; do [ -x "$brew_bin" ] &amp;&amp; eval "$("$brew_bin" shellenv)" &amp;&amp; break; done; node_prefix="$(brew --prefix node@20 2>/dev/null)"; [ -n "$node_prefix" ] &amp;&amp; PATH="$node_prefix/bin:$PATH"; export PATH; set -a; . "$HOME/.config/pulse/frontend.env"; set +a; exec node server.js</string>
     </array>
     <key>WorkingDirectory</key>
     <string>@@HOME@@/.local/share/pulse/frontend</string>
@@ -31,6 +31,8 @@
         <string>@@HOME@@</string>
         <key>NODE_ENV</key>
         <string>production</string>
+        <key>NODE_OPTIONS</key>
+        <string></string>
         <key>PATH</key>
         <string>@@HOME@@/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
         <!-- Pin the jsonStore base dir; process.cwd() is unreliable under launchd workers. -->

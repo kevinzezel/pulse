@@ -11,6 +11,7 @@ WorkingDirectory=%h/.local/share/pulse/frontend
 EnvironmentFile=%h/.config/pulse/frontend.env
 Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
 Environment=NODE_ENV=production
+Environment=NODE_OPTIONS=
 # Explicit root for jsonStore reads/writes. process.cwd() is unreliable under
 # systemd when Next spawns internal workers; pinning the path guarantees
 # sessions.json / notes.json / etc. land in the right directory.
@@ -25,7 +26,7 @@ Environment=PULSE_CONFIG_ROOT=%h/.config/pulse
 # fallback via the Environment=PATH above.
 # server.js (custom Next runner) handles HTTP/HTTPS branching from TLS_ENABLED
 # in frontend.env — same entrypoint regardless of TLS state.
-ExecStart=/bin/sh -c 'if [ -d "$HOME/.nvm/versions/node" ]; then v=$(ls -1 "$HOME/.nvm/versions/node" 2>/dev/null | sort -V | tail -n1); [ -n "$v" ] && PATH="$HOME/.nvm/versions/node/$v/bin:$PATH"; fi; [ -d "$HOME/.volta/bin" ] && PATH="$HOME/.volta/bin:$PATH"; [ -d "$HOME/.local/share/fnm/aliases/default/bin" ] && PATH="$HOME/.local/share/fnm/aliases/default/bin:$PATH"; export PATH; exec node server.js'
+ExecStart=/bin/sh -c 'unset NODE_OPTIONS; if [ -d "$HOME/.nvm/versions/node" ]; then v=$(ls -1 "$HOME/.nvm/versions/node" 2>/dev/null | sort -V | tail -n1); [ -n "$v" ] && PATH="$HOME/.nvm/versions/node/$v/bin:$PATH"; fi; [ -d "$HOME/.volta/bin" ] && PATH="$HOME/.volta/bin:$PATH"; [ -d "$HOME/.local/share/fnm/aliases/default/bin" ] && PATH="$HOME/.local/share/fnm/aliases/default/bin:$PATH"; export PATH; exec node server.js'
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal

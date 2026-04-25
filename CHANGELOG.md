@@ -6,6 +6,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [2.5.4] — 2026-04-25
+
+### Fixed
+
+- **Dashboard install/build now ignores inherited `NODE_OPTIONS`.** The installer runs `npm ci` / `npm install` / `npm run build` / `npm prune` with a clean `NODE_OPTIONS`, preventing user shell flags from breaking `next build` on fresh servers. The dashboard production entrypoints also clear `NODE_OPTIONS` in `frontend/start.sh`, `install/systemd/pulse.service.tmpl`, and `install/launchd/sh.pulse.dashboard.plist.tmpl`, so a contaminated user environment cannot crash `node server.js` after install.
+- **Installer build logs now report the real failing exit code.** `run_logged_tail()` now captures the command status directly before printing the truncated log, instead of reading the status of the surrounding `if` compound. Failed builds now show the actual npm/Next.js exit code alongside the last log lines.
+
 ## [2.5.3] — 2026-04-25
 
 ### Fixed
@@ -868,7 +875,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v2.5.3...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v2.5.4...HEAD
+[2.5.4]: https://github.com/kevinzezel/pulse/releases/tag/v2.5.4
 [2.5.3]: https://github.com/kevinzezel/pulse/releases/tag/v2.5.3
 [2.5.2]: https://github.com/kevinzezel/pulse/releases/tag/v2.5.2
 [2.5.1]: https://github.com/kevinzezel/pulse/releases/tag/v2.5.1
