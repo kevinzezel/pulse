@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [2.4.1] — 2026-04-25
+
+### Fixed
+
+- **Replaced terminal connections no longer keep suppressing idle alerts from the old device.** When a phone or another tab opens the same session, the desktop terminal WebSocket closes with `4000 "Replaced by new connection"` and now marks that pane's stream as inactive. `TerminalPane` only sends `viewing` while its own terminal WS is open and active, so a stale desktop pane showing "Connection replaced" cannot keep acking Rule 5 while the real work happens on the phone. The active device still sends presence normally; if the session later becomes idle and no active viewer is present, notifications fire as expected.
+
 ## [2.4.0] — 2026-04-25
 
 ### Added
@@ -820,7 +826,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v2.4.0...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v2.4.1...HEAD
+[2.4.1]: https://github.com/kevinzezel/pulse/releases/tag/v2.4.1
 [2.4.0]: https://github.com/kevinzezel/pulse/releases/tag/v2.4.0
 [2.3.0]: https://github.com/kevinzezel/pulse/releases/tag/v2.3.0
 [2.2.0]: https://github.com/kevinzezel/pulse/releases/tag/v2.2.0

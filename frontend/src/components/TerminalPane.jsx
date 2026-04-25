@@ -235,6 +235,8 @@ export default function TerminalPane({ session, onSessionEnded, onReconnect, isM
       const ws = new WebSocket(wsUrl, [`apikey.${server.apiKey}`]);
 
       ws.onopen = () => {
+        const cur = terminalCache.get(session.id);
+        if (cur) cur.streamActive = true;
         ws.send(JSON.stringify({ type: 'resize', cols: terminal.cols, rows: terminal.rows }));
       };
 
@@ -254,6 +256,8 @@ export default function TerminalPane({ session, onSessionEnded, onReconnect, isM
       };
 
       ws.onclose = (event) => {
+        const cur = terminalCache.get(session.id);
+        if (cur?.ws === ws) cur.streamActive = false;
         const tr = tRef.current;
         if (event.code === 1000 && event.reason === 'Session ended') {
           onSessionEndedRef.current?.();
@@ -399,7 +403,7 @@ export default function TerminalPane({ session, onSessionEnded, onReconnect, isM
         container.removeEventListener('touchcancel', onTouchEnd);
       };
 
-      const entry = { terminal, fitAddon, ws, container, onDataDisposable, resizeObserver: null, removeTouchHandlers };
+      const entry = { terminal, fitAddon, ws, container, onDataDisposable, resizeObserver: null, removeTouchHandlers, streamActive: false };
       terminalCache.set(session.id, entry);
       setupResizeObserver(entry, slotRef.current);
     }
@@ -506,10 +510,9 @@ export default function TerminalPane({ session, onSessionEnded, onReconnect, isM
         intersectingRef.current = true;
       }
       if (!canSendViewingHeartbeat()) return;
+      if (!entry?.streamActive || fallbackWs?.readyState !== WebSocket.OPEN) return;
       sendViewing(session.id);
-      if (fallbackWs?.readyState === WebSocket.OPEN) {
-        try { fallbackWs.send(JSON.stringify({ type: 'viewing' })); } catch {}
-      }
+      try { fallbackWs.send(JSON.stringify({ type: 'viewing' })); } catch {}
     };
     sendHeartbeat();
     const id = setInterval(sendHeartbeat, VIEWING_HEARTBEAT_MS);

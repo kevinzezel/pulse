@@ -115,7 +115,7 @@ if last_viewing > 0 and (now - last_viewing) < VIEWING_GRACE_SECONDS:
 
 ## Viewing heartbeat (frontend)
 
-Implemented in `frontend/src/components/TerminalPane.jsx` (heartbeat + IntersectionObserver). The primary path goes through `NotificationsProvider.sendViewing()` on `/ws/notifications`, which accepts multiple clients. The terminal-exclusive WS still accepts `{type:'viewing'}` as a best-effort fallback, and `TerminalPane` mirrors the heartbeat there whenever that WS is open.
+Implemented in `frontend/src/components/TerminalPane.jsx` (heartbeat + IntersectionObserver). The primary path goes through `NotificationsProvider.sendViewing()` on `/ws/notifications`, which accepts multiple clients. `TerminalPane` only sends this presence heartbeat while its own terminal stream is active; if another device replaces the terminal WS with code `4000 "Replaced by new connection"`, the stale pane stops acking Rule 5. The terminal-exclusive WS still accepts `{type:'viewing'}` as a best-effort fallback, and `TerminalPane` mirrors the heartbeat there whenever that WS is open and active.
 
 `/ws/notifications` is health-probed separately from the terminal stream: the frontend sends `{type:'ping'}` every 30s and expects `{type:'pong'}` within 5s. If the pong does not arrive, the provider closes/reconnects that WS. This covers the "WebSocket.readyState is OPEN but the TCP path is dead" case that otherwise makes viewing heartbeats appear sent while the backend never receives them.
 
