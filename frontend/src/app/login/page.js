@@ -1,7 +1,7 @@
 'use client';
 
 import { Suspense, useEffect, useState } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import { Loader2, Lock } from 'lucide-react';
 import { useTranslation, useErrorToast } from '@/providers/I18nProvider';
 import LanguageSelector from '@/components/LanguageSelector';
@@ -29,7 +29,6 @@ function VersionFooter() {
 function LoginForm() {
   const { t } = useTranslation();
   const showError = useErrorToast();
-  const router = useRouter();
   const params = useSearchParams();
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -52,7 +51,7 @@ function LoginForm() {
       }
       const raw = params.get('next') || '/';
       const safeNext = raw.startsWith('/') && !raw.startsWith('//') ? raw : '/';
-      router.replace(safeNext);
+      window.location.replace(safeNext);
     } catch (err) {
       showError(err);
       setPassword('');

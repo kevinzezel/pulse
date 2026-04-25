@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getCookieName, verifySessionToken } from '@/lib/auth';
+import { getSessionTokenFromCookies, verifySessionToken } from '@/lib/auth';
 
 const PUBLIC_UI = new Set(['/login']);
 const PUBLIC_API = new Set(['/api/auth/login', '/api/auth/logout', '/api/local-version']);
@@ -10,7 +10,7 @@ export async function middleware(request) {
     return NextResponse.next();
   }
 
-  const token = request.cookies.get(getCookieName())?.value;
+  const token = getSessionTokenFromCookies(request.cookies);
   const session = await verifySessionToken(token);
   if (session) return NextResponse.next();
 

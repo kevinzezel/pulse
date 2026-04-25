@@ -1,7 +1,8 @@
 import { SignJWT, jwtVerify } from 'jose';
 import { NextResponse } from 'next/server';
 
-const COOKIE_NAME = 'rt:auth';
+const COOKIE_NAME = 'rt_auth';
+const LEGACY_COOKIE_NAME = 'rt:auth';
 const JWT_ALG = 'HS256';
 const SESSION_TTL_SECONDS = 24 * 60 * 60;
 
@@ -13,6 +14,14 @@ function getSecret() {
 
 export function getCookieName() {
   return COOKIE_NAME;
+}
+
+export function getCookieNames() {
+  return [COOKIE_NAME, LEGACY_COOKIE_NAME];
+}
+
+export function getSessionTokenFromCookies(cookies) {
+  return cookies.get(COOKIE_NAME)?.value || cookies.get(LEGACY_COOKIE_NAME)?.value;
 }
 
 export async function createSessionToken() {
@@ -58,7 +67,7 @@ export function isValidPassword(input) {
 
 export function withAuth(handler) {
   return async (request, ctx) => {
-    const token = request.cookies.get(COOKIE_NAME)?.value;
+    const token = getSessionTokenFromCookies(request.cookies);
     const session = await verifySessionToken(token);
     if (!session) {
       return NextResponse.json(

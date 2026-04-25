@@ -8,6 +8,7 @@ import struct
 import subprocess
 import termios
 import threading
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +23,96 @@ SCROLLBACK_BYTES = 512 * 1024
 LISTENER_QUEUE_MAX = 256
 
 DEFAULT_SHELL_FALLBACK = "/bin/bash"
+
+
+# Variáveis de configuração internas do Pulse que NUNCA devem entrar nos shells
+# criados pelo usuário. A lista fixa abaixo é só fallback; build_pty_env()
+# também remove dinamicamente qualquer chave encontrada nos env files do Pulse.
+# Sem isso, COMPOSE_PROJECT_NAME=pulse sequestra docker-compose em outros
+# projetos, e segredos como API_KEY/AUTH_JWT_SECRET aparecem no `env` do shell.
+PTY_ENV_DENYLIST = frozenset({
+    "COMPOSE_PROJECT_NAME",
+    "VERSION",
+    "API_HOST",
+    "API_PORT",
+    "API_KEY",
+    "WEB_HOST",
+    "WEB_PORT",
+    "AUTH_PASSWORD",
+    "AUTH_JWT_SECRET",
+    "AUTH_COOKIE_SECURE",
+    "TLS_ENABLED",
+    "TLS_CERT_PATH",
+    "TLS_KEY_PATH",
+})
+
+
+def _env_key_from_line(line):
+    stripped = line.strip()
+    if not stripped or stripped.startswith("#"):
+        return None
+    if stripped.startswith("export "):
+        stripped = stripped[len("export "):].lstrip()
+    key, sep, _ = stripped.partition("=")
+    if not sep:
+        return None
+    key = key.strip()
+    if not key:
+        return None
+    if not (key[0].isalpha() or key[0] == "_"):
+        return None
+    if any(not (ch.isalnum() or ch == "_") for ch in key):
+        return None
+    return key
+
+
+def _env_keys_from_file(path):
+    try:
+        lines = path.read_text().splitlines()
+    except OSError:
+        return set()
+    keys = set()
+    for line in lines:
+        key = _env_key_from_line(line)
+        if key:
+            keys.add(key)
+    return keys
+
+
+def _pulse_env_file_keys():
+    client_root = Path(__file__).resolve().parents[2]
+    repo_root = client_root.parent
+    config_root = Path(os.environ.get("PULSE_CONFIG_ROOT", Path.home() / ".config" / "pulse"))
+    env_files = (
+        client_root / ".env",
+        repo_root / "frontend" / ".env",
+        config_root / "client.env",
+        config_root / "frontend.env",
+    )
+    keys = set()
+    for path in env_files:
+        keys.update(_env_keys_from_file(path))
+    return keys
+
+
+def build_pty_env():
+    """Ambiente sanitizado para shells abertos via PTY.
+
+    Parte do `os.environ` herdado pelo processo do client (uvicorn) e remove
+    chaves encontradas nos env files do Pulse, além de uma denylist fixa de
+    defesa em profundidade. Variáveis com prefixo `PULSE_` também são
+    descartadas. Tudo o mais é preservado pra não quebrar toolchains do usuário
+    (AWS_*, GOOGLE_*, PATH, HOME, SHELL, SSH_AUTH_SOCK, DISPLAY,
+    WAYLAND_DISPLAY, LANG, LC_*, etc.). Garante TERM=xterm-256color quando
+    ausente.
+    """
+    denied = PTY_ENV_DENYLIST | _pulse_env_file_keys()
+    env = {
+        k: v for k, v in os.environ.items()
+        if k not in denied and not k.startswith("PULSE_")
+    }
+    env.setdefault("TERM", "xterm-256color")
+    return env
 
 
 # Loop principal do uvicorn, capturado no startup (service.py:_start_background_tasks).
@@ -81,8 +172,7 @@ class PTYSession:
     def start(self):
         master_fd, slave_fd = pty.openpty()
         self._set_pty_size_fd(slave_fd, self.rows, self.cols)
-        env = os.environ.copy()
-        env.setdefault("TERM", "xterm-256color")
+        env = build_pty_env()
         shell = os.environ.get("SHELL") or DEFAULT_SHELL_FALLBACK
         cwd = None
         if (self.cwd_at_start

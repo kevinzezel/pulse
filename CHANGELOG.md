@@ -6,6 +6,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [2.5.2] — 2026-04-25
+
+### Added
+
+- **Manual `Reload page` button next to the reconnect button in the sidebar.** When mobile Chrome resumes from a long background pause and the WebSocket/network state cannot be recovered transparently (most often after WhatsApp swap or screen lock on 5G), the user now has a one-tap full-document reload available without leaving the app. Wired to `window.location.reload()` and exposed via `t('sidebar.reloadPage')` in the three locales.
+
+### Fixed
+
+- **Pulse internal env vars no longer leak into spawned terminal shells.** `client/src/tools/pty.py` now spawns the user's shell with a sanitized environment built by the new `build_pty_env()`. The function inherits `os.environ` (preserving toolchain variables like `PATH`, `HOME`, `SHELL`, `SSH_AUTH_SOCK`, `DISPLAY`, `WAYLAND_DISPLAY`, `LANG`, `LC_*`, `AWS_*`, `GOOGLE_APPLICATION_CREDENTIALS`, etc.) and then drops every key found in Pulse env files (`client/.env`, `frontend/.env`, `~/.config/pulse/client.env`, `~/.config/pulse/frontend.env`), plus fallback internal keys such as `COMPOSE_PROJECT_NAME`, `VERSION`, `API_HOST`, `API_PORT`, `API_KEY`, `WEB_HOST`, `WEB_PORT`, `AUTH_PASSWORD`, `AUTH_JWT_SECRET`, `AUTH_COOKIE_SECURE`, `TLS_ENABLED`, `TLS_CERT_PATH`, `TLS_KEY_PATH`, and everything starting with `PULSE_`. `TERM` is set to `xterm-256color` when missing. Previously the systemd template and `start.sh` would `EnvironmentFile`/`set -a` the client config into the uvicorn process, and `subprocess.Popen(env=os.environ.copy())` propagated all of it into every terminal — `COMPOSE_PROJECT_NAME=pulse` hijacked Docker Compose in unrelated projects and `API_KEY` / `AUTH_JWT_SECRET` ended up visible in the user's `env` output.
+- **`start.sh` (root) no longer sources both `.env` files into the orchestrator process.** It now reads only `API_PORT` and `WEB_PORT` via `pulse_env_get` for the pre-spawn port checks, leaving the actual env loading to each child's own `start.sh`. Previously a wide `source client/.env` followed by `set -a; source frontend/.env` left the orchestrator (and therefore both children spawned via `&`) with a merged environment — for example `TLS_ENABLED=true` from `frontend/.env` reached the client and made uvicorn try to start in HTTPS mode without the matching cert paths.
+- **`client/start.sh` `unset`s dashboard variables (`WEB_HOST`, `WEB_PORT`, `AUTH_PASSWORD`, `AUTH_JWT_SECRET`, `AUTH_COOKIE_SECURE`, `TLS_*`) before sourcing `client/.env`,** then sets local TLS defaults (`TLS_ENABLED=false` etc.) so the client only enables TLS when its own `.env` says so. `frontend/start.sh` does the symmetric cleanup, `unset`ing `COMPOSE_PROJECT_NAME`, `VERSION`, `API_HOST`, `API_PORT`, `API_KEY` before loading `frontend/.env`. Together with the PTY denylist above, this means a stale variable in one process can no longer poison the other or the shells the user opens through Pulse.
+- **Login redirects are now a full document navigation after setting the auth cookie.** The login form used to call `router.replace()` immediately after `/api/auth/login` returned 200. In Next.js dev mode this could intermittently reuse a stale unauthenticated app-router transition before the middleware observed the freshly-set auth cookie, sending the user back to `/login` even though the password was accepted. The form now uses `window.location.replace()` for the post-login transition, so the next request is a normal document load with the cookie attached.
+- **The dashboard auth cookie now uses the standards-compliant name `rt_auth`.** The previous `rt:auth` name contained a colon, which is outside the RFC cookie-name token grammar and can be rejected inconsistently by browsers even though server-side HTTP clients may accept it. New logins set `rt_auth`; middleware and API auth wrappers still accept the legacy `rt:auth` cookie during the transition, and logout clears both names.
+
 ## [2.5.1] — 2026-04-25
 
 ### Fixed
@@ -848,7 +862,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v2.5.1...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v2.5.2...HEAD
+[2.5.2]: https://github.com/kevinzezel/pulse/releases/tag/v2.5.2
 [2.5.1]: https://github.com/kevinzezel/pulse/releases/tag/v2.5.1
 [2.5.0]: https://github.com/kevinzezel/pulse/releases/tag/v2.5.0
 [2.4.1]: https://github.com/kevinzezel/pulse/releases/tag/v2.4.1

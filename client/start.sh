@@ -128,10 +128,19 @@ if [ ! -f ".env" ] && [ -f ".env.example" ]; then
     pulse_log ".env missing — copying from .env.example"
     cp .env.example .env
 fi
+# Limpa envs do dashboard que possam ter sido herdadas (ex: ./start.sh raiz
+# carregava ambos os .env no mesmo processo). Sem isso, TLS_ENABLED do
+# frontend chegaria aqui e o uvicorn subiria em HTTPS por engano.
+unset WEB_HOST WEB_PORT AUTH_PASSWORD AUTH_JWT_SECRET AUTH_COOKIE_SECURE
+unset TLS_ENABLED TLS_CERT_PATH TLS_KEY_PATH
 if [ -f ".env" ]; then
     # shellcheck disable=SC1091
     . .env
 fi
+# Defaults locais — só usa TLS se o próprio client/.env declarar.
+TLS_ENABLED="${TLS_ENABLED:-false}"
+TLS_CERT_PATH="${TLS_CERT_PATH:-}"
+TLS_KEY_PATH="${TLS_KEY_PATH:-}"
 
 [ -n "$CLI_HOST" ] && API_HOST="$CLI_HOST"
 [ -n "$CLI_PORT" ] && API_PORT="$CLI_PORT"

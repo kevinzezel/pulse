@@ -31,12 +31,14 @@ fi
 if [ ! -f "$FRONTEND_DIR/.env" ] && [ -f "$FRONTEND_DIR/.env.example" ]; then
     cp "$FRONTEND_DIR/.env.example" "$FRONTEND_DIR/.env"
 fi
-if [ -f "$CLIENT_DIR/.env" ]; then
-    source "$CLIENT_DIR/.env"
-fi
-if [ -f "$FRONTEND_DIR/.env" ]; then
-    set -a; source "$FRONTEND_DIR/.env"; set +a
-fi
+
+# Não fazer `source` amplo dos .env aqui: cada filho carrega o próprio. Um
+# source duplo neste processo herda envs cruzadas — TLS_ENABLED do dashboard
+# acabava no client subindo uvicorn em HTTPS por engano, COMPOSE_PROJECT_NAME
+# do client virava env do processo Node (e dali do PTY). Lemos apenas as
+# portas necessárias pra checagem antes de spawnar.
+API_PORT="$(pulse_env_get "$CLIENT_DIR/.env" API_PORT || true)"
+WEB_PORT="$(pulse_env_get "$FRONTEND_DIR/.env" WEB_PORT || true)"
 
 : "${API_PORT:?API_PORT env var required (set in client/.env)}"
 : "${WEB_PORT:?WEB_PORT env var required (set in frontend/.env)}"

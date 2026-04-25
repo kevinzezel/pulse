@@ -5,7 +5,7 @@ import Link from 'next/link';
 import toast from 'react-hot-toast';
 import {
   Plus, Check,
-  Pencil, Trash2, FolderOpen, ExternalLink, Loader, Wifi, WifiOff, Search, X, Folder,
+  Pencil, Trash2, FolderOpen, ExternalLink, Loader, Wifi, WifiOff, RefreshCw, Search, X, Folder,
   Bell, BellOff, Keyboard,
 } from 'lucide-react';
 import { openEditor, getSessionCwd, splitSessionId } from '@/services/api';
@@ -431,14 +431,24 @@ export default function Sidebar({
                 <Plus size={16} />
                 {t('sidebar.newTerminal')}
               </button>
-              <button
-                onClick={onReconnect}
-                className="w-full flex items-center justify-center py-1.5 rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
-                title={t('sidebar.reconnect')}
-                aria-label={t('sidebar.reconnect')}
-              >
-                <Wifi size={14} />
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={onReconnect}
+                  className="flex-1 flex items-center justify-center py-1.5 rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
+                  title={t('sidebar.reconnect')}
+                  aria-label={t('sidebar.reconnect')}
+                >
+                  <Wifi size={14} />
+                </button>
+                <button
+                  onClick={() => window.location.reload()}
+                  className="flex-1 flex items-center justify-center py-1.5 rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
+                  title={t('sidebar.reloadPage')}
+                  aria-label={t('sidebar.reloadPage')}
+                >
+                  <RefreshCw size={14} />
+                </button>
+              </div>
             </div>
 
             <div className="px-3 pb-2">
@@ -605,6 +615,13 @@ export default function Sidebar({
                 title={t('sidebar.reconnect')}
               >
                 <Wifi size={16} />
+              </button>
+              <button
+                onClick={() => window.location.reload()}
+                className="p-2 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
+                title={t('sidebar.reloadPage')}
+              >
+                <RefreshCw size={16} />
               </button>
             </div>
             {isMobile && (

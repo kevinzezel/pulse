@@ -38,6 +38,7 @@
     "openEditorRemote": "VS Code (remoto SSH)",
     "kill": "Cerrar sesión",
     "reconnect": "Reconectar terminales",
+    "reloadPage": "Recargar página",
     "assignGroup": "Mover a grupo",
     "noGroup": "Sin grupo",
     "newGroupInline": "Nuevo grupo...",

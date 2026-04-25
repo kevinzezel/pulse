@@ -95,6 +95,11 @@ if [ ! -f ".env" ] && [ -f ".env.example" ]; then
     pulse_log ".env missing — copying from .env.example"
     cp .env.example .env
 fi
+# Limpa envs do client que possam ter sido herdadas (ex: ./start.sh raiz
+# antigamente carregava client/.env neste mesmo processo). Sem isso,
+# COMPOSE_PROJECT_NAME=pulse e VERSION=2.5.x acabavam no env do processo
+# Node — e dali no PTY, sequestrando docker-compose em projetos do usuário.
+unset COMPOSE_PROJECT_NAME VERSION API_HOST API_PORT API_KEY
 if [ -f ".env" ]; then
     set -a
     # shellcheck disable=SC1091
