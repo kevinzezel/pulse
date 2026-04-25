@@ -81,15 +81,67 @@ export function hasDeadConnections() {
   return false;
 }
 
-export default function TerminalPane({ session, onSessionEnded, isMobile = false }) {
+// Probe ativo de saúde do WS: envia ping e espera pong em `timeoutMs`.
+// Resolve true se vivo, false se zumbi/sem entry/sem WS aberto.
+// Necessário porque `WebSocket.readyState` mente "OPEN" quando o TCP morre
+// silenciosamente (sem FIN/RST) — comum no mobile após tab freezing e no
+// desktop após suspend/Wi-Fi flap. Sem isto, hasDeadConnections() falha em
+// detectar zumbis e a reconexão automática nunca dispara.
+export function probeTerminal(sessionId, timeoutMs = 2000) {
+  return new Promise((resolve) => {
+    const entry = terminalCache.get(sessionId);
+    if (!entry || !entry.ws || entry.ws.readyState !== WebSocket.OPEN) {
+      resolve(false);
+      return;
+    }
+    const pingTs = Date.now();
+    entry.lastPingTs = pingTs;
+    try {
+      entry.ws.send(JSON.stringify({ type: 'ping' }));
+    } catch {
+      resolve(false);
+      return;
+    }
+    // Polling barato: o pong atualiza entry.lastPongTs no onmessage.
+    const intervalId = setInterval(() => {
+      const cur = terminalCache.get(sessionId);
+      if (!cur || cur !== entry) {
+        clearInterval(intervalId);
+        clearTimeout(timer);
+        resolve(false);
+        return;
+      }
+      if ((cur.lastPongTs || 0) >= pingTs) {
+        clearInterval(intervalId);
+        clearTimeout(timer);
+        resolve(true);
+      }
+    }, 50);
+    const timer = setTimeout(() => {
+      clearInterval(intervalId);
+      resolve(false);
+    }, timeoutMs);
+  });
+}
+
+export async function probeAllTerminals(timeoutMs = 2000) {
+  if (terminalCache.size === 0) return false;
+  const ids = [...terminalCache.keys()];
+  const results = await Promise.all(ids.map((id) => probeTerminal(id, timeoutMs)));
+  return results.some((alive) => !alive);
+}
+
+export default function TerminalPane({ session, onSessionEnded, onReconnect, isMobile = false }) {
   const { theme } = useTheme();
   const { t } = useTranslation();
   const { sendViewing, presencePolicy } = useNotifications();
   const slotRef = useRef(null);
   const onSessionEndedRef = useRef(onSessionEnded);
+  const onReconnectRef = useRef(onReconnect);
   const tRef = useRef(t);
   const isMobileRef = useRef(isMobile);
   onSessionEndedRef.current = onSessionEnded;
+  onReconnectRef.current = onReconnect;
   tRef.current = t;
   isMobileRef.current = isMobile;
 
@@ -203,6 +255,9 @@ export default function TerminalPane({ session, onSessionEnded, isMobile = false
           // scroll offset while the repaint region FIFOs underneath as the
           // buffer grows. Matches default behavior of iTerm2/gnome-terminal.
           terminal.write(msg.data, () => terminal.scrollToBottom());
+        } else if (msg.type === 'pong') {
+          const cur = terminalCache.get(session.id);
+          if (cur) cur.lastPongTs = Date.now();
         }
       };
 
@@ -471,6 +526,48 @@ export default function TerminalPane({ session, onSessionEnded, isMobile = false
     const id = setInterval(sendHeartbeat, VIEWING_HEARTBEAT_MS);
     return () => clearInterval(id);
   }, [session.id, sendViewing, presencePolicy]);
+
+  // Heartbeat passivo de saúde do WS de terminal: a cada 30s, manda ping e
+  // espera pong em 5s. Se estourar, considera zumbi e chama onReconnect()
+  // direto — sem isso, suspend/Wi-Fi flap em desktop com aba em foco deixa
+  // o WS num estado "OPEN mas TCP morto" que readyState não revela e a
+  // reconexão automática (gated por hasDeadConnections) nunca dispara.
+  // Independente do `viewing` (frequência e gates diferentes); só roda com
+  // a aba visível pra não disparar reconexão durante tab freezing no mobile.
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const PING_INTERVAL_MS = 30000;
+    const PONG_TIMEOUT_MS = 5000;
+    let timeoutId = null;
+    let cancelled = false;
+    const tick = () => {
+      if (cancelled) return;
+      if (document.visibilityState !== 'visible') return;
+      const entry = terminalCache.get(session.id);
+      if (!entry || !entry.ws || entry.ws.readyState !== WebSocket.OPEN) return;
+      const pingTs = Date.now();
+      entry.lastPingTs = pingTs;
+      try {
+        entry.ws.send(JSON.stringify({ type: 'ping' }));
+      } catch {
+        return;
+      }
+      timeoutId = setTimeout(() => {
+        if (cancelled) return;
+        const cur = terminalCache.get(session.id);
+        if (!cur) return;
+        if ((cur.lastPongTs || 0) < pingTs) {
+          onReconnectRef.current?.();
+        }
+      }, PONG_TIMEOUT_MS);
+    };
+    const intervalId = setInterval(tick, PING_INTERVAL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(intervalId);
+      if (timeoutId) clearTimeout(timeoutId);
+    };
+  }, [session.id]);
 
   return (
     <div className="flex flex-col overflow-hidden" style={{ height: '100%', background: 'hsl(var(--terminal-bg))' }}>

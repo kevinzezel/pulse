@@ -11,7 +11,7 @@ from fastapi import APIRouter, Body, WebSocket, WebSocketDisconnect, UploadFile,
 logger = logging.getLogger(__name__)
 from resources.terminal import create_session_request, list_sessions_request, kill_session_request, rename_session_request, clone_session_request, websocket_terminal, sessions, set_session_notify_request, set_session_scope_names_request, restore_sessions_request, record_session_viewing, _sessions_lock
 from resources.notification_broadcast import register as register_notification_client, unregister as unregister_notification_client
-from resources.notifications import _render_pane_via_pyte
+from resources.notifications import _render_full_history_via_pyte
 from tools.pty import get_pty
 from system.log import AppException
 from system.i18n import build_i18n_response
@@ -240,7 +240,7 @@ def capture_session(request: Request, session_id: str, lines: int = CAPTURE_LINE
     pty = get_pty(session_id)
     if pty is None:
         raise AppException(key="errors.session_not_found", status_code=404)
-    text = _render_pane_via_pyte(pty)
+    text = _render_full_history_via_pyte(pty, lines_i)
     return build_i18n_response(request, 200, {
         "detail_key": "status.ok",
         "text": text,

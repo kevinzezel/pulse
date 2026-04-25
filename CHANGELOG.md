@@ -56,6 +56,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 - **Documentation updated** (`CLAUDE.md`, `README.md`, `NOTIFICATIONS.md`, `CONTRIBUTING.md`, `docs/MULTI-SERVER.md`): architecture sections, prerequisites (no tmux), watcher description, constants table, gotchas. `NOTIFICATIONS.md` got an explicit note explaining how pyte made the entire border-regex scheme unnecessary. Translated `NOTIFICATIONS.md` and `CLAUDE.md` to English to align with the rest of the public-facing docs.
 
+## [2.0.1] — 2026-04-25
+
+### Fixed
+
+- **Terminal stayed "alive but blank" after returning from background, requiring F5.** On mobile (Chrome Android tab freezing) and on desktop (suspend/resume, Wi-Fi flap), the WebSocket TCP could die silently — no FIN/RST delivered — and `WebSocket.readyState` kept reporting `OPEN`. The auto-reconnect path in `(main)/page.js` is gated by `hasDeadConnections()` (a `readyState` check), so it never fired and the user saw a frozen terminal until a full page reload. Two layers of fix: (1) **active probe on `visibilitychange`** — when the tab becomes visible, `probeAllTerminals(2000)` sends `{type:'ping'}` to every terminal WS and waits for `{type:'pong'}`; if any times out, `handleReconnect()` runs; (2) **passive heartbeat in `TerminalPane`** — every 30s with the tab visible, each pane pings its own WS and calls the new `onReconnect` prop directly if no pong arrives in 5s, recovering even when visibility never changed. Backend ships a one-line `elif msg_type == "ping": await websocket.send_json({"type":"pong"})` in `websocket_terminal()`. Idle-notification flow (separate `/ws/notifications` channel) was unaffected by either bug or fix.
+
+- **"Capture output as text" button only returned the visible viewport (~30-50 lines) instead of the full history.** The endpoint `GET /sessions/{id}/capture?lines=N` accepted the `lines` parameter but discarded it: it called `_render_pane_via_pyte(pty)` which renders into a fixed-size `pyte.Screen(cols, rows)`. Pyte's `Screen` has no scrollback — feeding 512 KB of byte history into a 30-row screen overwrites every line as it goes, leaving only the current viewport in `screen.display`. The line-count presets (100/500/2k/10k) in the modal were therefore cosmetic. Fix: new `_render_full_history_via_pyte(pty, max_lines)` in `notifications.py` uses `pyte.HistoryScreen(cols, rows, history=12000, ratio=0.5)`, joins `screen.history.top` (chars from each `StaticDefaultDict` line) with `screen.display`, and truncates to the last `max_lines`. Restores parity with the previous `tmux capture-pane -p -S -<N>` behavior. The original `_render_pane_via_pyte` is kept untouched for the idle watcher (only needs the visible state).
+
 ## [1.14.1-pre] — 2026-04-24
 
 ### Fixed
@@ -740,7 +748,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v1.11.1...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v2.0.1...HEAD
+[2.0.1]: https://github.com/kevinzezel/pulse/releases/tag/v2.0.1
 [1.13.7]: https://github.com/kevinzezel/pulse/releases/tag/v1.13.7
 [1.13.6]: https://github.com/kevinzezel/pulse/releases/tag/v1.13.6
 [1.13.5]: https://github.com/kevinzezel/pulse/releases/tag/v1.13.5

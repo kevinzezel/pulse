@@ -15,7 +15,7 @@ import { bootTabSession, tabKey, listTabKeysForScope } from '@/lib/tabSession';
 import { readJSON, writeJSON, removeKey } from '@/lib/localState';
 import { reorderById } from '@/utils/reorder';
 import { replaceInTree, removeFromTree, getVisibleSessionIds, validateTree } from '@/utils/mosaicHelpers';
-import { destroyTerminal, destroyAllTerminals, sendKey, hasDeadConnections } from '@/components/TerminalPane';
+import { destroyTerminal, destroyAllTerminals, sendKey, hasDeadConnections, probeAllTerminals } from '@/components/TerminalPane';
 import { useTranslation, useErrorToast } from '@/providers/I18nProvider';
 import { useServers } from '@/providers/ServersProvider';
 import { useProjects } from '@/providers/ProjectsProvider';
@@ -753,6 +753,13 @@ function Dashboard() {
         attempt = 0;
         trigger();
         setTimeout(trigger, 500);
+        // Probe ativo: WS pode estar zumbi (readyState=OPEN mas TCP morto).
+        // Comum em mobile após tab freeze e em desktop após suspend/Wi-Fi flap.
+        // hasDeadConnections() sozinho não detecta isso e o trigger acima sai
+        // sem reconectar.
+        probeAllTerminals(2000).then((anyDead) => {
+          if (anyDead) handleReconnectRef.current?.();
+        });
       }
     };
     const onPageShow = (e) => {
@@ -950,6 +957,7 @@ function Dashboard() {
           onMaximize={handleMaximize}
           isMaximized={isMaximized}
           onSessionEnded={handleSessionEnded}
+          onReconnect={handleReconnect}
           busySessionIds={busySessionIds}
           onTileDragStart={setDraggingId}
           onTileDragEnd={() => setDraggingId(null)}

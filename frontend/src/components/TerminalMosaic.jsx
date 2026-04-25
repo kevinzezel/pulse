@@ -107,6 +107,7 @@ export default function TerminalMosaic({
   onMaximize,
   isMaximized,
   onSessionEnded,
+  onReconnect,
   busySessionIds,
   onTileDragStart,
   onTileDragEnd,
@@ -202,6 +203,7 @@ export default function TerminalMosaic({
                   <TerminalPane
                     session={session}
                     onSessionEnded={() => onSessionEnded(id)}
+                    onReconnect={onReconnect}
                     isMobile={true}
                   />
                   {id === activeTerminalId && (
@@ -280,6 +282,7 @@ export default function TerminalMosaic({
                 <TerminalPane
                   session={session}
                   onSessionEnded={() => onSessionEnded(id)}
+                  onReconnect={onReconnect}
                 />
                 <PaneActionsFab
                   sessionId={id}

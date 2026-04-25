@@ -91,6 +91,44 @@ def _render_pane_via_pyte(pty_session):
     return "\n".join(screen.display).rstrip()
 
 
+def _history_line_to_str(line):
+    # Pyte representa cada linha do histórico como StaticDefaultDict[col -> Char],
+    # contendo só as colunas que receberam glyph (resto é vazio). values()
+    # preserva ordem de inserção e o pyte sempre escreve da esquerda pra
+    # direita, então join direto reconstrói o texto. Sem pad à direita —
+    # rstrip já vem implícito por não haver espaços trailing armazenados.
+    return "".join(ch.data for ch in line.values())
+
+
+def _render_full_history_via_pyte(pty_session, max_lines):
+    """Renderiza display + scrollback do PTY via pyte.HistoryScreen.
+
+    Diferente de _render_pane_via_pyte (só viewport via pyte.Screen), este
+    mantém um buffer de história e devolve history.top + display, truncado
+    pelas últimas `max_lines` linhas. Espelha `tmux capture-pane -p -S -<N>`.
+
+    Não reusa cache: cada captura é one-shot, o feed completo do scrollback
+    custa ~5ms para os 512KB máximos do PTYSession.
+    """
+    cols, rows = pty_session.cols, pty_session.rows
+    # 512KB de scrollback ≈ 6500 linhas a 80 col cheias; sobre-aloca pra
+    # absorver picos de linhas curtas (prompts, output denso).
+    history = max(max_lines, 12000)
+    screen = pyte.HistoryScreen(cols, rows, history=history, ratio=0.5)
+    stream = pyte.ByteStream(screen)
+    raw = pty_session.get_scrollback_bytes()
+    if raw:
+        stream.feed(raw)
+    top_lines = [_history_line_to_str(line).rstrip() for line in screen.history.top]
+    visible_lines = [line.rstrip() for line in screen.display]
+    all_lines = top_lines + visible_lines
+    while all_lines and not all_lines[-1]:
+        all_lines.pop()
+    if max_lines and len(all_lines) > max_lines:
+        all_lines = all_lines[-max_lines:]
+    return "\n".join(all_lines)
+
+
 def _format_pane_snippet(content):
     lines = [ln.rstrip() for ln in content.rstrip("\n").split("\n")]
     while lines and not lines[-1]:

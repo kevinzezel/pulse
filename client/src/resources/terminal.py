@@ -515,6 +515,13 @@ async def websocket_terminal(websocket: WebSocket, session_id: str):
                 # terminal na viewport, mouse/teclado ativos). Suprime alerta
                 # idle no watcher (Rule 5) durante a janela de grace.
                 record_session_viewing(session_id)
+            elif msg_type == "ping":
+                # Probe de saúde do WS: o frontend dispara ping no
+                # visibilitychange e num heartbeat de 30s pra detectar zumbis
+                # (TCP morto sem FIN, comum no mobile após tab freezing e no
+                # desktop após suspend/Wi-Fi flap). Sem isto, o `readyState`
+                # mente "OPEN" e a reconexão automática nunca dispara.
+                await websocket.send_json({"type": "pong"})
             elif msg_type == "resize":
                 record_session_resize(session_id)
                 pty_session.resize(msg["rows"], msg["cols"])
