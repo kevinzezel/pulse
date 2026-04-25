@@ -6,6 +6,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [2.3.0] — 2026-04-25
+
+### Added
+
+- **Self-signed TLS acceptance modal** in the dashboard. When a server registered with `protocol: "https"` is unreachable from the dashboard (in practice: the browser is blocking the request because the self-signed certificate has not been accepted yet), a modal opens at boot with two sections — "Accept self-signed certificate" listing the affected HTTPS servers with an `Open /health` button that pops a new tab pointing at `https://<host>:<port>/health` (so the user can accept the cert via the browser's "Advanced → Continue anyway" flow), and "Mixed content" listing servers wrongly registered as `http` while the dashboard runs over `https` (an HTTPS dashboard cannot fetch HTTP URLs at all) with an `Edit server` deep-link to `Settings → Servers` pre-loaded for that entry. The modal also exposes a `Re-test now` button that re-runs `fetchSessions` to refresh `offlineServerIds`.
+- **Per-server silencing for the TLS modal.** Each item in the modal has a "Don't warn me about this server" action (bell-off icon) that adds the server id to `localStorage["rt:tlsModalSilencedServerIds"]`. Silenced servers never appear in the modal again on this machine (across tabs and reloads), but keep working normally everywhere else. Designed for the legitimate-offline case (e.g. a server that only exists when on the VPN). Settings → Servers shows a "TLS warnings silenced" badge next to silenced servers and a bell button to revert (`Re-enable warnings`). The modal also has a session-scoped `Close` button that hides it for the current tab via `sessionStorage["rt:tlsModalDismissed"]`.
+- **`frontend/src/utils/serverHealth.js`** consolidating `timeoutSignal`, `isMixedContent` and `testServer` (the `/health` + `/api/sessions` probe) — previously inlined in both `ServersTab.jsx` and `ServersProvider.jsx`. `testServer` now short-circuits with `{ ok: false, reason: "mixed_content" }` before any fetch when the dashboard is on HTTPS and the server is on HTTP, so the existing reason-based UI in `Settings → Servers` surfaces the actual cause instead of a generic "unreachable". A new translation `settings.servers.test.reason.mixed_content` was added in all 3 locales.
+- **`frontend/src/utils/tlsSilenced.js`** with `readSilencedIds` / `writeSilencedIds` / `addSilencedId` / `removeSilencedId`, shared by the modal and `ServersTab`.
+
+### Changed
+
+- **`ServersProvider.probeLocalReachable` now uses the shared `timeoutSignal` from `utils/serverHealth.js`** with a `cancel()` callback that clears the underlying `setTimeout` once the fetch resolves — the previous local copy returned only the `AbortSignal`, leaving the timeout pending until it fired (~1.5 s of dead handles per probe; harmless in practice but cleaner now).
+
 ## [2.2.0] — 2026-04-25
 
 ### Fixed
@@ -793,6 +806,7 @@ First public release.
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
 [Unreleased]: https://github.com/kevinzezel/pulse/compare/v2.2.0...HEAD
+[2.3.0]: https://github.com/kevinzezel/pulse/releases/tag/v2.3.0
 [2.2.0]: https://github.com/kevinzezel/pulse/releases/tag/v2.2.0
 [2.1.1]: https://github.com/kevinzezel/pulse/releases/tag/v2.1.1
 [2.1.0]: https://github.com/kevinzezel/pulse/releases/tag/v2.1.0

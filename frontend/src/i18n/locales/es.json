@@ -496,9 +496,12 @@
           "bad_key": "API key inválida",
           "timeout": "Tiempo agotado",
           "unreachable": "Inalcanzable",
-          "unknown": "Respuesta inesperada"
+          "unknown": "Respuesta inesperada",
+          "mixed_content": "Contenido mixto (servidor HTTP en panel HTTPS)"
         }
-      }
+      },
+      "silencedBadge": "Avisos de TLS silenciados",
+      "unsilenceButton": "Reactivar avisos"
     },
     "notifications": {
       "title": "Notificaciones por Telegram",
@@ -706,6 +709,27 @@
       "dismissButton": "Recordar en 24h",
       "releaseNotesButton": "Notas de la versión",
       "closeAria": "Cerrar"
+    }
+  },
+  "tls": {
+    "acceptModal": {
+      "title": "Problema de conexión con servidor",
+      "subtitle": "{count} servidor(es) necesita(n) atención",
+      "closeAria": "Cerrar",
+      "tlsSection": {
+        "title": "Aceptar certificado autofirmado",
+        "intro": "Estos servidores HTTPS usan un certificado autofirmado. Abre el enlace de abajo en una pestaña nueva y acepta el aviso (\"Avanzado\" → \"Continuar de todos modos\"), luego vuelve y haz clic en Reprobar."
+      },
+      "mixedSection": {
+        "title": "Contenido mixto",
+        "intro": "Estos servidores están configurados como HTTP, pero el panel se ejecuta en HTTPS. El navegador bloquea estas solicitudes. Edita cada servidor y cambia el protocolo a HTTPS."
+      },
+      "openHealth": "Abrir /health",
+      "editServer": "Editar servidor",
+      "silence": "No avisarme más sobre este servidor",
+      "silencedToast": "Servidor silenciado. Reactivar en Configuración → Servidores.",
+      "retest": "Reprobar ahora",
+      "dismiss": "Cerrar"
     }
   }
 }

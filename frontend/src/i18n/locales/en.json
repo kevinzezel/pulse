@@ -496,9 +496,12 @@
           "bad_key": "Invalid API key",
           "timeout": "Timeout",
           "unreachable": "Unreachable",
-          "unknown": "Unexpected response"
+          "unknown": "Unexpected response",
+          "mixed_content": "Mixed content (HTTP server on an HTTPS dashboard)"
         }
-      }
+      },
+      "silencedBadge": "TLS warnings silenced",
+      "unsilenceButton": "Re-enable warnings"
     },
     "notifications": {
       "title": "Telegram Notifications",
@@ -706,6 +709,27 @@
       "dismissButton": "Remind me in 24h",
       "releaseNotesButton": "Release notes",
       "closeAria": "Close"
+    }
+  },
+  "tls": {
+    "acceptModal": {
+      "title": "Server connection issue",
+      "subtitle": "{count} server(s) need attention",
+      "closeAria": "Close",
+      "tlsSection": {
+        "title": "Accept self-signed certificate",
+        "intro": "These HTTPS servers use a self-signed certificate. Open the link below in a new tab and accept the warning (\"Advanced\" → \"Continue anyway\"), then come back and click Re-test."
+      },
+      "mixedSection": {
+        "title": "Mixed content",
+        "intro": "These servers are configured with HTTP, but the dashboard is running over HTTPS. The browser blocks these requests. Edit each server and switch the protocol to HTTPS."
+      },
+      "openHealth": "Open /health",
+      "editServer": "Edit server",
+      "silence": "Don't warn me about this server",
+      "silencedToast": "Server silenced. Re-enable in Settings → Servers.",
+      "retest": "Re-test now",
+      "dismiss": "Close"
     }
   }
 }

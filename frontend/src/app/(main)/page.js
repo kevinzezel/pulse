@@ -26,6 +26,7 @@ import Sidebar from '@/components/Sidebar';
 import GroupSelector from '@/components/GroupSelector';
 import ComposeModal from '@/components/ComposeModal';
 import MobileKeyBar from '@/components/MobileKeyBar';
+import TlsAcceptModal from '@/components/TlsAcceptModal';
 const TerminalMosaic = dynamic(() => import('@/components/TerminalMosaic'), { ssr: false });
 
 const EMPTY_ARRAY = [];
@@ -981,6 +982,12 @@ function Dashboard() {
           onClose={() => setComposeTargetId(null)}
         />
       )}
+
+      <TlsAcceptModal
+        servers={servers}
+        offlineServerIds={offlineServerIds}
+        onRetest={fetchSessions}
+      />
     </div>
   );
 }

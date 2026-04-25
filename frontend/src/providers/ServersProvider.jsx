@@ -6,6 +6,7 @@ import { destroyTerminalsByServerId } from '@/components/TerminalPane';
 import { getLocalServers, setLocalServers } from '@/services/api';
 import { useRefetchOnFocus } from '@/utils/useRefetchOnFocus';
 import { isServerLocalToBrowser } from '@/utils/host';
+import { timeoutSignal } from '@/utils/serverHealth';
 
 const ServersContext = createContext(null);
 
@@ -53,15 +54,6 @@ function invalidateAffectedTerminals(oldList, newList) {
   }
 }
 
-function timeoutSignal(ms) {
-  if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
-    return AbortSignal.timeout(ms);
-  }
-  const controller = new AbortController();
-  setTimeout(() => controller.abort(new DOMException('timeout', 'TimeoutError')), ms);
-  return controller.signal;
-}
-
 async function probeLocalReachable(server) {
   if (!server?.port || !server?.apiKey) return false;
   const scheme = server.protocol === 'https' ? 'https' : 'http';
@@ -69,14 +61,17 @@ async function probeLocalReachable(server) {
   // mesma máquina do browser (loopback). Outra instância na mesma porta
   // retornaria 401 → descartamos como "não é o mesmo server".
   const url = `${scheme}://localhost:${server.port}/api/sessions`;
+  const t = timeoutSignal(1500);
   try {
     const res = await fetch(url, {
       headers: { 'X-API-Key': server.apiKey },
-      signal: timeoutSignal(1500),
+      signal: t.signal,
     });
     return res.ok;
   } catch {
     return false;
+  } finally {
+    t.cancel();
   }
 }
 

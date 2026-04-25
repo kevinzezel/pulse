@@ -2,9 +2,11 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
-import { Plus, Pencil, Trash2, Check, X, Loader, Eye, EyeOff, PlugZap, Wifi, WifiOff } from 'lucide-react';
+import { Plus, Pencil, Trash2, Check, X, Loader, Eye, EyeOff, PlugZap, Wifi, WifiOff, Bell, BellOff } from 'lucide-react';
 import { useTranslation, useErrorToast } from '@/providers/I18nProvider';
 import { useServers } from '@/providers/ServersProvider';
+import { testServer } from '@/utils/serverHealth';
+import { readSilencedIds, removeSilencedId } from '@/utils/tlsSilenced';
 
 const COLOR_PRESETS = [
   '213 94% 60%',
@@ -35,46 +37,6 @@ function ColorSwatch({ value, active, onClick }) {
   );
 }
 
-function timeoutSignal(ms) {
-  if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
-    return { signal: AbortSignal.timeout(ms), cancel: () => {} };
-  }
-  const controller = new AbortController();
-  const handle = setTimeout(() => controller.abort(new DOMException('timeout', 'TimeoutError')), ms);
-  return { signal: controller.signal, cancel: () => clearTimeout(handle) };
-}
-
-async function testServer(server) {
-  const scheme = server.protocol === 'https' ? 'https' : 'http';
-  const base = `${scheme}://${server.host}:${server.port}`;
-  const t1 = timeoutSignal(3500);
-  try {
-    const health = await fetch(`${base}/health`, { signal: t1.signal });
-    if (!health.ok) return { ok: false, reason: 'health_fail' };
-  } catch (err) {
-    const isTimeout = err?.name === 'TimeoutError' || err?.name === 'AbortError';
-    return { ok: false, reason: isTimeout ? 'timeout' : 'unreachable' };
-  } finally {
-    t1.cancel();
-  }
-
-  const t2 = timeoutSignal(3500);
-  try {
-    const auth = await fetch(`${base}/api/sessions`, {
-      headers: { 'X-API-Key': server.apiKey },
-      signal: t2.signal,
-    });
-    if (auth.status === 401) return { ok: false, reason: 'bad_key' };
-    if (!auth.ok) return { ok: false, reason: 'unknown' };
-    return { ok: true };
-  } catch (err) {
-    const isTimeout = err?.name === 'TimeoutError' || err?.name === 'AbortError';
-    return { ok: false, reason: isTimeout ? 'timeout' : 'unreachable' };
-  } finally {
-    t2.cancel();
-  }
-}
-
 export default function ServersTab({ initialEditId = null }) {
   const { t } = useTranslation();
   const showError = useErrorToast();
@@ -87,6 +49,15 @@ export default function ServersTab({ initialEditId = null }) {
   const [testResults, setTestResults] = useState({});
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
   const [forceSaveProbe, setForceSaveProbe] = useState(null);
+  const [silencedIds, setSilencedIds] = useState([]);
+
+  useEffect(() => {
+    setSilencedIds(readSilencedIds());
+  }, []);
+
+  function handleUnsilence(id) {
+    setSilencedIds(removeSilencedId(id));
+  }
 
   const editing = useMemo(() => draft && draft.id !== null, [draft]);
   const draftKey = draft ? (draft.id || '__draft__') : null;
@@ -435,6 +406,7 @@ export default function ServersTab({ initialEditId = null }) {
           const result = testResults[s.id];
           const swatchColor = s.color || '220 10% 55%';
           const probing = testingId === s.id || result == null;
+          const isSilenced = silencedIds.includes(s.id);
           const statusTitle = probing
             ? '...'
             : result.ok
@@ -476,6 +448,25 @@ export default function ServersTab({ initialEditId = null }) {
                 <span className="text-[11px] px-2 py-0.5 rounded bg-destructive/15 text-destructive">
                   {t(`settings.servers.test.reason.${result.reason}`)}
                 </span>
+              )}
+              {isSilenced && (
+                <span
+                  title={t('settings.servers.silencedBadge')}
+                  className="text-[11px] px-2 py-0.5 rounded bg-muted/60 text-muted-foreground inline-flex items-center gap-1"
+                >
+                  <BellOff size={11} />
+                  {t('settings.servers.silencedBadge')}
+                </span>
+              )}
+              {isSilenced && (
+                <button
+                  onClick={() => handleUnsilence(s.id)}
+                  className="inline-flex items-center justify-center p-1.5 rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
+                  title={t('settings.servers.unsilenceButton')}
+                  aria-label={t('settings.servers.unsilenceButton')}
+                >
+                  <Bell size={14} />
+                </button>
               )}
               <button
                 onClick={() => handleTest(s)}
