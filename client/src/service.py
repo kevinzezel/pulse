@@ -53,6 +53,7 @@ from routes import terminal, settings as settings_route, version as version_rout
 from resources.terminal import recover_sessions, reap_dead_ptys
 from resources.settings import load_settings
 from resources.notifications import notification_watcher
+from tools.pty import set_main_loop
 
 _auth = [Depends(require_api_key)]
 
@@ -67,10 +68,15 @@ load_settings()
 
 @app.on_event("startup")
 async def _start_background_tasks():
+    # Captura o loop principal para PTYSession.start()/close() chamarem
+    # add_reader/remove_reader via call_soon_threadsafe. Endpoints `def`
+    # (sync) rodam em thread pool, sem running loop visível — sem isso o
+    # reader permanente nunca seria instalado e o WS ficaria sem output.
+    set_main_loop(asyncio.get_running_loop())
     # recover_sessions() é no-op em PTY mode (não há persistência server-side
-    # do estado do shell), mas roda dentro do startup async para garantir que,
-    # se um dia voltar a criar PTYs, tenha um running loop disponível para
-    # PTYSession.start() registrar o reader permanente via add_reader.
+    # do estado do shell), mas roda dentro do startup async para que, se um
+    # dia voltar a criar PTYs no recovery, tenha o loop principal já
+    # registrado.
     recover_sessions()
     asyncio.create_task(notification_watcher())
     asyncio.create_task(reap_dead_ptys())

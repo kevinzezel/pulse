@@ -24,6 +24,26 @@ LISTENER_QUEUE_MAX = 256
 DEFAULT_SHELL_FALLBACK = "/bin/bash"
 
 
+# Loop principal do uvicorn, capturado no startup (service.py:_start_background_tasks).
+# Endpoints FastAPI definidos como `def` (síncronos) rodam em thread pool, fora do
+# event loop — `asyncio.get_running_loop()` falha lá. PTYSession.start() e close()
+# precisam do loop principal para chamar add_reader/remove_reader via
+# call_soon_threadsafe (asyncio reader API exige isso quando chamada de outro thread).
+_main_loop = None
+_main_loop_lock = threading.Lock()
+
+
+def set_main_loop(loop):
+    global _main_loop
+    with _main_loop_lock:
+        _main_loop = loop
+
+
+def get_main_loop():
+    with _main_loop_lock:
+        return _main_loop
+
+
 class PTYSession:
     """Shell session bound to a PTY.
 
@@ -82,23 +102,35 @@ class PTYSession:
         )
         os.close(slave_fd)
         self.master_fd = master_fd
-        # Captura o loop running e instala o reader permanente. Todas as paths
-        # de criação atuais (create_session_request, restore_sessions_request,
-        # clone_session_request) são async handlers, então get_running_loop()
-        # sempre retorna o loop do uvicorn. Se um dia for chamado fora de
-        # contexto async, _loop fica None e o reader não é instalado — write()
-        # do shell vai bloquear como antes; deixa explícito no log.
-        try:
-            self._loop = asyncio.get_running_loop()
-        except RuntimeError:
-            self._loop = None
+        # Instala o reader no loop principal via call_soon_threadsafe.
+        # Os endpoints FastAPI (POST /sessions, /sessions/restore, /sessions/{id}/clone)
+        # são definidos como `def` (síncronos), então rodam em thread pool worker —
+        # asyncio.get_running_loop() lá levanta RuntimeError. O loop principal é
+        # capturado no startup via set_main_loop(); fallback para get_running_loop()
+        # cobre testes isolados rodando em asyncio.run() puro.
+        loop = get_main_loop()
+        if loop is None:
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = None
+        self._loop = loop
+        if loop is not None:
+            try:
+                loop.call_soon_threadsafe(loop.add_reader, self.master_fd, self._on_pty_read)
+                self._reader_installed = True
+            except RuntimeError:
+                # Loop não está mais rodando (shutdown em progresso).
+                self._loop = None
+                logger.warning(
+                    "PTY session %s started but loop not running — reader skipped",
+                    self.id,
+                )
+        else:
             logger.warning(
-                "PTY session %s started without running loop — reader will not drain master_fd",
+                "PTY session %s started without main loop registered — reader will not drain master_fd",
                 self.id,
             )
-        if self._loop is not None:
-            self._loop.add_reader(self.master_fd, self._on_pty_read)
-            self._reader_installed = True
         logger.info(
             "PTY session started: %s (pid=%s, fd=%s, cwd=%s)",
             self.id, self.process.pid, self.master_fd, cwd or "(inherit)",
@@ -274,11 +306,36 @@ class PTYSession:
         # ORDEM IMPORTA: remove_reader ANTES de os.close. Inverter arrisca o
         # callback do reader disparar em fd já fechado, levando ao EBADF e
         # potencialmente a estado inconsistente do selector.
+        # close() pode ser chamado de threadpool (kill_session_request via
+        # endpoint sync) OU do thread do loop (reaper / websocket_terminal).
+        # Em ambos os casos precisamos garantir que o remove_reader EXECUTOU
+        # antes de fechar o fd; daí o Event.wait quando estamos fora do loop.
         if self._loop is not None and self._reader_installed and self.master_fd is not None:
             try:
-                self._loop.remove_reader(self.master_fd)
-            except Exception:
-                pass
+                current = asyncio.get_running_loop()
+                same_loop = current is self._loop
+            except RuntimeError:
+                same_loop = False
+            if same_loop:
+                try:
+                    self._loop.remove_reader(self.master_fd)
+                except Exception:
+                    pass
+            else:
+                done = threading.Event()
+                fd_to_remove = self.master_fd
+                def _remove():
+                    try:
+                        self._loop.remove_reader(fd_to_remove)
+                    except Exception:
+                        pass
+                    done.set()
+                try:
+                    self._loop.call_soon_threadsafe(_remove)
+                    done.wait(timeout=2.0)
+                except RuntimeError:
+                    # Loop não está rodando — nenhum callback pode disparar.
+                    pass
             self._reader_installed = False
         self.kill()
         if self.master_fd is not None:
