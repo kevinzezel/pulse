@@ -110,6 +110,7 @@
     "createdAt": "Created on {date}",
     "empty": "empty",
     "emptyDescription": "No servers, groups, terminals, notes, flows or prompts.",
+    "defaultName": "Default",
     "newModal": {
       "title": "New project",
       "nameLabel": "Name",

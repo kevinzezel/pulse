@@ -390,12 +390,14 @@ function Dashboard() {
               id: sessionId,
               name: s.name,
               group_id: s.group_id || null,
-              group_name: s.group_name || null,
+              // Sempre persiste um label legível pra notificação manter o
+              // formato "{projeto} › {grupo} › {terminal}" após restore.
+              group_name: s.group_name || t('sidebar.noGroup'),
               notify_on_idle: Boolean(s.notify_on_idle),
               cwd: s.cwd || null,
               created_at: s.created_at,
               project_id: s.project_id || activeProjectId,
-              project_name: s.project_name || activeProject?.name || null,
+              project_name: s.project_name || activeProject?.name || t('projects.defaultName'),
             });
           }
 
@@ -635,8 +637,8 @@ function Dashboard() {
     try {
       const group = groupId ? groups.find(g => g.id === groupId) : null;
       const data = await createSession(serverId, name, groupId, cwd, {
-        groupName: group?.name || null,
-        projectName: activeProject?.name || null,
+        groupName: group?.name || t('sidebar.noGroup'),
+        projectName: activeProject?.name || t('projects.defaultName'),
       });
       const session = decorateSession(data.session, serverId);
       setSessions(prev => [...prev, session]);
@@ -795,7 +797,9 @@ function Dashboard() {
   async function handleAssignGroup(sessionId, groupId) {
     const prevSessions = sessions;
     const group = groupId ? groups.find(g => g.id === groupId) : null;
-    const groupName = group?.name || null;
+    // Sempre grava um label legível (mesmo "Sem grupo") pra notificação ficar
+    // consistente "{projeto} › {grupo} › {terminal}", sem omitir partes.
+    const groupName = group?.name || t('sidebar.noGroup');
     setSessions(prev => prev.map(s => s.id === sessionId ? { ...s, group_id: groupId, group_name: groupName } : s));
     try {
       await assignSessionGroup(sessionId, groupId, groupName);

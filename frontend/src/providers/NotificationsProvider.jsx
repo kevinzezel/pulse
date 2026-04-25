@@ -234,13 +234,17 @@ export function NotificationsProvider({ children }) {
     if (!claimEvent(buildEventId(serverId, event))) return;
     const composedId = composeSessionId(serverId, backendSessionId);
     const name = event.name || backendSessionId;
-    const context = [event.project_name, event.group_name, name]
-      .filter((x) => typeof x === 'string' && x)
-      .join(' › ') || name;
+    const tr = tRef.current;
+    // Sempre monta "{projeto} › {grupo} › {terminal}". Fallbacks defensivos
+    // pra sessões legadas (criadas antes do fix, sem labels persistidos).
+    const projectLabel =
+      (typeof event.project_name === 'string' && event.project_name) || tr('projects.defaultName');
+    const groupLabel =
+      (typeof event.group_name === 'string' && event.group_name) || tr('sidebar.noGroup');
+    const context = `${projectLabel} › ${groupLabel} › ${name}`;
     const idleSeconds = Number(event.idle_seconds) || 0;
     const snippet = typeof event.snippet === 'string' ? event.snippet : '';
 
-    const tr = tRef.current;
     const title = tr('notifications.idleTitle', { context });
     const body = tr('notifications.idleBody', { idleSeconds });
 

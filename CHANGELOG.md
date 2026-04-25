@@ -56,6 +56,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 - **Documentation updated** (`CLAUDE.md`, `README.md`, `NOTIFICATIONS.md`, `CONTRIBUTING.md`, `docs/MULTI-SERVER.md`): architecture sections, prerequisites (no tmux), watcher description, constants table, gotchas. `NOTIFICATIONS.md` got an explicit note explaining how pyte made the entire border-regex scheme unnecessary. Translated `NOTIFICATIONS.md` and `CLAUDE.md` to English to align with the rest of the public-facing docs.
 
+## [2.0.2] — 2026-04-25
+
+### Fixed
+
+- **Idle notification title now always carries `{project} › {group} › {terminal}`, even on the default project or in "no group".** Previously, when `project_name` or `group_name` was falsy, the composer (`_compose_context` in `client/src/resources/notifications.py` and `handleEvent` in `frontend/src/providers/NotificationsProvider.jsx`) silently dropped that part — so a session in the default project under no group showed only the terminal name; one under the default project + a real group showed only `group › terminal`. The user couldn't tell at a glance which project the alert came from. Fix on three fronts: (1) `(main)/page.js` now passes `t('sidebar.noGroup')` and `t('projects.defaultName')` (new key, "Default" / "Padrão" / "Predeterminado") as the default labels in `handleCreate`, `handleAssignGroup`, and the auto-restore snapshot — so the backend stores a human-readable label even in the no-group / default-project cases, and the label moves with the terminal when it gets reassigned to another group; (2) `_compose_context` always emits three parts, falling back to static `"Default"` / `"No group"` for legacy sessions created before this contract (Telegram has no recipient locale, so the fallback stays in English); (3) `handleEvent` mirrors the same defense for browser notifications using the active locale. The user's prior preference (memory: "always show project name, including Default") is now structurally enforced rather than depending on the caller.
+
 ## [2.0.1] — 2026-04-25
 
 ### Fixed
@@ -748,7 +754,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v2.0.1...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v2.0.2...HEAD
+[2.0.2]: https://github.com/kevinzezel/pulse/releases/tag/v2.0.2
 [2.0.1]: https://github.com/kevinzezel/pulse/releases/tag/v2.0.1
 [1.13.7]: https://github.com/kevinzezel/pulse/releases/tag/v1.13.7
 [1.13.6]: https://github.com/kevinzezel/pulse/releases/tag/v1.13.6

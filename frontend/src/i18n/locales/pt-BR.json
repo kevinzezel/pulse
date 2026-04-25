@@ -110,6 +110,7 @@
     "createdAt": "Criado em {date}",
     "empty": "vazio",
     "emptyDescription": "Nenhum servidor, grupo, terminal, nota, fluxo ou prompt.",
+    "defaultName": "Padrão",
     "newModal": {
       "title": "Novo projeto",
       "nameLabel": "Nome",

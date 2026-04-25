@@ -141,17 +141,15 @@ def _format_pane_snippet(content):
 
 
 def _compose_context(sess):
-    parts = []
-    project_name = sess.get("project_name")
-    group_name = sess.get("group_name")
-    name = sess.get("name") or sess.get("id")
-    if project_name:
-        parts.append(project_name)
-    if group_name:
-        parts.append(group_name)
-    if name:
-        parts.append(name)
-    return " › ".join(parts) if parts else (name or "")
+    # Sempre monta "{projeto} › {grupo} › {terminal}" — partes nunca omitidas.
+    # O frontend grava labels legíveis na criação/move (default project name e
+    # "No group" traduzido); os fallbacks abaixo cobrem só sessões legadas que
+    # foram criadas antes deste contrato. Telegram não conhece idioma do
+    # destinatário, então o fallback fica em inglês.
+    project_name = sess.get("project_name") or "Default"
+    group_name = sess.get("group_name") or "No group"
+    name = sess.get("name") or sess.get("id") or ""
+    return f"{project_name} › {group_name} › {name}"
 
 
 async def notification_watcher():
