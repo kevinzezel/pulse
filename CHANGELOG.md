@@ -56,6 +56,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 - **Documentation updated** (`CLAUDE.md`, `README.md`, `NOTIFICATIONS.md`, `CONTRIBUTING.md`, `docs/MULTI-SERVER.md`): architecture sections, prerequisites (no tmux), watcher description, constants table, gotchas. `NOTIFICATIONS.md` got an explicit note explaining how pyte made the entire border-regex scheme unnecessary. Translated `NOTIFICATIONS.md` and `CLAUDE.md` to English to align with the rest of the public-facing docs.
 
+## [2.1.1] — 2026-04-25
+
+### Added
+
+- **`[y/N]` confirmation prompt before any CLI action that restarts the Pulse client.** Without tmux backing the sessions, restarting `pulse-client` kills every running PTY (vim, htop, ssh, Claude Code, etc.). The frontend auto-reopens terminals at the same name/group/cwd via the snapshot in `frontend/data/sessions.json` + `/sessions/restore`, but shell history and any unsaved foreground state are lost — too easy a footgun to leave silent. New helper `_confirm_client_restart` in `install/pulse.sh` (mirrors the existing `_tls_confirm` pattern: `[y/N]` default no, honors `-y`/`--yes`) is wired into:
+  - `pulse stop` / `pulse restart` (only when the target is `client` or `all`; `pulse stop dashboard` and `pulse restart dashboard` stay silent — they don't touch PTYs)
+  - `pulse upgrade`
+  - `pulse config host --client …` / `pulse config ports --client …` (prompt fires before any `.env` write, so declining is a true no-op)
+  - `pulse config tls on --client` / `pulse config tls off --client` (the existing TLS preview now mentions terminal termination explicitly; the existing `_tls_confirm` already covered the prompt)
+  - `pulse uninstall` (the existing prompt now also lists running-terminal termination)
+- Each command accepts `-y` / `--yes` to skip the prompt for scripting / CI. Internal cascades (e.g. `cmd_config_host` calling `cmd_restart client` after the user already confirmed once) pass `-y` through, so the user is never prompted twice for the same action.
+
+### Changed
+
+- **`pulse help` reorganized**: `[-y]` annotated on every command that restarts the client, plus a trailing note explaining why the prompts exist.
+- **`pulse restart` on macOS no longer pipes through `cmd_stop` + `cmd_start`.** Inlined the launchctl unload/load loop so the prompt-and-flag plumbing doesn't need to thread through two helpers — same observable behavior, cleaner internals.
+
 ## [2.1.0] — 2026-04-25
 
 ### Changed
@@ -769,7 +786,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v2.1.0...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v2.1.1...HEAD
+[2.1.1]: https://github.com/kevinzezel/pulse/releases/tag/v2.1.1
 [2.1.0]: https://github.com/kevinzezel/pulse/releases/tag/v2.1.0
 [2.0.2]: https://github.com/kevinzezel/pulse/releases/tag/v2.0.2
 [2.0.1]: https://github.com/kevinzezel/pulse/releases/tag/v2.0.1

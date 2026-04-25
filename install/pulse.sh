@@ -67,6 +67,28 @@ resolve_units() {
     esac
 }
 
+# Ask the user to confirm a destructive client-side action (restart/stop/upgrade).
+# Without tmux backing the sessions, restarting pulse-client kills every PTY
+# (vim, htop, ssh, Claude Code, etc.). The frontend will reopen the terminals
+# with the same name/group/cwd from the snapshot, but shell history and any
+# foreground state are lost. Honors `-y`/`--yes` via $yes=1 set by the caller.
+# Returns 0 = continue, 1 = abort.
+_confirm_client_restart() {
+    if [ "${yes:-0}" = 1 ]; then
+        return 0
+    fi
+    printf "\n%bWarning:%b this will restart the Pulse client.\n" "$YELLOW" "$NC"
+    printf "  Every running terminal (vim, htop, ssh, Claude Code, etc.) will be terminated.\n"
+    printf "  The frontend will auto-reopen them with the same name / group / cwd, but\n"
+    printf "  shell history and any unsaved state in foreground apps will be lost.\n"
+    printf "Continue? [y/N] "
+    read -r ans
+    case "$ans" in
+        y|Y|yes|YES) return 0 ;;
+        *) log "aborted — no changes made"; return 1 ;;
+    esac
+}
+
 # -----------------------------------------------------------------------------
 # Subcommands
 # -----------------------------------------------------------------------------
@@ -101,7 +123,24 @@ cmd_start() {
 }
 
 cmd_stop() {
-    resolve_units "${1:-all}"
+    yes=0
+    target=""
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
+            -y|--yes)             yes=1; shift ;;
+            client|dashboard|all) target="$1"; shift ;;
+            -h|--help)
+                printf "usage: pulse stop [client|dashboard|all] [-y|--yes]\n"
+                return 0
+                ;;
+            *) die "unknown arg: $1 (use: [client|dashboard|all] [-y])" ;;
+        esac
+    done
+    target="${target:-all}"
+    case "$target" in
+        client|all) _confirm_client_restart || return 0 ;;
+    esac
+    resolve_units "$target"
     case "$PULSE_OS" in
         linux)
             # shellcheck disable=SC2086
@@ -118,16 +157,41 @@ cmd_stop() {
 }
 
 cmd_restart() {
-    resolve_units "${1:-all}"
+    yes=0
+    target=""
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
+            -y|--yes)             yes=1; shift ;;
+            client|dashboard|all) target="$1"; shift ;;
+            -h|--help)
+                printf "usage: pulse restart [client|dashboard|all] [-y|--yes]\n"
+                return 0
+                ;;
+            *) die "unknown arg: $1 (use: [client|dashboard|all] [-y])" ;;
+        esac
+    done
+    target="${target:-all}"
+    case "$target" in
+        client|all) _confirm_client_restart || return 0 ;;
+    esac
+    resolve_units "$target"
     case "$PULSE_OS" in
         linux)
             # shellcheck disable=SC2086
             systemctl --user restart $UNITS
             ;;
         macos)
-            cmd_stop "${1:-all}"
+            # Inline unload+load so we don't bounce through cmd_stop/cmd_start
+            # (which would re-prompt or require shuttling $yes through).
+            for u in $UNITS; do
+                plist="$HOME/Library/LaunchAgents/$u.plist"
+                [ -f "$plist" ] && launchctl unload "$plist" 2>/dev/null || true
+            done
             sleep 1
-            cmd_start "${1:-all}"
+            for u in $UNITS; do
+                plist="$HOME/Library/LaunchAgents/$u.plist"
+                [ -f "$plist" ] && launchctl load -w "$plist" 2>/dev/null || true
+            done
             ;;
     esac
     log "restarted: $UNITS"
@@ -205,6 +269,20 @@ cmd_open() {
 }
 
 cmd_upgrade() {
+    yes=0
+    for arg in "$@"; do
+        case "$arg" in
+            -y|--yes) yes=1 ;;
+            -h|--help)
+                printf "usage: pulse upgrade [-y|--yes]\n"
+                printf "  Re-runs the install script for the latest release.\n"
+                printf "  Restarts the Pulse client (terminates running terminals).\n"
+                return 0
+                ;;
+            *) die "unknown arg: $arg (use: -y|--yes)" ;;
+        esac
+    done
+    _confirm_client_restart || return 0
     log "upgrading Pulse (re-running install script)..."
     # Forward all opt-in env vars to the installer so upgrades preserve shape
     # (e.g. a --client-only install doesn't accidentally grow a dashboard).
@@ -231,6 +309,7 @@ cmd_uninstall() {
     printf "  Files:   %s\n" "$INSTALL_ROOT"
     printf "  Configs: %s\n" "$CONFIG_ROOT"
     printf "  Logs:    %s\n" "$STATE_ROOT"
+    printf "  Every running terminal (vim, htop, ssh, etc.) will be terminated when the client stops.\n"
     printf "Continue? [y/N] "
     read -r ans
     case "$ans" in
@@ -239,7 +318,7 @@ cmd_uninstall() {
     esac
 
     log "stopping services"
-    cmd_stop all 2>/dev/null || true
+    cmd_stop all -y 2>/dev/null || true
 
     log "removing service units"
     case "$PULSE_OS" in
@@ -391,18 +470,21 @@ cmd_config_password() {
 cmd_config_host() {
     new_client=""
     new_dashboard=""
+    yes=0
     while [ "$#" -gt 0 ]; do
         case "$1" in
             --client=*)    new_client="${1#*=}"; shift ;;
             --client)      shift; new_client="${1:-}"; shift || true ;;
             --dashboard=*) new_dashboard="${1#*=}"; shift ;;
             --dashboard)   shift; new_dashboard="${1:-}"; shift || true ;;
+            -y|--yes)      yes=1; shift ;;
             -h|--help)
-                printf "usage: pulse config host [--client HOST] [--dashboard HOST]\n"
-                printf "  Without args, prints the current hosts.\n"
+                printf "usage: pulse config host [--client HOST] [--dashboard HOST] [-y|--yes]\n"
+                printf "  Without args, prints the current hosts. Changing --client restarts the client\n"
+                printf "  (terminates running terminals); pass -y to skip the confirmation.\n"
                 return 0
                 ;;
-            *) die "unknown arg: $1 (use: --client HOST --dashboard HOST)" ;;
+            *) die "unknown arg: $1 (use: --client HOST --dashboard HOST [-y])" ;;
         esac
     done
     client_env="$CONFIG_ROOT/client.env"
@@ -428,6 +510,11 @@ cmd_config_host() {
     [ -n "$new_client"    ] && validate_host "$new_client"
     [ -n "$new_dashboard" ] && validate_host "$new_dashboard"
 
+    # Confirm before any .env write if this will restart the client.
+    if [ -n "$new_client" ] && [ "$new_client" != "$cur_client" ] && [ -f "$client_env" ]; then
+        _confirm_client_restart || return 0
+    fi
+
     restart_client=0
     restart_dash=0
 
@@ -452,7 +539,7 @@ cmd_config_host() {
         esac
     fi
 
-    [ "$restart_client" = 1 ] && cmd_restart client
+    [ "$restart_client" = 1 ] && cmd_restart client -y
     [ "$restart_dash"   = 1 ] && cmd_restart dashboard
     log "done"
 }
@@ -523,18 +610,21 @@ cmd_config_rotate_jwt() {
 cmd_config_ports() {
     new_client=""
     new_dashboard=""
+    yes=0
     while [ "$#" -gt 0 ]; do
         case "$1" in
             --client=*)    new_client="${1#*=}"; shift ;;
             --client)      shift; new_client="${1:-}"; shift || true ;;
             --dashboard=*) new_dashboard="${1#*=}"; shift ;;
             --dashboard)   shift; new_dashboard="${1:-}"; shift || true ;;
+            -y|--yes)      yes=1; shift ;;
             -h|--help)
-                printf "usage: pulse config ports [--client N] [--dashboard N]\n"
-                printf "  Without args, prints the current ports.\n"
+                printf "usage: pulse config ports [--client N] [--dashboard N] [-y|--yes]\n"
+                printf "  Without args, prints the current ports. Changing --client restarts the client\n"
+                printf "  (terminates running terminals); pass -y to skip the confirmation.\n"
                 return 0
                 ;;
-            *) die "unknown arg: $1 (use: --client N --dashboard N)" ;;
+            *) die "unknown arg: $1 (use: --client N --dashboard N [-y])" ;;
         esac
     done
     client_env="$CONFIG_ROOT/client.env"
@@ -556,6 +646,11 @@ cmd_config_ports() {
     }
     [ -n "$new_client"    ] && validate_port "$new_client"
     [ -n "$new_dashboard" ] && validate_port "$new_dashboard"
+
+    # Confirm before any .env / servers.json write if this will restart the client.
+    if [ -n "$new_client" ] && [ "$new_client" != "$cur_client" ] && [ -f "$client_env" ]; then
+        _confirm_client_restart || return 0
+    fi
 
     restart_client=0
     restart_dash=0
@@ -599,7 +694,7 @@ PY
         restart_dash=1
     fi
 
-    [ "$restart_client" = 1 ] && cmd_restart client
+    [ "$restart_client" = 1 ] && cmd_restart client -y
     [ "$restart_dash"   = 1 ] && cmd_restart dashboard
     log "done"
 }
@@ -804,7 +899,7 @@ cmd_config_tls() {
             fi
             if [ "$scope_client" = 1 ]; then
                 printf "  • set TLS_ENABLED=true in %s\n" "$client_env"
-                printf "  • restart pulse-client service\n"
+                printf "  • restart pulse-client service (terminates running terminals)\n"
             fi
             if [ "$scope_dashboard" = 1 ]; then
                 printf "  • set TLS_ENABLED=true + AUTH_COOKIE_SECURE=true in %s\n" "$dash_env"
@@ -831,7 +926,7 @@ cmd_config_tls() {
                 log "dashboard: TLS enabled (AUTH_COOKIE_SECURE=true)"
             fi
             warn "first browser visit will show a 'self-signed' warning — accept it once."
-            [ "$scope_client"    = 1 ] && cmd_restart client
+            [ "$scope_client"    = 1 ] && cmd_restart client -y
             [ "$scope_dashboard" = 1 ] && cmd_restart dashboard
             ;;
         off)
@@ -848,7 +943,7 @@ cmd_config_tls() {
             printf "%bAbout to disable TLS:%b\n" "$BOLD" "$NC"
             if [ "$scope_client" = 1 ]; then
                 printf "  • set TLS_ENABLED=false in %s\n" "$client_env"
-                printf "  • restart pulse-client service (back to plain HTTP)\n"
+                printf "  • restart pulse-client service (terminates running terminals; back to plain HTTP)\n"
             fi
             if [ "$scope_dashboard" = 1 ]; then
                 printf "  • set TLS_ENABLED=false + AUTH_COOKIE_SECURE=false in %s\n" "$dash_env"
@@ -867,7 +962,7 @@ cmd_config_tls() {
                 update_env_key "$dash_env" AUTH_COOKIE_SECURE false
                 log "dashboard: TLS disabled (AUTH_COOKIE_SECURE=false)"
             fi
-            [ "$scope_client"    = 1 ] && cmd_restart client
+            [ "$scope_client"    = 1 ] && cmd_restart client -y
             [ "$scope_dashboard" = 1 ] && cmd_restart dashboard
             ;;
         regen)
@@ -987,37 +1082,44 @@ ${BOLD}Pulse${NC} — persistent terminal sessions dashboard
 ${BOLD}Usage:${NC} pulse <command> [args]
 
 ${BOLD}Service commands:${NC}
-  status                show status of client + dashboard services
-  start    [target]     start services (target: client, dashboard, all — default all)
-  stop     [target]     stop services
-  restart  [target]     restart services
-  logs     [target] [-f]  show/follow logs (target: client, dashboard, all — default all)
+  status                       show status of client + dashboard services
+  start    [target]            start services (target: client, dashboard, all — default all)
+  stop     [target] [-y]       stop services (confirms before stopping the client)
+  restart  [target] [-y]       restart services (confirms before restarting the client)
+  logs     [target] [-f]       show/follow logs (target: client, dashboard, all — default all)
 
 ${BOLD}Dashboard:${NC}
-  open                  open the dashboard in your browser
+  open                         open the dashboard in your browser
 
 ${BOLD}Lifecycle:${NC}
-  upgrade               fetch latest release and reinstall
-  uninstall             remove all files, configs, and services
-  version               print installed version
-  check-updates         query GitHub for newer versions (opt-in network call)
+  upgrade [-y]                 fetch latest release and reinstall (confirms — restarts the client)
+  uninstall                    remove all files, configs, and services
+  version                      print installed version
+  check-updates                query GitHub for newer versions (opt-in network call)
 
 ${BOLD}Config:${NC}
-  keys show             print the client's API_KEY
-  keys regen            generate new API_KEY, update servers.json
+  keys show                    print the client's API_KEY
+  keys regen                   generate new API_KEY, update servers.json
   config edit <client|dashboard>        open .env in \$EDITOR
   config password                       change the dashboard password
-  config ports [--client N] [--dashboard N]
-                                        show or change service ports
-  config host  [--client H] [--dashboard H]
-                                        show or change bind hosts (0.0.0.0 exposes)
+  config ports [--client N] [--dashboard N] [-y]
+                                        show or change service ports (-y skips client-restart prompt)
+  config host  [--client H] [--dashboard H] [-y]
+                                        show or change bind hosts (0.0.0.0 exposes; -y skips prompt)
   config secure <on|off>                toggle AUTH_COOKIE_SECURE
   config tls <on|off|show|regen> [--client] [--dashboard] [-y]
                                         toggle self-signed HTTPS (on/off require --client and/or --dashboard)
-  config rotate-jwt                     rotate AUTH_JWT_SECRET (logs everyone out)
+  config rotate-jwt [-y]                rotate AUTH_JWT_SECRET (logs everyone out)
   config paths                          print install / config / logs paths
   config open <config|install|logs|data-dashboard|data-client>
                                         open that directory in your file manager
+
+${BOLD}Note:${NC} commands that restart the Pulse client (stop, restart, upgrade,
+config host/ports with --client, config tls on/off --client) ask for
+confirmation because the client owns the PTY for every running terminal —
+restarting kills vim / htop / ssh / Claude Code. The frontend reopens the
+terminals at the same cwd afterward, but shell history is lost. Pass -y
+to skip the prompt.
 
 ${BOLD}Links:${NC}
   github.com/${GITHUB_REPO}
