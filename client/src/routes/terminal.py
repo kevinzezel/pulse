@@ -9,9 +9,10 @@ import time
 from fastapi import APIRouter, Body, WebSocket, WebSocketDisconnect, UploadFile, File, Request, Query
 
 logger = logging.getLogger(__name__)
-from resources.terminal import create_session_request, list_sessions_request, kill_session_request, rename_session_request, sync_sessions_request, clone_session_request, websocket_terminal, sessions, set_session_notify_request, set_session_scope_names_request, restore_sessions_request, record_session_viewing, _sessions_lock
+from resources.terminal import create_session_request, list_sessions_request, kill_session_request, rename_session_request, clone_session_request, websocket_terminal, sessions, set_session_notify_request, set_session_scope_names_request, restore_sessions_request, record_session_viewing, _sessions_lock
 from resources.notification_broadcast import register as register_notification_client, unregister as unregister_notification_client
-from tools.tmux import get_pane_cwd, send_text_to_session, set_group_id, set_group_name
+from resources.notifications import _render_pane_via_pyte
+from tools.pty import get_pty
 from system.log import AppException
 from system.i18n import build_i18n_response
 from envs.load import API_KEY
@@ -68,12 +69,6 @@ def list_all(request: Request):
     return build_i18n_response(request, resp["status_code"], resp["content"])
 
 
-@router.post("/sessions/sync")
-def sync(request: Request):
-    resp = sync_sessions_request()
-    return build_i18n_response(request, resp["status_code"], resp["content"])
-
-
 @router.post("/sessions/restore")
 def restore(request: Request, body: dict = Body(...)):
     items = body.get("sessions") if isinstance(body, dict) else None
@@ -120,8 +115,6 @@ def assign_group(
         # quebrar no futuro.
         sessions[session_id]["last_viewing_ts"] = time.time()
         snapshot = dict(sessions[session_id])
-    set_group_id(session_id, group_id)
-    set_group_name(session_id, group_name)
     return build_i18n_response(request, 200, {
         "detail_key": "success.session_group_assigned",
         "session": snapshot,
@@ -163,10 +156,17 @@ def send_text(
     with _sessions_lock:
         if session_id not in sessions:
             raise AppException(key="errors.session_not_found", status_code=404)
-    send_text_to_session(session_id, text, send_enter)
-    # Espelha o handler do WS de input (resources/terminal.py:557-572): texto
-    # enviado via compose também conta como "atividade" para o watcher de idle.
-    # Sem isso, um draft pré-populado sem Enter dispara alerta falso.
+    pty = get_pty(session_id)
+    if pty is None:
+        raise AppException(key="errors.session_not_found", status_code=404)
+    payload = (text or "").encode("utf-8")
+    if send_enter:
+        payload += b"\r"
+    if payload:
+        pty.write(payload)
+    # Espelha o handler do WS de input: texto enviado via compose também conta
+    # como "atividade" para o watcher de idle. Sem isso, um draft pré-populado
+    # sem Enter dispara alerta falso.
     now_ts = time.time()
     with _sessions_lock:
         s = sessions.get(session_id)
@@ -212,7 +212,8 @@ def get_cwd(request: Request, session_id: str):
     with _sessions_lock:
         if session_id not in sessions:
             raise AppException(key="errors.session_not_found", status_code=404)
-    cwd = get_pane_cwd(session_id)
+    pty = get_pty(session_id)
+    cwd = pty.get_cwd() if pty is not None else None
     if not cwd:
         raise AppException(key="errors.cwd_unavailable", status_code=500)
     return build_i18n_response(request, 200, {"detail_key": "status.ok", "cwd": cwd})
@@ -224,11 +225,11 @@ CAPTURE_LINES_MAX = 50000
 
 @router.get("/sessions/{session_id}/capture")
 def capture_session(request: Request, session_id: str, lines: int = CAPTURE_LINES_DEFAULT):
-    # Returns the pane's text buffer (visible + scrollback up to `lines`) as
-    # plain UTF-8. The frontend renders this in a modal with a plain textarea
-    # so users can select/search/copy without fighting xterm's own selection
-    # engine — especially helpful on mobile and inside alt-screen apps (Claude
-    # Code, less, vim) where xterm's text selection is fragile.
+    # Returns the pane's text buffer (rendered via pyte) as plain UTF-8. The
+    # frontend renders this in a modal with a plain textarea so users can
+    # select/search/copy without fighting xterm's own selection engine —
+    # especially helpful on mobile and inside alt-screen apps (Claude Code,
+    # less, vim) where xterm's text selection is fragile.
     with _sessions_lock:
         if session_id not in sessions:
             raise AppException(key="errors.session_not_found", status_code=404)
@@ -236,10 +237,10 @@ def capture_session(request: Request, session_id: str, lines: int = CAPTURE_LINE
         lines_i = max(1, min(CAPTURE_LINES_MAX, int(lines)))
     except (TypeError, ValueError):
         lines_i = CAPTURE_LINES_DEFAULT
-    from tools.tmux import capture_pane
-    text = capture_pane(session_id, lines=lines_i)
-    if text is None:
-        raise AppException(key="errors.tmux_session_not_found", status_code=404)
+    pty = get_pty(session_id)
+    if pty is None:
+        raise AppException(key="errors.session_not_found", status_code=404)
+    text = _render_pane_via_pyte(pty)
     return build_i18n_response(request, 200, {
         "detail_key": "status.ok",
         "text": text,
@@ -361,7 +362,8 @@ def open_editor(
     with _sessions_lock:
         if session_id not in sessions:
             raise AppException(key="errors.session_not_found", status_code=404)
-    cwd = get_pane_cwd(session_id)
+    pty = get_pty(session_id)
+    cwd = pty.get_cwd() if pty is not None else None
     if not cwd:
         raise AppException(key="errors.cwd_unavailable", status_code=500)
 

@@ -156,10 +156,10 @@ export default function TerminalPane({ session, onSessionEnded, isMobile = false
         theme: getXtermTheme(theme),
       });
 
-      // Defense-in-depth for ED3 (CSI 3 J — "Erase scrollback"). Even with
-      // tmux's terminal-overrides E3@, anything that emits ED3 directly will
-      // otherwise trigger xterm.js's default handler which trims scrollback
-      // down to exactly the viewport height of lines (InputHandler.ts:1228).
+      // Defense-in-depth for ED3 (CSI 3 J — "Erase scrollback"). Anything
+      // that emits ED3 (e.g. Claude Code's startup sequence) would otherwise
+      // trigger xterm.js's default handler which trims scrollback down to
+      // exactly the viewport height of lines (InputHandler.ts:1228).
       // Return true marks it as handled (no-op) so user history survives
       // Claude Code / compact / similar redraws. ED0/1/2 pass through so
       // plain `clear`, vim-style repaints, etc. keep working normally.
@@ -273,6 +273,24 @@ export default function TerminalPane({ session, onSessionEnded, isMobile = false
       let touchLastY = null;
       let touchAccumulator = 0;
 
+      // Decide entre mouse SGR (apps que pediram mouse tracking — vim, htop,
+      // less, Claude Code, etc) e scroll local do xterm.js (shell normal).
+      // Sem essa distinção, arrastar o dedo num bash prompt cuspe bytes
+      // `\x1b[<65;1;1M` no stdin do shell, que ecoa fragmentos como lixo
+      // visível no prompt.
+      function sendScrollStep(direction) {
+        // direction: -1 = back (history mais antigo) | +1 = forward
+        const mode = terminal.modes?.mouseTrackingMode;
+        const hasMouseTracking = mode && mode !== 'none';
+        if (hasMouseTracking) {
+          if (ws.readyState !== WebSocket.OPEN) return;
+          const cb = direction < 0 ? 64 : 65;
+          ws.send(JSON.stringify({ type: 'input', data: `\x1b[<${cb};1;1M` }));
+        } else {
+          terminal.scrollLines(direction);
+        }
+      }
+
       function onTouchStart(e) {
         if (e.touches.length !== 1) {
           touchLastY = null;
@@ -285,17 +303,16 @@ export default function TerminalPane({ session, onSessionEnded, isMobile = false
       function onTouchMove(e) {
         if (touchLastY === null || e.touches.length !== 1) return;
         e.preventDefault();
-        if (ws.readyState !== WebSocket.OPEN) return;
         const currentY = e.touches[0].clientY;
         touchAccumulator += touchLastY - currentY;
         touchLastY = currentY;
         let steps = 0;
         while (Math.abs(touchAccumulator) >= TOUCH_STEP_PX && steps < TOUCH_MAX_STEPS_PER_MOVE) {
           if (touchAccumulator < 0) {
-            ws.send(JSON.stringify({ type: 'input', data: '\x1b[<64;1;1M' }));
+            sendScrollStep(-1);
             touchAccumulator += TOUCH_STEP_PX;
           } else {
-            ws.send(JSON.stringify({ type: 'input', data: '\x1b[<65;1;1M' }));
+            sendScrollStep(1);
             touchAccumulator -= TOUCH_STEP_PX;
           }
           steps++;
@@ -306,19 +323,18 @@ export default function TerminalPane({ session, onSessionEnded, isMobile = false
         // Flush any residual accumulator before resetting. Without this, a
         // fast flick whose final `touchmove` hit the per-event cap would
         // leave unsent steps that vanish when the finger lifts — the user
-        // sees the flick "not respond".
-        if (ws.readyState === WebSocket.OPEN) {
-          let steps = 0;
-          while (Math.abs(touchAccumulator) >= TOUCH_STEP_PX && steps < 100) {
-            if (touchAccumulator < 0) {
-              ws.send(JSON.stringify({ type: 'input', data: '\x1b[<65;1;1M' }));
-              touchAccumulator += TOUCH_STEP_PX;
-            } else {
-              ws.send(JSON.stringify({ type: 'input', data: '\x1b[<64;1;1M' }));
-              touchAccumulator -= TOUCH_STEP_PX;
-            }
-            steps++;
+        // sees the flick "not respond". Direction matches onTouchMove
+        // (negative accumulator = back, positive = forward).
+        let steps = 0;
+        while (Math.abs(touchAccumulator) >= TOUCH_STEP_PX && steps < 100) {
+          if (touchAccumulator < 0) {
+            sendScrollStep(-1);
+            touchAccumulator += TOUCH_STEP_PX;
+          } else {
+            sendScrollStep(1);
+            touchAccumulator -= TOUCH_STEP_PX;
           }
+          steps++;
         }
         touchLastY = null;
         touchAccumulator = 0;
@@ -354,6 +370,50 @@ export default function TerminalPane({ session, onSessionEnded, isMobile = false
       }
     };
   }, [session.id, setupResizeObserver]);
+
+  // Refit quando o teclado virtual abre/fecha no mobile. O viewport meta
+  // (`interactiveWidget: 'resizes-content'` em app/layout.js) pede ao browser
+  // para encolher a área visível em vez de cobrir o conteúdo, mas o container
+  // do terminal mantém suas dimensões físicas no DOM (flex layout não
+  // colapsa) — o ResizeObserver não dispara, o fitAddon não recalcula e o
+  // cursor (que estava perto do bottom) acaba encoberto pelo teclado.
+  // Listener no visualViewport.resize força um refit + envia novo SIGWINCH
+  // ao shell + scrolla pro bottom. Debounce 80ms pra absorver o jitter de
+  // animação do teclado em iOS/Android.
+  // Gate em pointer:coarse pra não disparar redundante em desktop, onde o
+  // ResizeObserver já cobre todo redimensionamento real (o vv.resize aqui
+  // só dispararia em zoom in/out — benigno mas evitável).
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.visualViewport) return;
+    if (!window.matchMedia?.('(pointer: coarse)').matches) return;
+    const vv = window.visualViewport;
+    let timer = null;
+    const refit = () => {
+      timer = null;
+      const entry = terminalCache.get(session.id);
+      if (!entry?.fitAddon || !entry.terminal) return;
+      try {
+        entry.fitAddon.fit();
+        if (entry.ws?.readyState === WebSocket.OPEN) {
+          entry.ws.send(JSON.stringify({
+            type: 'resize',
+            cols: entry.terminal.cols,
+            rows: entry.terminal.rows,
+          }));
+        }
+        entry.terminal.scrollToBottom();
+      } catch {}
+    };
+    const onResize = () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(refit, 80);
+    };
+    vv.addEventListener('resize', onResize);
+    return () => {
+      vv.removeEventListener('resize', onResize);
+      if (timer) clearTimeout(timer);
+    };
+  }, [session.id]);
 
   // "Tô olhando": IntersectionObserver no slot + heartbeat 10s pelo WS de
   // notificações. Como esse WS aceita múltiplos clientes, abrir a mesma sessão

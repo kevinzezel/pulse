@@ -3,7 +3,6 @@ CATALOGS = {
         "errors.unauthorized": "Não autorizado",
         "errors.image_too_large": "Imagem excede o limite de {max_mb} MB",
         "errors.session_not_found": "Sessão não encontrada",
-        "errors.tmux_session_not_found": "Sessão tmux não encontrada",
         "errors.empty_name": "Nome não pode ser vazio",
         "errors.cwd_unavailable": "Não foi possível obter o diretório atual",
         "errors.editor_binary_not_found": "Binário do editor não encontrado no host. Instale VSCode / Cursor / VSCodium, ou defina o caminho em Configurações → Editor.",
@@ -30,13 +29,11 @@ CATALOGS = {
         "errors.fs_path_denied": "Permissão negada para listar o diretório",
         "errors.fs_path_not_directory": "O caminho não é um diretório",
         "status.ok": "OK",
-        "status.sync_result": "Sincronização: {added} adicionadas, {removed} removidas",
     },
     "en": {
         "errors.unauthorized": "Unauthorized",
         "errors.image_too_large": "Image exceeds {max_mb} MB limit",
         "errors.session_not_found": "Session not found",
-        "errors.tmux_session_not_found": "tmux session not found",
         "errors.empty_name": "Name cannot be empty",
         "errors.cwd_unavailable": "Could not get current directory",
         "errors.editor_binary_not_found": "Editor binary not found on the host. Install VSCode / Cursor / VSCodium, or set the path in Settings → Editor.",
@@ -63,13 +60,11 @@ CATALOGS = {
         "errors.fs_path_denied": "Permission denied to list directory",
         "errors.fs_path_not_directory": "Path is not a directory",
         "status.ok": "OK",
-        "status.sync_result": "Sync: {added} added, {removed} removed",
     },
     "es": {
         "errors.unauthorized": "No autorizado",
         "errors.image_too_large": "La imagen excede el límite de {max_mb} MB",
         "errors.session_not_found": "Sesión no encontrada",
-        "errors.tmux_session_not_found": "Sesión tmux no encontrada",
         "errors.empty_name": "El nombre no puede estar vacío",
         "errors.cwd_unavailable": "No se pudo obtener el directorio actual",
         "errors.editor_binary_not_found": "Binario del editor no encontrado en el host. Instala VSCode / Cursor / VSCodium, o define la ruta en Ajustes → Editor.",
@@ -96,7 +91,6 @@ CATALOGS = {
         "errors.fs_path_denied": "Permiso denegado para listar el directorio",
         "errors.fs_path_not_directory": "La ruta no es un directorio",
         "status.ok": "OK",
-        "status.sync_result": "Sincronización: {added} añadidas, {removed} eliminadas",
     },
 }
 

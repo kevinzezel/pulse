@@ -6,7 +6,7 @@
 
 <p align="center">
   <strong>Stop babysitting your AI coding agents.</strong><br/>
-  A web dashboard for your tmux sessions — idle alerts when Claude Code, Cursor, Codex or Gemini stops typing, mobile control from anywhere, shared workspace for every session you run.
+  A web dashboard for your terminal sessions — idle alerts when Claude Code, Cursor, Codex or Gemini stops typing, mobile control from anywhere, shared workspace for every session you run.
 </p>
 
 <p align="center">
@@ -22,12 +22,12 @@
 </p>
 
 <p align="center">
-  <img src="assets/demo.gif" alt="Pulse in action — tmux mosaic, sticky notes, theme switch" width="900"/>
+  <img src="assets/demo.gif" alt="Pulse in action — terminal mosaic, sticky notes, theme switch" width="900"/>
 </p>
 
 You kick off Claude Code, wait three minutes, come back — it's been idle for two and a half, waiting on a Yes/No prompt. Leave the desk for a coffee and your phone buzzes: `frontend::refactor is idle — Approve edit to layout.js?`. You tap yes, it keeps going.
 
-Pulse runs on your machine, speaks to real tmux, doesn't containerize anything, doesn't phone home.
+Pulse runs on your machine, spawns real PTYs, doesn't containerize anything, doesn't phone home.
 
 ## Install
 
@@ -53,7 +53,7 @@ Open `http://localhost:3000` when it finishes. That's it.
 
 ## Why Pulse?
 
-- **vs. a local terminal.** Close the lid and the agent freezes waiting for your input. Pulse's tmux sessions outlive laptop sleep; the idle watcher pings your phone the moment the output stops moving.
+- **vs. a local terminal.** Close the lid and the agent freezes waiting for your input. Pulse's PTYs run on the host (not your laptop); the idle watcher pings your phone the moment the output stops moving.
 - **vs. `tmux` + `ttyd`/`gotty`.** You get a terminal in a browser, but no project-scoped groups, no mobile keybar sized for AI approvals, no notifications, no per-pane "open in VSCode".
 - **vs. Tabby / iTerm / Warp.** Single device, no remote-by-default, no shared workspace with notes and flow diagrams.
 
@@ -61,11 +61,11 @@ Open `http://localhost:3000` when it finishes. That's it.
 
 ### Don't miss an approval prompt
 
-Every 5 seconds Pulse MD5s the tmux pane. Thirty seconds of no change after your last Enter = the AI is waiting on you. The threshold is tunable per deployment (5 seconds to 1 hour) and the toggle is per session — a bell in the sidebar flips it on, persisted as a tmux option so it survives restarts.
+Every 5 seconds Pulse renders the PTY scrollback through [pyte](https://github.com/selectel/pyte) (Python terminal emulator) and MD5s the result. Thirty seconds of no change after your last Enter = the AI is waiting on you. The threshold is tunable per deployment (5 seconds to 1 hour) and the toggle is per session — a bell in the sidebar flips it on.
 
 Notifications land in the **browser** (toast + sound + Web Notification API) while the dashboard is open, and on **Telegram** when it isn't — so the phone in your pocket tells you when the agent stops. The payload carries the last 20 lines of pane output, which is usually enough to decide yes/no without opening the dashboard.
 
-**No false positives.** The watcher applies five rules in order: ignore the alert if the pane hasn't changed since the watcher armed (no startup spam), if you're still typing into a buffer (`bytes_since_enter > 0`), if the timeout hasn't elapsed yet, if the same pane state was already alerted in the last 30 minutes (dedup by content hash), or if your browser is sending a `viewing` heartbeat for that exact terminal — meaning you're already looking at it. See [`NOTIFICATIONS.md`](NOTIFICATIONS.md) for the full design.
+**No false positives.** The watcher applies five rules in order: ignore the alert if the pane hasn't changed since the watcher armed (no startup spam), if you're typing into a buffer (`bytes_since_enter > 0`) — counts as ack, even without Enter, if the timeout hasn't elapsed yet, if the same pane state was already alerted before (eternal dedup by content hash), or if your browser is sending a `viewing` heartbeat for that exact terminal — also counts as ack. The semantics: typing or looking once = "I know about this state, don't bug me again until the agent does something new". See [`NOTIFICATIONS.md`](NOTIFICATIONS.md) for the full design.
 
 <table>
   <tr>
@@ -92,9 +92,9 @@ Touch scroll inside the terminal works via synthesized VT200 mouse-wheel escapes
 
 ### One dashboard, every server
 
-Pulse splits into a **dashboard** (the web UI) and a **client** (the agent that runs tmux on a host). One dashboard manages clients on many machines — your local box, a VPS, a LAN home-lab — each with its own color tag, health check, and API key. Session IDs are prefixed `srv-xxx::term-N` so you never lose track of which box a terminal lives on.
+Pulse splits into a **dashboard** (the web UI) and a **client** (the agent that spawns PTYs on a host). One dashboard manages clients on many machines — your local box, a VPS, a LAN home-lab — each with its own color tag, health check, and API key. Session IDs are prefixed `srv-xxx::term-N` so you never lose track of which box a terminal lives on.
 
-Restart the client? Sessions rebuild from `tmux list-sessions`. Reboot the host? A snapshot recreates them with the same name, group, project, cwd, and notify-on-idle flag. Nothing to lose.
+Restart the client? The dashboard's snapshot triggers automatic restore — fresh PTYs come back with the same name, group, project, cwd, and notify-on-idle flag. Shell history is lost (it lived only in the dead process), but the metadata and layout survive.
 
 <p align="center">
   <img src="assets/screenshots/servers-settings.png" alt="Add a remote Pulse client — host, port, API key, color tag" width="90%"/>
@@ -159,7 +159,7 @@ For remote clients, the same button opens `vscode://vscode-remote/ssh-remote+<ho
 │  (you)       │   HTTPS   │  Dashboard      │   WS +   │  (FastAPI)              │
 │              │           │  (Next.js)      │   REST   │                         │
 └──────────────┘           └─────────────────┘          │   ▼                     │
-                                                        │   tmux                  │
+                                                        │   PTY (pty.openpty)     │
                                                         │   ▼                     │
                                                         │   bash/zsh              │
                                                         │   + Claude Code /       │
@@ -170,9 +170,9 @@ For remote clients, the same button opens `vscode://vscode-remote/ssh-remote+<ho
                                                           host machine
 ```
 
-- The **dashboard** (Next.js) is stateless — it talks to one or more **clients** (FastAPI + tmux).
-- Each **client** runs on the machine whose terminals you want to manage. Sessions live in tmux; the client is a thin bridge between the browser WebSocket and the tmux pty.
-- A **background watcher** in the client MD5s every session flagged for idle detection on a 5-second tick and pushes events through the same WebSocket the browser uses.
+- The **dashboard** (Next.js) is stateless — it talks to one or more **clients** (FastAPI + PTYs).
+- Each **client** runs on the machine whose terminals you want to manage. Each session is a shell spawned in its own PTY (`pty.openpty` + `subprocess.Popen`); the client bridges the browser WebSocket and the PTY master fd.
+- A **background watcher** in the client renders every notify-on-idle session through pyte on a 5-second tick, MD5s the result, and pushes events through the same WebSocket the browser uses.
 
 ## Documentation
 
@@ -184,7 +184,7 @@ For remote clients, the same button opens `vscode://vscode-remote/ssh-remote+<ho
 
 ## Development
 
-Prerequisites: `tmux`, `python3 ≥ 3.10`, `node ≥ 18.18`. On Debian/Ubuntu or macOS, the start script installs them for you on first run.
+Prerequisites: `python3 ≥ 3.10`, `node ≥ 18.18`. On Debian/Ubuntu or macOS, the start script installs them for you on first run.
 
 ```sh
 git clone https://github.com/kevinzezel/pulse.git
@@ -196,7 +196,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the full dev setup, project layout, a
 
 ## Acknowledgments
 
-Pulse stands on a lot of great open-source work — [tmux](https://github.com/tmux/tmux), [xterm.js](https://github.com/xtermjs/xterm.js), [Excalidraw](https://github.com/excalidraw/excalidraw), [react-mosaic](https://github.com/nomcopter/react-mosaic), [react-rnd](https://github.com/bokuweb/react-rnd), [FastAPI](https://github.com/tiangolo/fastapi), [Next.js](https://github.com/vercel/next.js), [lucide-react](https://github.com/lucide-icons/lucide). All MIT or MIT-compatible. Licenses ship via `npm` / `pip` with every install.
+Pulse stands on a lot of great open-source work — [pyte](https://github.com/selectel/pyte), [xterm.js](https://github.com/xtermjs/xterm.js), [Excalidraw](https://github.com/excalidraw/excalidraw), [react-mosaic](https://github.com/nomcopter/react-mosaic), [react-rnd](https://github.com/bokuweb/react-rnd), [FastAPI](https://github.com/tiangolo/fastapi), [Next.js](https://github.com/vercel/next.js), [lucide-react](https://github.com/lucide-icons/lucide). All MIT or MIT-compatible. Licenses ship via `npm` / `pip` with every install.
 
 ## License
 

@@ -1,111 +1,113 @@
 # Pulse
 
-Dashboard web que multiplexa sessões tmux no host. *Keep your terminals alive* — as sessões persistem no servidor; cliente conecta/reconecta via WebSocket sem perder estado.
+Web dashboard that multiplexes terminals (PTYs) on the host. *Keep your terminals alive* — PTYs stay alive while the client is running; the WebSocket client connects/reconnects without losing screen state.
 
-## Arquitetura
+## Architecture
 
 - **frontend**: Next.js 15 (App Router) + React 19 + Tailwind 3 + xterm.js + react-mosaic
-- **client** (ex-backend): FastAPI (Python) + tmux via subprocess + WebSockets. É o agente que roda onde há terminais a gerenciar — localmente ou num servidor remoto.
-- **tmux**: cria e mantém as sessões reais; sobrevivem a reconexões e restart do client (reconstruídas via `recover_sessions()`)
+- **client** (formerly "backend"): FastAPI (Python) + direct PTY (`pty.openpty` + `subprocess.Popen`) + WebSockets. The agent that runs wherever there are terminals to manage — locally or on a remote server.
+- **Direct PTY**: each session is a shell spawned in its own PTY. Survives WS disconnect (frontend can reconnect). Dies on a client restart — the frontend keeps a client-side snapshot of the metadata (`getSessionsSnapshot`/`restoreSessions`) and fires `/sessions/restore` automatically on boot, recreating PTYs with the same name/group/project/cwd (shell history is lost).
+- **pyte**: Python terminal emulator; the notification watcher uses it to render the canonical visual state of the PTY (no ANSI/cursor) and detect idle. Not in the WS hot path.
 
-## Estrutura
+## Layout
 
 ```
 pulse/
 ├── client/src/
-│   ├── service.py              # FastAPI app + handler de AppException
-│   ├── routes/terminal.py      # endpoints HTTP + WS
-│   ├── resources/terminal.py   # lógica de sessões + websocket_terminal()
-│   ├── tools/tmux.py           # wrappers do tmux CLI
+│   ├── service.py              # FastAPI app + AppException handler + startup tasks
+│   ├── routes/terminal.py      # HTTP + WS endpoints
+│   ├── resources/terminal.py   # session logic + websocket_terminal() + reap_dead_ptys()
+│   ├── resources/notifications.py  # idle watcher (pyte render + 5 rules)
+│   ├── tools/pty.py            # PTYSession + registry (replaces the old tools/tmux.py)
 │   └── system/
 │       ├── log.py              # AppException(key, params, status_code)
-│       └── i18n.py             # catálogo pt-BR/en/es + build_i18n_response()
+│       └── i18n.py             # pt-BR/en/es catalog + build_i18n_response()
 └── frontend/src/
     ├── app/
-    │   ├── layout.js           # script anti-FOUC (tema+locale)
+    │   ├── layout.js           # anti-FOUC script (theme+locale)
     │   ├── InnerLayout.js      # ThemeProvider + I18nProvider + Toaster
-    │   └── page.js             # Dashboard principal
+    │   └── page.js             # Main dashboard
     ├── components/             # Header, Sidebar, TerminalMosaic, TerminalPane, ...
     ├── providers/              # ThemeProvider, I18nProvider (useTranslation, useErrorToast)
     ├── themes/
-    │   ├── themes.js           # registry dos 16 temas (id/label/base)
-    │   ├── terminal.css        # CSS vars HSL (:root + .dark + .theme-<id>)
-    │   └── xterm.js            # paletas xterm por tema
+    │   ├── themes.js           # registry of the 16 themes (id/label/base)
+    │   ├── terminal.css        # HSL CSS vars (:root + .dark + .theme-<id>)
+    │   └── xterm.js            # xterm palettes per theme
     ├── i18n/locales/           # pt-BR.json, en.json, es.json
-    ├── services/api.js         # injeta Accept-Language, propaga detail_key
-    └── utils/mosaicHelpers.js  # manipulação da árvore do react-mosaic
+    ├── services/api.js         # injects Accept-Language, propagates detail_key
+    └── utils/mosaicHelpers.js  # react-mosaic tree manipulation
 ```
 
-## Sistema de cores (temas)
+## Color system (themes)
 
-**Nunca usar cor hex hardcoded em JSX.** Sempre um token.
+**Never use a hardcoded hex color in JSX.** Always a token.
 
-Tokens definidos em `frontend/src/themes/terminal.css`:
-- `:root` = tema light default
-- `.dark` = tema dark default (fixado no `<html>` por padrão)
-- `.theme-<id>` = sobrescreve tokens para temas customizados (Dracula, Nord, Tokyo Night, etc.)
+Tokens defined in `frontend/src/themes/terminal.css`:
+- `:root` = default light theme
+- `.dark` = default dark theme (set on `<html>` by default)
+- `.theme-<id>` = overrides tokens for custom themes (Dracula, Nord, Tokyo Night, etc.)
 
-Tokens disponíveis (cada um é `H S% L%` sem `hsl()` wrapper, consumido via `hsl(var(--x))`):
-- Base shadcn: `background`, `foreground`, `card[-foreground]`, `primary[-foreground]`, `muted[-foreground]`, `accent[-foreground]`, `destructive[-foreground]`, `border`, `input`, `ring`
+Available tokens (each one is `H S% L%` without the `hsl()` wrapper, consumed via `hsl(var(--x))`):
+- shadcn base: `background`, `foreground`, `card[-foreground]`, `primary[-foreground]`, `muted[-foreground]`, `accent[-foreground]`, `destructive[-foreground]`, `border`, `input`, `ring`
 - App: `terminal`, `terminal-header`, `terminal-border`, `sidebar-bg`, `sidebar-border`
-- Semânticos: `success` (em vez de `text-green-400`), `overlay` (em vez de `bg-black/60`)
-- Gradient: `bg-brand-gradient` (classe custom = `linear-gradient(to right, hsl(var(--brand-gradient-from)), hsl(var(--brand-gradient-to)))`)
+- Semantic: `success` (instead of `text-green-400`), `overlay` (instead of `bg-black/60`)
+- Gradient: `bg-brand-gradient` (custom class = `linear-gradient(to right, hsl(var(--brand-gradient-from)), hsl(var(--brand-gradient-to)))`)
 
-Consumo preferido: classes Tailwind (`bg-primary`, `text-muted-foreground`, `bg-terminal`, `bg-sidebar`, `text-success`, `bg-overlay/60`). Quando um token não está exposto no Tailwind, use inline: `style={{ background: 'hsl(var(--x))' }}`.
+Preferred consumption: Tailwind classes (`bg-primary`, `text-muted-foreground`, `bg-terminal`, `bg-sidebar`, `text-success`, `bg-overlay/60`). When a token isn't exposed in Tailwind, use inline: `style={{ background: 'hsl(var(--x))' }}`.
 
 ### xterm.js
 
-Os terminais têm paleta própria — 16 objetos em `frontend/src/themes/xterm.js` (um por tema). `TerminalPane` aplica via `terminal.options.theme` ao criar e usa `applyXtermThemeToAll(theme)` em effect quando o tema muda.
+Terminals have their own palette — 16 objects in `frontend/src/themes/xterm.js` (one per theme). `TerminalPane` applies it through `terminal.options.theme` on creation and uses `applyXtermThemeToAll(theme)` in an effect when the theme changes.
 
-### Adicionar um novo tema
+### Adding a new theme
 
-Três passos mecânicos:
-1. Bloco `.theme-<id> { --primary: ...; --background: ...; ... }` em `terminal.css` (copiar estrutura de outro tema; ~20 vars)
-2. Entrada `'<id>': { background, foreground, cursor, selectionBackground, black, red, green, yellow, blue, magenta, cyan, white, brightBlack, ... }` em `XTERM_THEMES` em `xterm.js`
-3. Item `{ id, label, base: 'dark' | 'light' }` em `THEMES` em `themes.js`
+Three mechanical steps:
+1. `.theme-<id> { --primary: ...; --background: ...; ... }` block in `terminal.css` (copy the structure from another theme; ~20 vars)
+2. Entry `'<id>': { background, foreground, cursor, selectionBackground, black, red, green, yellow, blue, magenta, cyan, white, brightBlack, ... }` in `XTERM_THEMES` in `xterm.js`
+3. Item `{ id, label, base: 'dark' | 'light' }` in `THEMES` in `themes.js`
 
-`ThemeSelector` descobre automaticamente.
+`ThemeSelector` discovers it automatically.
 
-### Persistência
+### Persistence
 
-Tema em `localStorage.rt:theme`. Script inline em `app/layout.js` (lado server → string inline no `<head>`) lê e aplica classe antes da hidratação para evitar FOUC. A lista de IDs é injetada no build via `JSON.stringify(DARK_IDS)` / `LIGHT_IDS`.
+Theme in `localStorage.rt:theme`. Inline script in `app/layout.js` (server-side → inline string in `<head>`) reads and applies the class before hydration to avoid FOUC. The list of IDs is injected at build time via `JSON.stringify(DARK_IDS)` / `LIGHT_IDS`.
 
-## Sistema de i18n
+## i18n system
 
-3 idiomas: **en (default), pt-BR, es**. Solução custom, sem lib externa. (Projeto internacional — strings voltadas ao público externo são escritas em inglês.)
+3 languages: **en (default), pt-BR, es**. Custom solution, no external library. (International project — strings facing the public are written in English.)
 
 ### Frontend
 
-Chaves aninhadas em `frontend/src/i18n/locales/{pt-BR,en,es}.json` (ex: `sidebar.newTerminal`, `modal.confirmKill.message`).
+Nested keys in `frontend/src/i18n/locales/{pt-BR,en,es}.json` (e.g. `sidebar.newTerminal`, `modal.confirmKill.message`).
 
-Hook único:
+Single hook:
 ```js
 import { useTranslation, useErrorToast } from '@/providers/I18nProvider';
 
 const { t, locale, setLocale, formatTime, formatDate } = useTranslation();
-t('sidebar.newTerminal')                              // simples
-t('modal.confirmKill.message', { id: 'term-1' })      // com interpolação {id}
-formatTime(new Date())                                // Intl.DateTimeFormat com locale ativo
+t('sidebar.newTerminal')                              // simple
+t('modal.confirmKill.message', { id: 'term-1' })      // with {id} interpolation
+formatTime(new Date())                                // Intl.DateTimeFormat with active locale
 
 const showError = useErrorToast();
-try { ... } catch (err) { showError(err); }           // já traduz via detail_key
+try { ... } catch (err) { showError(err); }           // already translates via detail_key
 ```
 
-Persistência: `localStorage.rt:locale`. Default inicial: `navigator.language` com fallback para en. O `<html lang>` é atualizado em runtime pelo provider.
+Persistence: `localStorage.rt:locale`. Initial default: `navigator.language` with fallback to en. The `<html lang>` is updated at runtime by the provider.
 
-Export extra: `getCurrentLocale()` (var de módulo) — usado em `services/api.js` para injetar `Accept-Language` em cada fetch sem precisar de hook.
+Extra export: `getCurrentLocale()` (module-level var) — used in `services/api.js` to inject `Accept-Language` on every fetch without needing a hook.
 
 ### Client (backend)
 
-Catálogo espelhado em `client/src/system/i18n.py` com função `translate(key, locale, **params)` e `parse_accept_language(header)`.
+Mirrored catalog in `client/src/system/i18n.py` with `translate(key, locale, **params)` and `parse_accept_language(header)`.
 
-Erros sempre via `AppException`:
+Errors always via `AppException`:
 ```python
 raise AppException(key="errors.session_not_found", status_code=404)
 raise AppException(key="errors.session_not_found", status_code=404, extra="something")
 ```
 
-Sucesso via `build_i18n_response`:
+Success via `build_i18n_response`:
 ```python
 return build_i18n_response(request, 200, {
     "detail_key": "success.session_created",
@@ -113,116 +115,119 @@ return build_i18n_response(request, 200, {
 })
 ```
 
-O handler central lê `Accept-Language`, resolve e devolve `{detail, detail_key, detail_params}`. O frontend prefere `detail_key` quando presente.
+The central handler reads `Accept-Language`, resolves it, and returns `{detail, detail_key, detail_params}`. The frontend prefers `detail_key` when present.
 
-### Adicionar chave
+### Adding a key
 
-1. Nova chave nos 3 JSONs do frontend (manter estrutura aninhada).
-2. Se a mensagem vem do client: adicionar **mesma chave** em `i18n.py` (dict plano).
-3. No código: `t('chave')` no front, `AppException(key='chave')` ou `detail_key` no client.
+1. New key in the 3 frontend JSONs (keep the nested structure).
+2. If the message originates on the client: add the **same key** to `i18n.py` (flat dict).
+3. In code: `t('key')` on the front, `AppException(key='key')` or `detail_key` on the client.
 
-### ATENÇÃO — WebSocket close reasons
+### ATTENTION — WebSocket close reasons
 
-As strings `"Session ended"`, `"Replaced by new connection"`, `"Session not found"`, `"tmux session not found"` em `resources/terminal.py` são **contrato** front↔client, não UI. Ficam em inglês. O front (`TerminalPane.jsx`) faz match exato por string e só aí dispara o toast traduzido. Não traduzir no client.
+The strings `"Session ended"`, `"Replaced by new connection"`, `"Session not found"` in `resources/terminal.py` are a **contract** between front and client, not UI. Stay in English. The frontend (`TerminalPane.jsx`) string-matches them exactly and only then fires the localized toast. Do not translate on the client.
 
-## Convenções de código
+## Code conventions
 
-- Nunca hex/rgba hardcoded em JSX/CSS novo — sempre um token (ou cria token novo se justificar)
-- Nunca string de UI hardcoded — sempre `t('chave')`
-- Erros de API: `raise AppException(key=..., status_code=...)`, nunca `JSONResponse(status_code=X, content={"detail": "..."})` inline
-- `localStorage` keys: sempre prefixo `rt:` (ex: `rt:theme`, `rt:locale`, `rt:mosaicLayout`, `rt:sidebarOpen`)
-- Acesso a dict no Python: `d["key"]` quando chave obrigatória, `d.get("key", default)` só com default real
-- Variáveis de ambiente: `os.environ["VAR"]` para obrigatórias, `os.environ.get("VAR", default)` só com default real
-- Sem emojis em código a menos que peça explicitamente
+- Never hardcoded hex/rgba in new JSX/CSS — always a token (or create a new token if justified)
+- Never hardcoded UI strings — always `t('key')`
+- API errors: `raise AppException(key=..., status_code=...)`, never inline `JSONResponse(status_code=X, content={"detail": "..."})`
+- `localStorage` keys: always prefix with `rt:` (e.g. `rt:theme`, `rt:locale`, `rt:mosaicLayout`, `rt:sidebarOpen`)
+- Python dict access: `d["key"]` when the key is mandatory, `d.get("key", default)` only with a real default
+- Environment variables: `os.environ["VAR"]` for required vars, `os.environ.get("VAR", default)` only with a real default
+- No emojis in code unless explicitly requested
 
-## Áreas críticas
+## Critical areas
 
-- **`frontend/src/components/TerminalPane.jsx`** — `terminalCache` é Map module-level (fora do React) para preservar instâncias xterm + WebSocket quando o react-mosaic re-monta componentes. Use `destroyTerminal(id)` ou `destroyAllTerminals()` (re-conectar tudo).
-- **`frontend/src/app/page.js`** — `reconnectKey` em `<TerminalMosaic key={reconnectKey}>` força remount de toda a árvore; usado pelo botão "Wifi" na sidebar quando o celular rouba a conexão.
-- **`client/src/resources/terminal.py`** — `sessions` dict é in-memory. `_active_ws` também. `recover_sessions()` reconstrói `sessions` lendo o tmux no startup (sobrevive a restart do client, sessões tmux continuam rodando).
-- **`_active_ws[session_id]`** — só um WS por sessão. Conexão nova fecha a antiga com código 4000 `"Replaced by new connection"`.
+- **`frontend/src/components/TerminalPane.jsx`** — `terminalCache` is a module-level Map (outside React) to preserve xterm + WebSocket instances when react-mosaic re-mounts components. Use `destroyTerminal(id)` or `destroyAllTerminals()` (full reconnect).
+- **`frontend/src/app/page.js`** — `reconnectKey` in `<TerminalMosaic key={reconnectKey}>` forces a remount of the whole tree; used by the "Wifi" button in the sidebar when the phone steals the connection. Auto-restore of sessions via `getSessionsSnapshot` + `restoreSessions` in the boot useEffect.
+- **`client/src/resources/terminal.py`** — `sessions` dict (metadata) and `_active_ws` (1 WS per session) are in-memory. `recover_sessions()` is a no-op in PTY mode (no server-side persistence). The actual PTYs live in the `tools/pty.py` registry (`_pty_by_session`).
+- **`client/src/tools/pty.py`** — `PTYSession` encapsulates process + master_fd + scrollback (bytearray, 512 KB with head trim). Registry is separate from the metadata dict to avoid non-serializable objects in JSON.
+- **`reap_dead_ptys()` task** — runs every 30s on startup; detects shells that died with a closed WS, propagates close 1000, and clears registry + dict. Without it, orphan PTYs stick around in both.
+- **`_active_ws[session_id]`** — only one WS per session. A new connection closes the old one with code 4000 `"Replaced by new connection"`.
 
-## Como rodar
+## How to run
 
-Orquestrador (sobe ambos):
+Orchestrator (boots both):
 ```
 ./start.sh
 ```
 
-Client só:
+Client only:
 ```
 ./client/start.sh [--reload]
 ```
 
-Frontend só:
+Frontend only:
 ```
 ./frontend/start.sh [--dev | --prod]
 ```
 
-### Envs obrigatórias
+### Required envs
 
-Sem fallback — se faltar env, os scripts abortam com mensagem clara. Os `start.sh` copiam `.env.example` → `.env` na primeira execução.
+No fallback — if an env is missing, the scripts abort with a clear message. The `start.sh` scripts copy `.env.example` → `.env` on first run.
 
-- `client/.env` (gitignored): `COMPOSE_PROJECT_NAME`, `VERSION`, `API_HOST`, `API_PORT`, `API_KEY` + opcionais TLS (`TLS_ENABLED`, `TLS_CERT_PATH`, `TLS_KEY_PATH` — default `false`/vazias, geridas via `pulse config tls`)
-- `frontend/.env` (gitignored): `WEB_HOST`, `WEB_PORT`, `AUTH_PASSWORD`, `AUTH_JWT_SECRET`, `AUTH_COOKIE_SECURE` + opcionais TLS (mesmo trio acima)
+- `client/.env` (gitignored): `COMPOSE_PROJECT_NAME`, `VERSION`, `API_HOST`, `API_PORT`, `API_KEY` + optional TLS (`TLS_ENABLED`, `TLS_CERT_PATH`, `TLS_KEY_PATH` — default `false`/empty, managed via `pulse config tls`)
+- `frontend/.env` (gitignored): `WEB_HOST`, `WEB_PORT`, `AUTH_PASSWORD`, `AUTH_JWT_SECRET`, `AUTH_COOKIE_SECURE` + optional TLS (same trio above)
 
-Config de servidores do frontend continua em `frontend/data/servers.json` (gerenciada pela tela Settings → Servidores), não em env.
+The frontend's server config still lives in `frontend/data/servers.json` (managed by Settings → Servers), not in env.
 
-### Autenticação do frontend
+### Frontend authentication
 
-Gate de senha única + JWT HS256 24h em cookie httpOnly `rt:auth`. `AUTH_PASSWORD` é a senha compartilhada; `AUTH_JWT_SECRET` é auto-gerado pelo `start.sh` se estiver `change-me` ou ausente. `/login` e `/api/auth/*` são as únicas rotas públicas — `src/middleware.js` protege tudo o resto (UI + API). Cada API route com dados sensíveis (`/api/servers|groups|prompts`) também é envolvida por `withAuth()` de `@/lib/auth` (defense-in-depth / DAL).
+Single-password gate + JWT HS256 24h in an httpOnly cookie `rt:auth`. `AUTH_PASSWORD` is the shared password; `AUTH_JWT_SECRET` is auto-generated by `start.sh` if it's `change-me` or missing. `/login` and `/api/auth/*` are the only public routes — `src/middleware.js` protects everything else (UI + API). Each API route handling sensitive data (`/api/servers|groups|prompts`) is also wrapped by `withAuth()` from `@/lib/auth` (defense-in-depth / DAL).
 
-Em prod (atrás de NGINX/Cloudflare com TLS), manter `AUTH_COOKIE_SECURE=true`. Em dev local sem HTTPS, `AUTH_COOKIE_SECURE=false` — caso contrário o browser descarta o cookie. Recomenda-se também strip do header `x-middleware-subrequest` no proxy (defesa contra futuras variantes do CVE-2025-29927).
+In production (behind NGINX/Cloudflare with TLS), keep `AUTH_COOKIE_SECURE=true`. In local dev without HTTPS, `AUTH_COOKIE_SECURE=false` — otherwise the browser drops the cookie. Also recommended to strip the `x-middleware-subrequest` header at the proxy (defense against future variants of CVE-2025-29927).
 
-### HTTPS auto-assinado (opcional)
+### Self-signed HTTPS (optional)
 
-Pra usar o dashboard em outro device da rede sem perder secure context (notificações do browser, clipboard API, PWA service workers — todos exigem HTTPS quando não é localhost): `pulse config tls on` gera cert auto-assinado em `$CONFIG_ROOT/tls/{cert,key}.pem` via `openssl` (RSA 2048, validade 825 dias, SAN cobrindo `localhost`/`127.0.0.1`/`::1`/`$(hostname)`), seta `TLS_ENABLED=true` em ambos os `.env`, e em paralelo flipa `AUTH_COOKIE_SECURE=true` no dashboard. Restart automático dos serviços. `pulse config tls off` reverte. Flags `--client` / `--dashboard` permitem ativação parcial. `pulse config tls show` lista cert info + estado por serviço; `pulse config tls regen` força regenerar (invalida exceções já aceitas em browsers).
+To use the dashboard on another device on your network without losing secure context (browser notifications, clipboard API, PWA service workers — all require HTTPS unless on localhost): `pulse config tls on` generates a self-signed cert at `$CONFIG_ROOT/tls/{cert,key}.pem` via `openssl` (RSA 2048, 825-day validity, SAN covering `localhost`/`127.0.0.1`/`::1`/`$(hostname)`), sets `TLS_ENABLED=true` in both `.env` files, and in parallel flips `AUTH_COOKIE_SECURE=true` in the dashboard. Services restart automatically. `pulse config tls off` reverts. Flags `--client` / `--dashboard` allow partial activation. `pulse config tls show` lists cert info + per-service state; `pulse config tls regen` forces regeneration (invalidates browser-accepted exceptions).
 
-Frontend usa custom server (`frontend/server.js`) em prod — `node server.js` faz branch HTTP/HTTPS lendo `TLS_ENABLED` do env. Modo `dev` (`npx next dev`) **não** suporta TLS (HMR conflita com HTTPS wrap); use `--prod` se quiser testar localmente. Client usa `uvicorn --ssl-keyfile/--ssl-certfile` quando `TLS_ENABLED=true`.
+The frontend uses a custom server (`frontend/server.js`) in production — `node server.js` branches HTTP/HTTPS based on `TLS_ENABLED` from env. `dev` mode (`npx next dev`) **does not** support TLS (HMR conflicts with HTTPS wrap); use `--prod` if you want to test locally. The client uses `uvicorn --ssl-keyfile/--ssl-certfile` when `TLS_ENABLED=true`.
 
-**Cuidado com servers remotos**: dashboard em HTTPS bloqueia `ws://` / `http://` cross-origin (mixed content). Servers cadastrados no Settings → Servidores apontando pra outros hosts em HTTP precisam ser convertidos pra HTTPS individualmente (SSH na máquina remota, `pulse config tls on` lá, atualiza protocol no Settings). O CLI **avisa** mas não muda o JSON automaticamente.
+**Watch out for remote servers**: a dashboard on HTTPS blocks `ws://` / `http://` cross-origin (mixed content). Servers registered in Settings → Servers pointing to other hosts on HTTP need to be converted to HTTPS individually (SSH into the remote machine, run `pulse config tls on` there, update the protocol in Settings). The CLI **warns** but does not change the JSON automatically.
 
-## Verificação antes de commitar
+## Pre-commit verification
 
 - `cd frontend && npm run build` — type-check + compile
 - `cd client/src && python3 -c "import service"` — import smoke test
-- Teste manual: trocar tema + idioma no Header, criar sessão, reconectar em outra aba (pra testar código 4000)
+- Manual test: switch theme + language in the Header, create a session, reconnect from another tab (exercises the 4000 close code path)
 
-## Fluxo de release — instrução pro Claude
+## Release flow — instruction for Claude
 
-Sempre que terminar mudanças visíveis ao usuário final (features, bug fixes, novos comandos da CLI, mudanças de UI, alteração no installer, qualquer coisa que mereça aparecer no CHANGELOG), ao final da resposta **devolver um bloco com os comandos git para publicar a release**, mesmo que o usuário não peça. Exceções: mudanças puramente internas (comentários, refactor silencioso, tipagem) — essas apenas mencionar brevemente e **não** propor release.
+Whenever you finish changes visible to the end user (features, bug fixes, new CLI commands, UI changes, installer tweaks, anything worth a CHANGELOG entry), at the end of the response **return a block with the git commands to publish the release**, even if the user didn't ask. Exceptions: purely internal changes (comments, silent refactor, typing) — only mention them briefly and **do not** propose a release.
 
-O bloco deve conter, nesta ordem:
+The block must contain, in this order:
 
-1. **Bump de versão** sugerido, seguindo SemVer:
-   - **patch** (`X.Y.Z+1`) — apenas bug fixes, sem mudança de comportamento observável além da correção
-   - **minor** (`X.Y+1.0`) — features novas, novos comandos CLI, mudanças de UI não-breaking, expansão de API
-   - **major** (`X+1.0.0`) — breaking changes (renomeação de comando, remoção de flag, mudança de schema de env/config, mudança incompatível de API)
-2. **Atualização do `CHANGELOG.md`** feita por mim antes de fechar a tarefa — seção nova no topo (`## [X.Y.Z] — YYYY-MM-DD`) com `### Added` / `### Changed` / `### Fixed` / `### Removed` apropriados, bullets descritivos por mudança, e atualização dos links no rodapé. Se eu não fiz isso ainda, fazer antes de devolver o bloco.
-3. **Script shell pronto em `/tmp/`** — em vez de devolver um bloco de comandos pra copiar/colar, **gerar um arquivo executável** via Write tool em `/tmp/pulse-release-v<X.Y.Z>.sh` (release) ou `/tmp/pulse-commit-<slug>.sh` (docs-only / commit sem tag), com permissão de exec implícita (o usuário faz `bash /tmp/...sh`). Conteúdo padrão da release:
+1. **Suggested version bump** following SemVer:
+   - **patch** (`X.Y.Z+1`) — only bug fixes, no observable behavior change beyond the fix
+   - **minor** (`X.Y+1.0`) — new features, new CLI commands, non-breaking UI changes, API expansions
+   - **major** (`X+1.0.0`) — breaking changes (renamed command, removed flag, env/config schema change, incompatible API change)
+2. **`CHANGELOG.md` update** done by you (Claude) before closing the task — new section at the top (`## [X.Y.Z] — YYYY-MM-DD`) with appropriate `### Added` / `### Changed` / `### Fixed` / `### Removed`, descriptive bullets per change, and updated footer links. If you haven't done this yet, do it before returning the block. **Always write CHANGELOG entries in English.**
+3. **Ready-to-run shell script in `/tmp/`** — instead of returning a block of commands to copy/paste, **generate an executable file** via the Write tool at `/tmp/pulse-release-v<X.Y.Z>.sh` (release) or `/tmp/pulse-commit-<slug>.sh` (docs-only / commit without tag), with implicit exec permission (the user runs `bash /tmp/...sh`). Default release content:
 
    ```sh
    #!/usr/bin/env bash
    set -eu
    cd /media/kzezel/data/dados/development/aws/projetos/open_source/pulse
    git status
-   git add <paths específicos>   # nunca `git add -A`
-   git commit -m "<tipo>(<escopo>): <resumo>"
-   git tag -a v<X.Y.Z> -m "Pulse v<X.Y.Z> — <resumo>"
+   git add <specific paths>     # never `git add -A`
+   git commit -m "<type>(<scope>): <summary>"
+   git tag -a v<X.Y.Z> -m "Pulse v<X.Y.Z> — <summary>"
    git push origin main
-   git push origin v<X.Y.Z>      # dispara .github/workflows/release.yml
+   git push origin v<X.Y.Z>     # triggers .github/workflows/release.yml
    echo "done — monitor with: gh run list --workflow=release.yml --limit 3"
    ```
 
-   Para commits sem tag (docs-only, chores), omitir o `git tag` e o segundo `git push`. Não incluir `git diff` — usuário revisa pelo próprio editor/IDE se quiser.
+   For commits without a tag (docs-only, chores), omit the `git tag` and the second `git push`. Do not include `git diff` — the user reviews it in their own editor/IDE if they want.
 
-4. **Mensagem final** mencionando o path do script (ex: "Rode: `bash /tmp/pulse-release-v1.3.3.sh`") e o que o script vai fazer em uma linha.
+4. **Final message** mentioning the script path (e.g. "Run: `bash /tmp/pulse-release-v1.3.3.sh`") and what the script will do, in one line.
 
-Regras:
+Rules:
 
-- **Nunca rodar os comandos git**. O dono do repo pediu que Git fica manual (ver CLAUDE.md global). Só devolver o bloco.
-- **Data real**: usar a data corrente no formato `YYYY-MM-DD` na entrada do CHANGELOG.
-- **Mensagem de commit**: seguir o estilo `tipo(escopo): resumo` (ex: `fix(client): tmux attach needs TERM under systemd`, `feat(cli): add pulse config password/ports/paths/open`). Resumo em pt ou en, consistente com commits anteriores do repo.
-- **Agrupar mudanças** relacionadas na mesma release. Se o usuário pediu várias coisas em sequência e nenhuma saiu ainda, uma release única bump-ando o tipo mais "forte" (fix+feature = minor, feature+breaking = major).
-- **Não sugerir patch release** se a mudança adicionou comando CLI, entrada de env var, ou qualquer coisa que um usuário possa passar a depender. Patches são só pra correção.
-- Se não tiver certeza do tipo de bump, **perguntar** antes de fechar — mas isso é exceção, não padrão.
+- **Never run the git commands.** The repo owner asked that Git stays manual (see global CLAUDE.md). Just return the block.
+- **Real date**: use the current date in `YYYY-MM-DD` format in the CHANGELOG entry.
+- **Commit message**: follow the `type(scope): summary` style (e.g. `fix(client): reap zombie processes on PTYSession.close`, `feat(cli): add pulse config password/ports/paths/open`). Summary in English, consistent with prior commits in the repo.
+- **Group related changes** into the same release. If the user asked for several things in sequence and none have been shipped yet, a single release bumping to the strongest type (fix+feature = minor, feature+breaking = major).
+- **Do not suggest a patch release** if the change added a CLI command, an env var entry, or anything a user might come to depend on. Patches are for fixes only.
+- If you're unsure about the bump type, **ask** before closing — but that's the exception, not the default.
+- **All public-facing docs (README, CHANGELOG, NOTIFICATIONS, CONTRIBUTING, docs/) must be in English.** Internal-only files (gitignored, like `docs/superpowers/`) can be in any language.

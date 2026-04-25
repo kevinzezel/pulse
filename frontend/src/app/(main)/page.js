@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useMemo, useRef, Suspense } from 'rea
 import { useRouter, useSearchParams } from 'next/navigation';
 import toast from 'react-hot-toast';
 import {
-  getSessions, createSession, killSession, renameSession, syncSessions, cloneSession,
+  getSessions, createSession, killSession, renameSession, cloneSession,
   getGroups, createGroup, assignSessionGroup, setGroupHidden, saveGroups, setSessionNotify, createPrompt,
   composeSessionId, splitSessionId,
   getSessionsSnapshot, setSessionsSnapshot, restoreSessions,
@@ -365,14 +365,7 @@ function Dashboard() {
 
   useEffect(() => {
     if (serversLoading) return;
-    (async () => {
-      if (servers.length > 0) {
-        await Promise.allSettled(
-          servers.map(srv => syncSessions(srv.id).catch(() => null))
-        );
-      }
-      await fetchSessions();
-    })();
+    fetchSessions();
     fetchGroups();
   }, [serversLoading, servers, fetchSessions, fetchGroups]);
 
@@ -612,24 +605,6 @@ function Dashboard() {
         splitPercentages: [50, 50],
       };
     });
-  }
-
-  async function handleSync() {
-    if (servers.length === 0) return;
-    const results = await Promise.allSettled(
-      servers.map(srv => syncSessions(srv.id))
-    );
-    const failed = results
-      .map((r, i) => r.status === 'rejected' ? servers[i] : null)
-      .filter(Boolean);
-    await fetchSessions();
-    if (failed.length) {
-      toast.error(t('toast.syncPartial', {
-        names: failed.map(s => s.name || `${s.host}:${s.port}`).join(', '),
-      }));
-    } else {
-      toast.success(t('toast.syncDone'));
-    }
   }
 
   async function handleRename(id, newName) {
@@ -937,7 +912,6 @@ function Dashboard() {
           onCreateSession={handleCreate}
           onKillSession={handleKill}
           onRenameSession={handleRename}
-          onSync={handleSync}
           onReconnect={handleReconnect}
           onAssignGroup={handleAssignGroup}
           onCreateGroupInline={handleCreateGroupInline}

@@ -1,24 +1,9 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { X, Copy, Check, Folder, ChevronUp, Loader, Eye, EyeOff } from 'lucide-react';
+import { X, Folder, ChevronUp, Loader, Eye, EyeOff } from 'lucide-react';
 import { useTranslation } from '@/providers/I18nProvider';
 import { listRemoteDirectory, getRecentCwds, deleteRecentCwd } from '@/services/api';
-
-function copyToClipboard(text) {
-  if (navigator.clipboard?.writeText) {
-    navigator.clipboard.writeText(text);
-  } else {
-    const ta = document.createElement('textarea');
-    ta.value = text;
-    ta.style.position = 'fixed';
-    ta.style.opacity = '0';
-    document.body.appendChild(ta);
-    ta.select();
-    document.execCommand('copy');
-    document.body.removeChild(ta);
-  }
-}
 
 function joinPath(base, name) {
   if (base === '/') return `/${name}`;
@@ -152,7 +137,6 @@ export default function NewTerminalModal({ onClose, onSubmit, loading, groups = 
   const { t } = useTranslation();
   const [name, setName] = useState('');
   const [groupId, setGroupId] = useState(defaultGroupId);
-  const [copied, setCopied] = useState(false);
   const [serverId, setServerId] = useState(() => {
     try {
       const stored = typeof window !== 'undefined' ? localStorage.getItem('rt:lastServerId') : null;
@@ -215,14 +199,6 @@ export default function NewTerminalModal({ onClose, onSubmit, loading, groups = 
   }
 
   const noServers = servers.length === 0;
-
-  function handleCopy() {
-    const sessionName = name.trim() || 'my-terminal';
-    const cmd = `tmux new-session -s ${sessionName}`;
-    copyToClipboard(cmd);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-overlay/60 px-4">
@@ -373,14 +349,6 @@ export default function NewTerminalModal({ onClose, onSubmit, loading, groups = 
               className="flex-1 py-2 rounded-md text-sm font-medium text-white bg-brand-gradient hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
             >
               {loading ? t('modal.newTerminal.creating') : t('modal.newTerminal.create')}
-            </button>
-            <button
-              type="button"
-              onClick={handleCopy}
-              className="px-3 py-2 rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
-              title={t('modal.newTerminal.copyTooltip')}
-            >
-              {copied ? <Check size={16} className="text-success" /> : <Copy size={16} />}
             </button>
           </div>
         </form>

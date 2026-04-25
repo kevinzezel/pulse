@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
 import {
-  Plus, Copy, Check, RefreshCw,
+  Plus, Check,
   Pencil, Trash2, FolderOpen, ExternalLink, Loader, Wifi, WifiOff, Search, X, Folder,
   Bell, BellOff, Keyboard,
 } from 'lucide-react';
@@ -30,7 +30,6 @@ export default function Sidebar({
   onCreateSession,
   onKillSession,
   onRenameSession,
-  onSync,
   onReconnect,
   onAssignGroup,
   onCreateGroupInline,
@@ -54,8 +53,6 @@ export default function Sidebar({
   const { supported: notifySupported, permission: notifyPermission, permissionReason: notifyPermissionReason, requestBrowserPermission } = useNotifications();
   const [showModal, setShowModal] = useState(false);
   const [creating, setCreating] = useState(false);
-  const [syncing, setSyncing] = useState(false);
-  const [copiedId, setCopiedId] = useState(null);
   const [renameSessionId, setRenameSessionId] = useState(null);
   const [renaming, setRenaming] = useState(false);
   const [confirmKillId, setConfirmKillId] = useState(null);
@@ -171,35 +168,6 @@ export default function Sidebar({
     } finally {
       setRenaming(false);
     }
-  }
-
-  async function handleSync() {
-    setSyncing(true);
-    try {
-      await onSync();
-    } finally {
-      setSyncing(false);
-    }
-  }
-
-  function handleCopyTmux(e, sessionId) {
-    e.stopPropagation();
-    const { sessionId: backendId } = splitSessionId(sessionId);
-    const text = `tmux attach-session -t ${backendId || sessionId}`;
-    if (navigator.clipboard?.writeText) {
-      navigator.clipboard.writeText(text);
-    } else {
-      const ta = document.createElement('textarea');
-      ta.value = text;
-      ta.style.position = 'fixed';
-      ta.style.opacity = '0';
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand('copy');
-      document.body.removeChild(ta);
-    }
-    setCopiedId(sessionId);
-    setTimeout(() => setCopiedId(null), 2000);
   }
 
   async function handleCreate(serverId, name, groupId, cwd) {
@@ -361,13 +329,6 @@ export default function Sidebar({
               ? <Loader size={13} className="animate-spin" />
               : (sessionLocal ? <FolderOpen size={13} /> : <ExternalLink size={13} />)}
           </button>
-          <button
-            onClick={(e) => handleCopyTmux(e, session.id)}
-            className="p-1 text-muted-foreground hover:text-primary transition-colors"
-            title={t('sidebar.copyTmux')}
-          >
-            {copiedId === session.id ? <Check size={13} className="text-success" /> : <Copy size={13} />}
-          </button>
           <div className="flex-1" />
           <button
             onClick={(e) => { e.stopPropagation(); setConfirmKillId(session.id); }}
@@ -470,25 +431,14 @@ export default function Sidebar({
                 <Plus size={16} />
                 {t('sidebar.newTerminal')}
               </button>
-              <div className="flex gap-2">
-                <button
-                  onClick={onReconnect}
-                  className="flex-1 flex items-center justify-center py-1.5 rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
-                  title={t('sidebar.reconnect')}
-                  aria-label={t('sidebar.reconnect')}
-                >
-                  <Wifi size={14} />
-                </button>
-                <button
-                  onClick={handleSync}
-                  disabled={syncing}
-                  className="flex-1 flex items-center justify-center py-1.5 rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors disabled:opacity-50"
-                  title={t('sidebar.sync')}
-                  aria-label={t('sidebar.sync')}
-                >
-                  <RefreshCw size={14} className={syncing ? 'animate-spin' : ''} />
-                </button>
-              </div>
+              <button
+                onClick={onReconnect}
+                className="w-full flex items-center justify-center py-1.5 rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
+                title={t('sidebar.reconnect')}
+                aria-label={t('sidebar.reconnect')}
+              >
+                <Wifi size={14} />
+              </button>
             </div>
 
             <div className="px-3 pb-2">
@@ -655,14 +605,6 @@ export default function Sidebar({
                 title={t('sidebar.reconnect')}
               >
                 <Wifi size={16} />
-              </button>
-              <button
-                onClick={handleSync}
-                disabled={syncing}
-                className="p-2 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors disabled:opacity-50"
-                title={t('sidebar.sync')}
-              >
-                <RefreshCw size={16} className={syncing ? 'animate-spin' : ''} />
               </button>
             </div>
             {isMobile && (

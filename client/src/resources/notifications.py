@@ -1,92 +1,61 @@
 import asyncio
 import hashlib
 import logging
-import re
 import time
+
+import pyte
+
+from tools.pty import get_pty
 
 logger = logging.getLogger(__name__)
 
 WATCHER_INTERVAL_SECONDS = 5
-CAPTURE_LINES = 100
 SNIPPET_MAX_LINES = 20
 SNIPPET_MAX_CHARS = 3500
-RESIZE_GRACE_SECONDS = 20
-# Janela após a qual re-notificamos mesmo que a tela capturada seja bit-idêntica
-# à já alertada. Evita spam do tipo "agente esperando input" que volta pro mesmo
-# estado visual após cada resposta do user, mas ainda dá um lembrete se ficar
-# parado na mesma tela por muito tempo.
-NOTIFIED_HASH_TTL_SECONDS = 1800
+# Janela curta após resize: o pyte rerenderiza com a nova geometria e o hash
+# muda mesmo sem mudança de conteúdo lógico (linhas se requebram em outras
+# colunas). 5s cobre o reflow do TUI (vim/htop/Claude Code) sem segurar
+# notificação real por muito tempo. Era 20s no tempo do tmux (que somava o
+# jitter do redraw cosmético do multiplexer); sem tmux, o ruído some.
+RESIZE_GRACE_SECONDS = 5
 # Janela de "tô olhando": se o frontend mandou heartbeat 'viewing' nos últimos
-# N segundos, suprime alerta — o user está vendo o terminal, não precisa notif.
-# Maior que o intervalo de heartbeat (10s) com folga pra absorver jitter de rede
-# e re-mounts do react-mosaic durante drag/resize de painéis.
+# N segundos, considera o user vendo o terminal. Maior que o intervalo de
+# heartbeat (10s) com folga pra absorver jitter de rede e re-mounts do
+# react-mosaic durante drag/resize de painéis.
 VIEWING_GRACE_SECONDS = 15
-# Lines that are ONLY border chars (plus surrounding whitespace) — the bare
-# separator bars around agent input boxes. Includes ASCII '-' because tmux
-# redraws/wraps on narrow mobile clients often show plain dashed separators.
-_BORDER_ONLY_LINE_RE = re.compile(r"^\s*[-─━═▀▄█│┃┌┐└┘┬┴├┤┼╭╮╰╯+|]{2,}\s*$")
-# Lines that START with a long run of border chars but also contain a
-# label (e.g. Claude Code's `──────── fix-sessions-json-empty-install ─`).
-# Visually in the Telegram <pre>, the many ─ before/after the label wrap
-# into several "wall of dash" rows. We strip the border decoration and
-# keep just the text inside.
-_BORDER_DECORATED_LINE_RE = re.compile(r"^\s*[-─━═▀▄█│┃┌┐└┘┬┴├┤┼╭╮╰╯+|]{10,}")
-# Any run of border chars (to replace with a single space when stripping).
-_BORDER_RUN_RE = re.compile(r"[-─━═▀▄█│┃┌┐└┘┬┴├┤┼╭╮╰╯+|]+")
 
-
-def _clean_snippet_line(line):
-    """Drop or de-decorate a line for the notification snippet.
-
-    Returns None if the line is pure borders and should be dropped.
-    Returns the stripped text when the line has a border-decorated label
-    (keeps the label, loses the bars). Returns the line unchanged otherwise.
-    """
-    if _BORDER_ONLY_LINE_RE.match(line):
-        return None
-    if _BORDER_DECORATED_LINE_RE.match(line):
-        return _BORDER_RUN_RE.sub(" ", line).strip()
-    return line
 
 # Watcher state keyed by session id. Owned exclusively by notification_watcher()
 # which runs as a single asyncio task, so no lock is required.
 #
 # Schema:
 #   {
-#     "hash":               <md5 digest of last observed capture-pane output>,
+#     "hash":               <md5 digest of last observed pyte display>,
 #     "last_output_ts":     <unix time of last hash change; 0 means "no output
 #                            seen since state was created, so never alert">,
-#     "notified":           <bool; latched True after one alert per idle streak,
-#                            reset on the next hash change>,
-#     "last_notified_hash": <md5 digest of the last capture we actually sent an
-#                            alert for; used by Rule 4 to dedup repeated
-#                            notifications when an agent parks at the same
-#                            input prompt after each user response>,
-#     "last_notified_ts":   <unix time of the last alert sent; paired with
-#                            NOTIFIED_HASH_TTL_SECONDS to force a re-notify
-#                            even on bit-identical captures after the TTL>,
+#     "notified":           <bool; latched True after the alert for this hash
+#                            was either sent OR ack-ed by user (viewing/typing).
+#                            Reset on the next hash change>,
+#     "last_notified_hash": <md5 digest of the last hash we sent an alert for.
+#                            Used by Rule 4 to dedupe repeated notifications
+#                            when an agent parks at the same prompt after each
+#                            user response — eternal dedup, no TTL>,
 #   }
 _state = {}
+
+# Pyte screens cached per-session. Pyte mantém estado mutável e NÃO é
+# thread-safe, mas só o watcher (single asyncio task) toca esse dict — feed
+# via asyncio.to_thread roda sequencialmente dentro do mesmo tick. Sem lock.
+_pyte_screens = {}
 
 
 def reset_session_state(session_id):
     _state.pop(session_id, None)
+    _pyte_screens.pop(session_id, None)
 
 
 def _hash_content(content):
     return hashlib.md5(content.encode("utf-8", errors="replace")).digest()
-
-
-def _normalize_content_for_hash(content):
-    lines = []
-    for raw in content.replace("\r\n", "\n").split("\n"):
-        out = _clean_snippet_line(raw.rstrip())
-        if out is None:
-            continue
-        lines.append(out)
-    while lines and not lines[-1]:
-        lines.pop()
-    return "\n".join(lines)
 
 
 def _html_escape(text):
@@ -97,17 +66,36 @@ def _html_escape(text):
     )
 
 
+def _render_pane_via_pyte(pty_session):
+    """Renderiza o estado visual do PTY usando pyte (terminal emulator).
+
+    Faz full re-feed do scrollback a cada chamada — pyte processa em C-extension
+    rapidamente (<5ms para ~512KB típicos). Devolve as linhas do display, sem
+    ANSI/cursor/cores: só o texto que o usuário veria.
+
+    Reusa o screen cache quando geometria não muda; recria em resize.
+    """
+    sid = pty_session.id
+    cols, rows = pty_session.cols, pty_session.rows
+    cached = _pyte_screens.get(sid)
+    if cached is None or cached[0].columns != cols or cached[0].lines != rows:
+        screen = pyte.Screen(cols, rows)
+        stream = pyte.ByteStream(screen)
+        _pyte_screens[sid] = (screen, stream)
+    else:
+        screen, stream = cached
+        screen.reset()
+    raw = pty_session.get_scrollback_bytes()
+    if raw:
+        stream.feed(raw)
+    return "\n".join(screen.display).rstrip()
+
+
 def _format_pane_snippet(content):
     lines = [ln.rstrip() for ln in content.rstrip("\n").split("\n")]
     while lines and not lines[-1]:
         lines.pop()
-    cleaned = []
-    for ln in lines:
-        out = _clean_snippet_line(ln)
-        if out is None:
-            continue
-        cleaned.append(out)
-    cleaned = cleaned[-SNIPPET_MAX_LINES:]
+    cleaned = lines[-SNIPPET_MAX_LINES:]
     text = "\n".join(cleaned)
     if len(text) > SNIPPET_MAX_CHARS:
         text = "…\n" + text[-SNIPPET_MAX_CHARS:]
@@ -132,10 +120,6 @@ async def notification_watcher():
     from resources.terminal import sessions, _sessions_lock
     from resources.settings import get_telegram_raw, get_idle_timeout, get_channels
     from resources.notification_broadcast import broadcast
-    from tools.tmux import (
-        capture_pane, get_notify_on_idle,
-        get_project_name, get_group_name, get_custom_name,
-    )
     from tools.telegram import send_telegram_message
 
     logger.info("Notification watcher started")
@@ -145,38 +129,17 @@ async def notification_watcher():
             await asyncio.sleep(WATCHER_INTERVAL_SECONDS)
 
             with _sessions_lock:
-                candidate_ids = [sid for sid, s in sessions.items() if s.get("notify_on_idle")]
-                monitored_snapshot = {sid: dict(sessions[sid]) for sid in candidate_ids}
+                monitored_ids = [sid for sid, s in sessions.items() if s.get("notify_on_idle")]
+                monitored_snapshot = {sid: dict(sessions[sid]) for sid in monitored_ids}
 
-            # Reconcile cached notify_on_idle + scope names with the tmux
-            # options (source of truth). If another client flipped the toggle,
-            # or the frontend renamed a project/group but the PATCH failed on
-            # this server (fire-and-forget), our cached dict is stale and the
-            # notification shows the old label. Re-read per tick: cost is
-            # ~4 subprocess calls per monitored session per 5s — trivial.
-            monitored_ids = []
-            for sid in candidate_ids:
-                if not await asyncio.to_thread(get_notify_on_idle, sid):
-                    with _sessions_lock:
-                        if sid in sessions:
-                            sessions[sid]["notify_on_idle"] = False
-                    monitored_snapshot.pop(sid, None)
-                    continue
-                project_name = await asyncio.to_thread(get_project_name, sid)
-                group_name = await asyncio.to_thread(get_group_name, sid)
-                custom_name = await asyncio.to_thread(get_custom_name, sid)
-                with _sessions_lock:
-                    if sid in sessions:
-                        sessions[sid]["project_name"] = project_name
-                        sessions[sid]["group_name"] = group_name
-                        if custom_name:
-                            sessions[sid]["name"] = custom_name
-                        monitored_snapshot[sid] = dict(sessions[sid])
-                monitored_ids.append(sid)
-
+            # Cleanup state/screens de sessões que saíram do monitoramento
+            # (perderam notify_on_idle ou foram removidas).
             for sid in list(_state):
                 if sid not in monitored_ids:
                     del _state[sid]
+            for sid in list(_pyte_screens):
+                if sid not in monitored_ids:
+                    del _pyte_screens[sid]
 
             if not monitored_ids:
                 continue
@@ -191,15 +154,17 @@ async def notification_watcher():
                 if not sess:
                     continue
 
-                # capture-pane is a blocking subprocess; offloaded to a worker
-                # thread so N monitored sessions don't serialize on the event
-                # loop.
-                content = await asyncio.to_thread(capture_pane, sid, CAPTURE_LINES)
-                if content is None:
+                pty_session = get_pty(sid)
+                if pty_session is None or not pty_session.is_alive():
                     continue
 
-                normalized_content = _normalize_content_for_hash(content)
-                h = _hash_content(normalized_content)
+                # Pyte feed é CPU-bound; offloaded a thread para não serializar
+                # N sessões no event loop.
+                content = await asyncio.to_thread(_render_pane_via_pyte, pty_session)
+                if not content:
+                    continue
+
+                h = _hash_content(content)
                 state = _state.get(sid)
 
                 if state is None:
@@ -212,7 +177,6 @@ async def notification_watcher():
                         "last_output_ts": 0,
                         "notified": False,
                         "last_notified_hash": None,
-                        "last_notified_ts": 0,
                     }
                     continue
 
@@ -242,15 +206,15 @@ async def notification_watcher():
                 if last_output <= 0:
                     continue
 
-                # Rule 2: user is not mid-composition. Based on an explicit
-                # byte counter maintained by the WebSocket input handler
-                # (zeroed on \r/\n, incremented on every other keystroke).
-                # Replaces the previous timestamp-based heuristic
-                # (last_input > last_enter) which had edge cases in TUIs
-                # (pastes with embedded Enter, echo contaminating baseline).
-                # Semântica: qualquer texto parcial no buffer suprime o alerta
-                # até o usuário pressionar Enter (ou abandonar a sessão).
+                # Rule 2: user está digitando = engajou com o terminal nesse
+                # estado. Considera ack permanente: marca notified=True. Só
+                # re-avalia se o hash mudar (= agente fez algo novo). Apagar
+                # tudo via Ctrl-C/D zera bytes_since_enter, mas notified
+                # continua True — alinha com "user já sabe deste estado".
                 if sess.get("bytes_since_enter", 0) > 0:
+                    if not state["notified"]:
+                        logger.debug("Idle ack via input for %s (mid-composition)", sid)
+                    state["notified"] = True
                     continue
 
                 # Rule 3: timeout elapsed since last output.
@@ -258,27 +222,24 @@ async def notification_watcher():
                 if idle_seconds < idle_timeout:
                     continue
 
-                # Rule 4: dedup por hash do capture. Agentes (Claude Code,
-                # Cursor) voltam pro mesmo estado visual após cada resposta
-                # do user — sem isso, cada pergunta sucessiva gera um alerta
-                # idêntico. Re-notificamos se passou NOTIFIED_HASH_TTL_SECONDS
-                # desde o último envio com esse mesmo hash.
-                if (state["last_notified_hash"] == h
-                        and (now - state["last_notified_ts"]) < NOTIFIED_HASH_TTL_SECONDS):
+                # Rule 4: dedup eterno por hash. Agentes (Claude Code, Cursor)
+                # voltam pro mesmo estado visual após cada resposta do user —
+                # se já alertamos exatamente esse hash, não re-alerta. Sem TTL:
+                # a saída desse "lock" é o agente mudar o display (nova fase
+                # de idle), não passagem de tempo.
+                if state["last_notified_hash"] == h:
                     state["notified"] = True
                     continue
 
-                # Rule 5: usuário está vendo este terminal AGORA? Se o frontend
-                # mandou heartbeat 'viewing' nos últimos VIEWING_GRACE_SECONDS,
-                # suprime alerta — não marca notified=True, então quando o user
-                # sair de cena, a próxima rodada já avalia normal.
+                # Rule 5: user está vendo este terminal AGORA = ack permanente
+                # deste estado. Marca notified=True; só re-avalia se o hash
+                # mudar. Sair de cena sem o hash ter mudado = continua
+                # suprimido (user já viu, sabe que tá parado aqui).
                 last_viewing = sess.get("last_viewing_ts", 0)
                 if last_viewing > 0 and (now - last_viewing) < VIEWING_GRACE_SECONDS:
-                    logger.debug(
-                        "Idle notification suppressed for %s: viewing heartbeat %.1fs ago",
-                        sid,
-                        now - last_viewing,
-                    )
+                    if not state["notified"]:
+                        logger.debug("Idle ack via viewing for %s", sid)
+                    state["notified"] = True
                     continue
 
                 name = sess.get("name", sid)
@@ -330,7 +291,6 @@ async def notification_watcher():
                     last_viewing_age if last_viewing_age is not None else "-",
                 )
                 state["last_notified_hash"] = h
-                state["last_notified_ts"] = now
                 state["notified"] = True
         except asyncio.CancelledError:
             logger.info("Notification watcher cancelled")

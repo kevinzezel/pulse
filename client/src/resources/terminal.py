@@ -2,9 +2,6 @@ import os
 import asyncio
 import json
 import logging
-import shlex
-import signal
-import subprocess
 import threading
 import time
 from datetime import datetime, timezone
@@ -12,16 +9,12 @@ from datetime import datetime, timezone
 from fastapi import WebSocket, WebSocketDisconnect
 
 from envs.load import API_KEY
-from tools.tmux import (
-    create_session, kill_session, list_sessions,
-    attach_session, set_pty_size, session_exists,
-    get_pane_cwd, set_custom_name, get_custom_name,
-    get_group_id, set_group_id,
-    get_project_id, set_project_id,
-    get_group_name, set_group_name,
-    get_project_name, set_project_name,
-    get_notify_on_idle, set_notify_on_idle, migrate_notify_on_idle_legacy,
-    ensure_tmux_config,
+from tools.pty import (
+    PTYSession,
+    get_pty,
+    register_pty,
+    unregister_pty,
+    list_pty_ids,
 )
 
 DEFAULT_PROJECT_ID = "proj-default"
@@ -53,111 +46,23 @@ def _next_id():
         return f"{SESSION_PREFIX}-{_counter}"
 
 
+def _bump_counter_from_id(sid):
+    global _counter
+    try:
+        num = int(sid.split('-')[1])
+        if num > _counter:
+            _counter = num
+    except (IndexError, ValueError):
+        pass
+
+
 def recover_sessions():
-    global _counter
-    ensure_tmux_config()
-    tmux_sessions = list_sessions()
-    with _sessions_lock:
-        for s in tmux_sessions:
-            sid = s["id"]
-            if not sid.startswith(f"{SESSION_PREFIX}-"):
-                continue
-            try:
-                created_at = datetime.fromtimestamp(int(s["created_ts"]), tz=timezone.utc).isoformat()
-            except (ValueError, OSError):
-                created_at = datetime.now(timezone.utc).isoformat()
-            subprocess.run(['tmux', 'set-option', '-t', sid, 'status', 'off'], capture_output=True)
-            migrate_notify_on_idle_legacy(sid)
-            custom_name = get_custom_name(sid)
-            raw_group_id = get_group_id(sid)
-            raw_project_id = get_project_id(sid)
-            if not raw_project_id:
-                set_project_id(sid, DEFAULT_PROJECT_ID)
-                raw_project_id = DEFAULT_PROJECT_ID
-            sessions[sid] = {
-                "id": sid,
-                "name": custom_name or sid,
-                "created_at": created_at,
-                "group_id": raw_group_id or None,
-                "group_name": get_group_name(sid),
-                "project_id": raw_project_id,
-                "project_name": get_project_name(sid),
-                "notify_on_idle": get_notify_on_idle(sid),
-                "bytes_since_enter": 0,
-                "last_viewing_ts": 0,
-                "last_resize_ts": 0,
-            }
-            try:
-                num = int(sid.split('-')[1])
-                if num > _counter:
-                    _counter = num
-            except (IndexError, ValueError):
-                pass
-    logger.info(f"Recovered {len(sessions)} existing tmux sessions")
-
-
-def sync_sessions_request():
-    global _counter
-    tmux_sessions = list_sessions()
-    tmux_ids = set()
-    added = 0
-    removed = 0
-
-    with _sessions_lock:
-        for s in tmux_sessions:
-            sid = s["id"]
-            tmux_ids.add(sid)
-            if sid in sessions:
-                continue
-            try:
-                created_at = datetime.fromtimestamp(int(s["created_ts"]), tz=timezone.utc).isoformat()
-            except (ValueError, OSError):
-                created_at = datetime.now(timezone.utc).isoformat()
-            subprocess.run(['tmux', 'set-option', '-t', sid, 'status', 'off'], capture_output=True)
-            migrate_notify_on_idle_legacy(sid)
-            custom_name = get_custom_name(sid)
-            raw_group_id = get_group_id(sid)
-            raw_project_id = get_project_id(sid)
-            if not raw_project_id:
-                set_project_id(sid, DEFAULT_PROJECT_ID)
-                raw_project_id = DEFAULT_PROJECT_ID
-            sessions[sid] = {
-                "id": sid,
-                "name": custom_name or sid,
-                "created_at": created_at,
-                "group_id": raw_group_id or None,
-                "group_name": get_group_name(sid),
-                "project_id": raw_project_id,
-                "project_name": get_project_name(sid),
-                "notify_on_idle": get_notify_on_idle(sid),
-                "bytes_since_enter": 0,
-                "last_viewing_ts": 0,
-                "last_resize_ts": 0,
-            }
-            if sid.startswith(f"{SESSION_PREFIX}-"):
-                try:
-                    num = int(sid.split('-')[1])
-                    if num > _counter:
-                        _counter = num
-                except (IndexError, ValueError):
-                    pass
-            added += 1
-
-        for sid in list(sessions):
-            if sid not in tmux_ids:
-                del sessions[sid]
-                removed += 1
-
-        sessions_snapshot = list(sessions.values())
-
-    return {
-        "status_code": 200,
-        "content": {
-            "detail_key": "status.sync_result",
-            "detail_params": {"added": added, "removed": removed},
-            "sessions": sessions_snapshot,
-        }
-    }
+    # No-op com PTY direto: sem persistência cross-restart, sessões nascem
+    # vazias quando o client sobe. O frontend mantém snapshot client-side dos
+    # metadados (page.js getSessionsSnapshot) e chama /sessions/restore
+    # automaticamente após reconectar — esse caminho recria as PTYs com mesmo
+    # nome/grupo/projeto/cwd. Histórico do shell é perdido (esperado).
+    logger.info("recover_sessions: PTY mode — starting with empty session table")
 
 
 def create_session_request(payload):
@@ -170,23 +75,13 @@ def create_session_request(payload):
     cwd = payload.get("cwd")
     # Default new terminals to $HOME regardless of where the client process runs
     # (systemd/launchd spawn us under INSTALL_ROOT, which would otherwise leak
-    # into every new session via tmux's CWD inheritance).
+    # into every new session via inherited CWD).
     if not isinstance(cwd, str) or not cwd:
         cwd = os.path.expanduser("~")
 
-    create_session(session_id, start_directory=cwd)
-
-    if name != session_id:
-        set_custom_name(session_id, name)
-
-    if group_id is not None:
-        set_group_id(session_id, group_id)
-    if group_name is not None:
-        set_group_name(session_id, group_name)
-
-    set_project_id(session_id, project_id)
-    if project_name is not None:
-        set_project_name(session_id, project_name)
+    pty_session = PTYSession(session_id, start_directory=cwd)
+    pty_session.start()
+    register_pty(session_id, pty_session)
 
     now = datetime.now(timezone.utc).isoformat()
     with _sessions_lock:
@@ -202,6 +97,7 @@ def create_session_request(payload):
             "bytes_since_enter": 0,
             "last_viewing_ts": 0,
             "last_resize_ts": 0,
+            "cwd_at_start": cwd,
         }
         snapshot = dict(sessions[session_id])
 
@@ -215,7 +111,6 @@ def create_session_request(payload):
 
 
 def restore_sessions_request(payload):
-    global _counter
     items = payload.get("sessions") or []
     restored = []
     skipped = []
@@ -226,28 +121,22 @@ def restore_sessions_request(payload):
         if not sid or not isinstance(sid, str) or not sid.startswith(f"{SESSION_PREFIX}-"):
             failed.append({"id": sid, "reason": "invalid_id"})
             continue
-        if session_exists(sid):
+        if get_pty(sid) is not None:
             skipped.append({"id": sid, "reason": "already_exists"})
             continue
         try:
-            cwd = item.get("cwd")
-            create_session(sid, start_directory=cwd if isinstance(cwd, str) else None)
+            cwd = item.get("cwd") if isinstance(item.get("cwd"), str) else None
+            if not cwd:
+                cwd = os.path.expanduser("~")
+            pty_session = PTYSession(sid, start_directory=cwd)
+            pty_session.start()
+            register_pty(sid, pty_session)
             name = item.get("name") or sid
-            if name != sid:
-                set_custom_name(sid, name)
             group_id = item.get("group_id")
             group_name = item.get("group_name") or None
-            if group_id:
-                set_group_id(sid, group_id)
-            if group_name:
-                set_group_name(sid, group_name)
             project_id = item.get("project_id") or DEFAULT_PROJECT_ID
             project_name = item.get("project_name") or None
-            set_project_id(sid, project_id)
-            if project_name:
-                set_project_name(sid, project_name)
-            if item.get("notify_on_idle"):
-                set_notify_on_idle(sid, True)
+            notify = bool(item.get("notify_on_idle"))
             created_at = item.get("created_at") or datetime.now(timezone.utc).isoformat()
             with _sessions_lock:
                 sessions[sid] = {
@@ -258,21 +147,17 @@ def restore_sessions_request(payload):
                     "group_name": group_name,
                     "project_id": project_id,
                     "project_name": project_name,
-                    "notify_on_idle": bool(item.get("notify_on_idle")),
+                    "notify_on_idle": notify,
                     "bytes_since_enter": 0,
                     "last_viewing_ts": 0,
                     "last_resize_ts": 0,
+                    "cwd_at_start": cwd,
                 }
-                try:
-                    num = int(sid.split('-')[1])
-                    if num > _counter:
-                        _counter = num
-                except (IndexError, ValueError):
-                    pass
+                _bump_counter_from_id(sid)
                 restored.append(dict(sessions[sid]))
         except Exception as exc:
             logger.warning(f"Failed to restore {sid}: {exc}")
-            failed.append({"id": sid, "reason": "tmux_error"})
+            failed.append({"id": sid, "reason": "pty_error"})
 
     return {
         "status_code": 200,
@@ -290,7 +175,8 @@ def list_sessions_request():
     with _sessions_lock:
         snapshot = [dict(s) for s in sessions.values()]
     for s in snapshot:
-        s["cwd"] = get_pane_cwd(s["id"])
+        pty = get_pty(s["id"])
+        s["cwd"] = pty.get_cwd() if pty is not None else None
     return {
         "status_code": 200,
         "content": {
@@ -311,8 +197,6 @@ def rename_session_request(session_id, payload):
         sessions[session_id]["name"] = name
         snapshot = dict(sessions[session_id])
 
-    set_custom_name(session_id, name)
-
     return {
         "status_code": 200,
         "content": {
@@ -326,37 +210,26 @@ def clone_session_request(source_session_id):
     with _sessions_lock:
         if source_session_id not in sessions:
             raise AppException(key="errors.session_not_found", status_code=404)
-        if not session_exists(source_session_id):
-            del sessions[source_session_id]
-            raise AppException(key="errors.tmux_session_not_found", status_code=404)
         source_name = sessions[source_session_id]["name"]
         source_group_id = sessions[source_session_id].get("group_id")
         source_group_name = sessions[source_session_id].get("group_name")
         source_project_id = sessions[source_session_id].get("project_id") or DEFAULT_PROJECT_ID
         source_project_name = sessions[source_session_id].get("project_name")
+        source_cwd_at_start = sessions[source_session_id].get("cwd_at_start")
 
-    cwd = get_pane_cwd(source_session_id)
+    src_pty = get_pty(source_session_id)
+    cwd = src_pty.get_cwd() if src_pty is not None else None
+    if not cwd:
+        cwd = source_cwd_at_start
+    if not cwd:
+        cwd = os.path.expanduser("~")
 
     session_id = _next_id()
     name = f"{source_name} (clone)"
 
-    create_session(session_id)
-    set_custom_name(session_id, name)
-
-    if source_group_id:
-        set_group_id(session_id, source_group_id)
-    if source_group_name:
-        set_group_name(session_id, source_group_name)
-
-    set_project_id(session_id, source_project_id)
-    if source_project_name:
-        set_project_name(session_id, source_project_name)
-
-    if cwd:
-        subprocess.run(
-            ['tmux', 'send-keys', '-t', session_id, f'cd {shlex.quote(cwd)}', 'Enter'],
-            capture_output=True
-        )
+    pty_session = PTYSession(session_id, start_directory=cwd)
+    pty_session.start()
+    register_pty(session_id, pty_session)
 
     now = datetime.now(timezone.utc).isoformat()
     with _sessions_lock:
@@ -372,6 +245,7 @@ def clone_session_request(source_session_id):
             "bytes_since_enter": 0,
             "last_viewing_ts": 0,
             "last_resize_ts": 0,
+            "cwd_at_start": cwd,
         }
         snapshot = dict(sessions[session_id])
 
@@ -388,7 +262,7 @@ def set_session_scope_names_request(session_id, project_name=None, group_name=No
     """Update the cached human-readable project/group labels for a session.
 
     Only the fields explicitly provided (not None) are updated; passing an
-    empty string clears the option. Used by the frontend to propagate
+    empty string clears the field. Used by the frontend to propagate
     project/group renames down to the client without changing the IDs.
     """
     with _sessions_lock:
@@ -399,11 +273,6 @@ def set_session_scope_names_request(session_id, project_name=None, group_name=No
         if group_name is not None:
             sessions[session_id]["group_name"] = group_name or None
         snapshot = dict(sessions[session_id])
-
-    if project_name is not None:
-        set_project_name(session_id, project_name)
-    if group_name is not None:
-        set_group_name(session_id, group_name)
 
     return {
         "status_code": 200,
@@ -421,8 +290,6 @@ def set_session_notify_request(session_id, notify_on_idle):
             raise AppException(key="errors.session_not_found", status_code=404)
         sessions[session_id]["notify_on_idle"] = value
         snapshot = dict(sessions[session_id])
-
-    set_notify_on_idle(session_id, value)
 
     from resources.notifications import reset_session_state
     reset_session_state(session_id)
@@ -460,8 +327,10 @@ def kill_session_request(session_id):
             raise AppException(key="errors.session_not_found", status_code=404)
         del sessions[session_id]
 
-    if session_exists(session_id):
-        kill_session(session_id)
+    _ws_locks.pop(session_id, None)
+    pty_session = unregister_pty(session_id)
+    if pty_session is not None:
+        pty_session.close()
 
     return {
         "status_code": 200,
@@ -469,6 +338,54 @@ def kill_session_request(session_id):
             "detail_key": "success.session_closed"
         }
     }
+
+
+def _drop_session(session_id):
+    """Remove sessão completamente: dict + registry + lock + close da PTY.
+
+    Usado pelo monitor de PTYs órfãs e pelo handler do WS quando o shell morre
+    (EOF na leitura do PTY). Idempotente.
+    """
+    with _sessions_lock:
+        sessions.pop(session_id, None)
+    _ws_locks.pop(session_id, None)
+    pty_session = unregister_pty(session_id)
+    if pty_session is not None:
+        pty_session.close()
+
+
+async def reap_dead_ptys():
+    """Tarefa de fundo: detecta shells que morreram com WS fechado.
+
+    Quando o usuário fecha o frontend e depois faz Ctrl-D no shell em algum
+    momento, ninguém estaria escutando — só o próximo `attach` perceberia
+    via fd retornando b"". Esse loop garante limpeza periódica + propaga
+    close 1000 ao WS se ainda houver um conectado.
+    """
+    INTERVAL = 30
+    logger.info("PTY reaper started (interval=%ss)", INTERVAL)
+    while True:
+        try:
+            await asyncio.sleep(INTERVAL)
+            for sid in list_pty_ids():
+                pty_session = get_pty(sid)
+                if pty_session is None:
+                    continue
+                if pty_session.is_alive():
+                    continue
+                logger.info("PTY reaper: %s is dead, cleaning up", sid)
+                ws = _active_ws.get(sid)
+                if ws is not None:
+                    try:
+                        await ws.close(code=1000, reason="Session ended")
+                    except Exception:
+                        pass
+                _drop_session(sid)
+        except asyncio.CancelledError:
+            logger.info("PTY reaper cancelled")
+            break
+        except Exception as exc:
+            logger.error(f"PTY reaper error: {exc}")
 
 
 async def websocket_terminal(websocket: WebSocket, session_id: str):
@@ -490,10 +407,10 @@ async def websocket_terminal(websocket: WebSocket, session_id: str):
         if session_id not in sessions:
             await websocket.close(code=4004, reason="Session not found")
             return
-    if not session_exists(session_id):
-        with _sessions_lock:
-            sessions.pop(session_id, None)
-        await websocket.close(code=4004, reason="tmux session not found")
+    pty_session = get_pty(session_id)
+    if pty_session is None or not pty_session.is_alive():
+        _drop_session(session_id)
+        await websocket.close(code=4004, reason="Session not found")
         return
 
     async with _ws_lock(session_id):
@@ -507,34 +424,19 @@ async def websocket_terminal(websocket: WebSocket, session_id: str):
 
     loop = asyncio.get_event_loop()
     output_queue: asyncio.Queue = asyncio.Queue()
-    process = None
-    fd = None
+    fd = pty_session.master_fd
     send_task = None
     reader_installed = False
 
     try:
-        process, fd = attach_session(session_id)
-
-        # Inject the pane's scrollback history into the xterm.js buffer before
-        # streaming live output. Without this, xterm.js only sees the tmux
-        # redraw of the current viewport on attach — anything that scrolled off
-        # before the attach is unreachable by wheel/swipe (it lives in tmux's
-        # pane history but never enters xterm.js's own scrollback). We capture
-        # from -5000 up to -1 so the current viewport is excluded; the tmux
-        # attach itself will repaint the viewport on top of what we just sent.
-        try:
-            hist = subprocess.run(
-                ["tmux", "capture-pane", "-t", session_id, "-p", "-e", "-S", "-5000", "-E", "-1"],
-                capture_output=True, text=True, check=False, timeout=3.0,
-            )
-            if hist.returncode == 0 and hist.stdout:
-                history_text = hist.stdout.replace("\r\n", "\n").replace("\n", "\r\n")
-                await websocket.send_json({
-                    "type": "output",
-                    "data": history_text,
-                })
-        except Exception as hist_err:
-            logger.warning(f"[attach] history replay failed: {hist_err}")
+        # Replay byte-perfect do scrollback acumulado: cores, cursor positioning
+        # e ANSI inteiro são preservados (xterm.js processa direto).
+        scrollback = pty_session.get_scrollback_bytes()
+        if scrollback:
+            await websocket.send_json({
+                "type": "output",
+                "data": scrollback.decode("utf-8", errors="replace"),
+            })
 
         def on_pty_read():
             try:
@@ -542,6 +444,7 @@ async def websocket_terminal(websocket: WebSocket, session_id: str):
                 if not data:
                     output_queue.put_nowait(None)
                     return
+                pty_session.append_to_scrollback(data)
                 output_queue.put_nowait(data)
             except OSError:
                 output_queue.put_nowait(None)
@@ -554,7 +457,13 @@ async def websocket_terminal(websocket: WebSocket, session_id: str):
                 while True:
                     data = await output_queue.get()
                     if data is None:
-                        await websocket.close(code=1000, reason="Session ended")
+                        # Shell morreu (EOF no PTY). WS fecha 1000 e a sessão
+                        # é removida — frontend já trata "Session ended".
+                        try:
+                            await websocket.close(code=1000, reason="Session ended")
+                        except Exception:
+                            pass
+                        _drop_session(session_id)
                         break
                     await websocket.send_json({
                         "type": "output",
@@ -574,7 +483,7 @@ async def websocket_terminal(websocket: WebSocket, session_id: str):
             msg_type = msg.get("type")
             if msg_type == "input":
                 data = msg["data"]
-                os.write(fd, data.encode("utf-8"))
+                pty_session.write(data.encode("utf-8"))
                 now_ts = time.time()
                 pressed_enter = "\r" in data or "\n" in data
                 # Escape sequences (arrow keys, mouse events, function keys,
@@ -608,11 +517,7 @@ async def websocket_terminal(websocket: WebSocket, session_id: str):
                 record_session_viewing(session_id)
             elif msg_type == "resize":
                 record_session_resize(session_id)
-                set_pty_size(fd, msg["rows"], msg["cols"])
-                try:
-                    os.kill(process.pid, signal.SIGWINCH)
-                except OSError:
-                    pass
+                pty_session.resize(msg["rows"], msg["cols"])
     except WebSocketDisconnect:
         logger.info(f"WebSocket disconnected: {session_id}")
     except RuntimeError as e:
@@ -636,15 +541,6 @@ async def websocket_terminal(websocket: WebSocket, session_id: str):
                 pass
         if send_task is not None:
             send_task.cancel()
-        if fd is not None:
-            try:
-                os.close(fd)
-            except OSError:
-                pass
-        if process is not None:
-            if process.poll() is None:
-                try:
-                    process.terminate()
-                except Exception:
-                    pass
-            loop.run_in_executor(None, process.wait)
+        # Não fechar fd nem matar process — eles são da PTYSession e ela
+        # continua viva entre conexões WS (esse é o ponto: frontend pode
+        # reconectar sem perder estado).

@@ -6,6 +6,56 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+### Changed
+
+- **Semantics of idle-watcher Rules 2, 4, and 5 unified.** Previously, "user typing" (Rule 2) and "user watching" (Rule 5) only suppressed the current tick — stepping away for 15s would reopen the alert window. And the hash dedup (Rule 4) had a 30-min TTL ("if you didn't reply in 30 min, I'll alert again"). Now all three rules share the same semantics: **permanent ack per hash**. Typing (even without Enter) or seeing the terminal for one tick marks `notified=True` for that visual state; the system only re-alerts when the agent changes the display (= a new idle phase for real). Rule 4 lost its TTL — it's now eternal dedup keyed on `last_notified_hash`. Constant `NOTIFIED_HASH_TTL_SECONDS` removed. Explicit trade-off: if you saw it and the agent stays stuck on the same screen forever, you don't get a reminder — aligned with "if I saw, I know".
+
+### Fixed
+
+- **PTY/scrollback robustness after code review.** (1) `_ws_locks` no longer leaks — `_drop_session` and `kill_session_request` now pop the entry alongside the rest of the cleanup (previously accumulated 1 orphan `asyncio.Lock` per session created/killed, ~80B each). (2) `PTYSession.close()` now reaps the zombie immediately via `process.wait(timeout=0.1)` instead of waiting for `reap_dead_ptys` (30s) or `Popen` GC — relevant under high churn (creating/killing 1000 sessions in sequence could hit `RLIMIT_NPROC`). (3) Scrollback trim now aligns to the next "safe" boundary (`\n` or start of `\x1b`) within a 256-byte window instead of cutting exactly at `SCROLLBACK_BYTES` — avoids letting the replay start mid-escape-sequence (xterm.js would render `[31m` as a literal and pyte could confuse a partial OSC with a BEL terminator "eating" legitimate lines).
+
+- **`visualViewport.resize` `useEffect` in `TerminalPane` now only mounts on touch devices.** Previously it fired on desktop too (zoom in/out, window resize), redundantly with the `ResizeObserver` that already covered those cases. Gated via `matchMedia('(pointer: coarse)')`. Benign (refit is idempotent) but it was triggering 6× refits/zoom on a mosaic with 6 panes.
+
+- **Dead code `cwd_at_start` fallback removed from `restore_sessions_request`.** The frontend only sends `cwd` in the snapshot payload — the fallback was never reached. Also rewrote the `PTYSession` docstring to drop the archaeological tmux reference ("Substitui a sessão tmux…" → "Shell session bound to a PTY…").
+
+- **Mobile touch scroll stopped spitting garbage (`65;1;1M65;1;1M…`) into the shell.** The touch handler in `frontend/src/components/TerminalPane.jsx` always sent SGR mouse sequences (`\x1b[<64;1;1M` / `\x1b[<65;1;1M`) to the PTY's stdin, regardless of what was running inside. In apps with mouse tracking enabled (vim, htop, less, Claude Code) that's correct. But on a bash prompt — where the shell doesn't interpret SGR mouse — those bytes leaked into the input buffer and the user saw fragments printed as literals (`65;1;1M65;1;1M…`) accumulating on the line. Fix: a new `sendScrollStep(direction)` helper reads `terminal.modes.mouseTrackingMode` before deciding; if `'none'`, calls `terminal.scrollLines(±1)` (local xterm.js scroll, doesn't touch stdin); otherwise, keeps the SGR path. Bonus: fixed a latent bug where `onTouchEnd` had inverted directions vs. `onTouchMove` — the residue flush at the end of a flick could "jump back" from where the user just scrolled.
+
+- **Cursor stopped disappearing under the virtual keyboard on mobile.** `viewport.interactiveWidget = "resizes-content"` was already set in `app/layout.js` (shrinks the visible area when the keyboard pops up), but the terminal container kept its physical dimensions in the flex layout — `ResizeObserver` didn't fire, `fitAddon` didn't recompute, the cursor (which was near the bottom) ended up covered. Fix: a new `useEffect` in `TerminalPane` listens to `window.visualViewport.resize` with an 80ms debounce and triggers `fitAddon.fit()` + sends a fresh resize to the backend (SIGWINCH on the shell so TUIs reformat) + `terminal.scrollToBottom()`. Well-behaved TUI apps (vim/htop/Claude Code) reformat smoothly; misbehaved ones may flash once.
+
+### Removed
+
+- **`tmux` dependency dropped from the client.** Every session is now a shell spawned directly into its own PTY (`pty.openpty` + `subprocess.Popen` with `setsid`); the `client/src/tools/tmux.py` module (~363 LOC, 21 functions wrapping the CLI) was deleted and replaced with `client/src/tools/pty.py` containing the `PTYSession` class (~150 LOC). The `tmux` binary is no longer a prerequisite. No tmux server is started or queried during the client lifecycle. Explicit trade-off (decided with the user): sessions die when the client restarts — previously they survived because they lived inside the tmux daemon. The frontend already had (and still has) a client-side snapshot of the metadata (`getSessionsSnapshot` + auto-restore via `/sessions/restore` in `frontend/src/app/(main)/page.js`), so a client restart is followed by automatic re-opening of sessions with the same name/group/project/cwd — only the shell history is lost (expected).
+
+- **`POST /api/sessions/sync` endpoint deleted** along with the `sync_sessions_request` handler. With no external session source (tmux is gone), `/sync` became a no-op. The "Sync" button in the sidebar and the `syncSessions` function in `services/api.js` were removed too.
+
+- **"Copy tmux command" button removed from the Sidebar and the "New Terminal" modal**, along with their handlers (`handleCopyTmux`, `handleCopy` in the modal). Without tmux, copying `tmux attach-session -t term-N` has no useful destination. Corresponding i18n keys (`sidebar.copyTmux`, `sidebar.sync`, `modal.newTerminal.copyTooltip`, `toast.syncDone`, `toast.syncPartial`) removed from all 3 locales.
+
+- **`errors.tmux_session_not_found` key removed from the client i18n catalog** in all 3 languages. The flow now uses `errors.session_not_found` (already existing) for both "ID not in the dict" and "PTY died" — consistent with the single-lifecycle of PTY mode.
+
+### Added
+
+- **`client/src/tools/pty.py`**: `PTYSession` class (encapsulates `process`, `master_fd`, scrollback `bytearray` with a 512 KB hard cap and head-trim) + `_pty_by_session` registry. API: `start`, `write`, `resize` (ioctl TIOCSWINSZ + SIGWINCH to the process group), `append_to_scrollback`, `get_scrollback_bytes`, `get_cwd` (via `tcgetpgrp(master_fd)` + `/proc/PID/cwd` — picks the foreground job, e.g. vim/Claude Code running inside the shell), `is_alive`, `kill` (`SIGHUP` to the pgroup so children die too), `close`. Registry helpers: `get_pty`, `register_pty`, `unregister_pty`, `list_pty_ids`.
+
+- **`pyte==0.8.2` dependency** (Python terminal emulator). Used exclusively by the notification watcher in `_render_pane_via_pyte`: each watcher tick does `screen.reset()` + `stream.feed(scrollback_bytes)` in an isolated thread via `asyncio.to_thread` and returns `"\n".join(screen.display)`. The result is the canonical visual state of the PTY — no ANSI, no cursor, no redraw noise. Per-session `_pyte_screens` cache; rebuilt when geometry changes.
+
+- **`reap_dead_ptys()` startup task** in `client/src/resources/terminal.py`. 30s loop that checks `pty.is_alive()` for every registered PTY, propagates close 1000 "Session ended" to the active WS (if any), and removes from both dict + registry. Covers the "shell exits via Ctrl-D while no one is attached" case — without this, zombie PTYs would linger in the registry until rediscovery on reconnect.
+
+### Changed
+
+- **Idle notification system drastically simplified** (~130 LOC removed in `client/src/resources/notifications.py`). Gone: the `_BORDER_ONLY_LINE_RE`/`_BORDER_DECORATED_LINE_RE`/`_BORDER_RUN_RE` regexes, the `_clean_snippet_line` helper, the `_normalize_content_for_hash` function, and the entire "Reconcile cached `notify_on_idle` + scope names with the tmux options" block (~25 LOC, ~4 subprocess calls × N sessions × 5s). All of that existed to compensate for tmux visual artifacts (resize redraws, decorative borders redrawn on every wrap, extra escape sequences) — there's nothing left to filter with a pure PTY rendered through pyte. The hash now operates directly on `screen.display`. The 5 anti-spam rules (Rule 1-5) stay intact; only the source of the hash changed.
+
+- **`RESIZE_GRACE_SECONDS` reduced from 20s → 5s.** Without the cosmetic redraw jitter of tmux, the window only needs to cover the real reflow of TUIs (vim/htop/Claude Code reformatting columns after SIGWINCH).
+
+- **`recover_sessions()` is now a no-op** with an explanatory log message. There's no more server-side persistence; the frontend is the source of truth on restart and fires `/sessions/restore` automatically.
+
+- **`websocket_terminal()` refactored**: pulls `PTYSession` from the registry instead of spawning `tmux attach-session`; the scrollback replay uses `pty.get_scrollback_bytes()` (byte-perfect — colors/cursor/ANSI preserved) instead of `tmux capture-pane`; resize delegates to `pty.resize()`; the `finally` cleanup no longer kills the process (the PTY stays alive between connections — that's exactly the point). PTY EOF (shell exit) propagates close 1000 and triggers `_drop_session()`.
+
+- **`clone_session_request()` cleaner**: previously spawned a new tmux session and sent `tmux send-keys cd <cwd>`; now creates `PTYSession(start_directory=cwd)` directly and the shell is born in the right directory. No race between `new-session` and the subsequent `cd`.
+
+- **Endpoints `/sessions/{id}/send-text`, `/sessions/{id}/cwd`, `/sessions/{id}/capture` reimplemented inline**: direct write to `master_fd`, `/proc/PID/cwd` lookup via `PTYSession.get_cwd()`, render via pyte (instead of `tmux capture-pane`).
+
+- **Documentation updated** (`CLAUDE.md`, `README.md`, `NOTIFICATIONS.md`, `CONTRIBUTING.md`, `docs/MULTI-SERVER.md`): architecture sections, prerequisites (no tmux), watcher description, constants table, gotchas. `NOTIFICATIONS.md` got an explicit note explaining how pyte made the entire border-regex scheme unnecessary. Translated `NOTIFICATIONS.md` and `CLAUDE.md` to English to align with the rest of the public-facing docs.
+
 ## [1.14.1-pre] — 2026-04-24
 
 ### Fixed

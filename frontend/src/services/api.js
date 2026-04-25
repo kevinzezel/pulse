@@ -180,10 +180,9 @@ export function updateSessionScopeNames(compositeId, { projectName = undefined, 
 // on every configured server, so future idle notifications carry the fresh
 // label. Each target is retried up to 3x with exponential backoff (1s/2s/4s)
 // to survive momentary server-flaps during the rename. Final failures are
-// logged to console — the client watcher reconciles tmux options per tick as
-// a second line of defense against stale labels, so a permanent failure here
-// doesn't doom the label forever (as long as the tmux option was eventually
-// set some other way, the watcher picks it up).
+// logged to console — the client holds metadata in-memory only, so a permanent
+// failure here means orphan sessions keep the stale label until they're
+// killed/restored.
 async function retryUpdateScopeName(compositeId, patch, attempts = 3) {
   for (let i = 0; i < attempts; i++) {
     try {
@@ -231,10 +230,6 @@ export function setSessionNotify(compositeId, notifyOnIdle) {
     method: 'PATCH',
     body: JSON.stringify({ notify_on_idle: notifyOnIdle }),
   });
-}
-
-export function syncSessions(serverId) {
-  return request(serverId, '/api/sessions/sync', { method: 'POST' });
 }
 
 export function renameSession(compositeId, name) {
@@ -393,13 +388,12 @@ export async function deleteGroup(groupId) {
     err.detail_key = 'errors.group_not_found';
     throw err;
   }
-  // Antes de remover o grupo do store local, limpa @group_id/@group_name
+  // Antes de remover o grupo do store local, limpa group_id/group_name
   // dos terminais órfãos em todos os servers. Sem isso, a notificação idle
   // deles continuaria com "...› NomeDoGrupoDeletado › ..." no título, pois
-  // as tmux options sobrevivem até a sessão ser destruída. Fire-and-forget:
-  // se algum server falhar, os órfãos ficam com labels antigas, mas o
-  // watcher per-tick reconcilia e se o frontend nunca mais puxar esse
-  // grupo, o título apenas mostra nome desatualizado no pior caso.
+  // o client mantém os metadados em-memória até a sessão ser destruída.
+  // Fire-and-forget: se algum server falhar, os órfãos ficam com labels
+  // antigas — no pior caso, o título mostra nome desatualizado.
   try {
     const { servers } = await getLocalServers();
     if (Array.isArray(servers) && servers.length > 0) {

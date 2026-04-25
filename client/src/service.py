@@ -50,7 +50,7 @@ def health():
 
 
 from routes import terminal, settings as settings_route, version as version_route, fs as fs_route
-from resources.terminal import recover_sessions
+from resources.terminal import recover_sessions, reap_dead_ptys
 from resources.settings import load_settings
 from resources.notifications import notification_watcher
 
@@ -69,3 +69,4 @@ recover_sessions()
 @app.on_event("startup")
 async def _start_background_tasks():
     asyncio.create_task(notification_watcher())
+    asyncio.create_task(reap_dead_ptys())
