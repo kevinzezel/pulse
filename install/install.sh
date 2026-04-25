@@ -88,6 +88,21 @@ run_npm_clean() {
             npm --node-options= --userconfig=/dev/null --globalconfig=/dev/null "$@"
 }
 
+run_next_build_clean() {
+    run_logged_tail "next build" 40 "$1" \
+        env -i \
+            HOME="$HOME" \
+            PATH="$PATH" \
+            USER="${USER:-}" \
+            LOGNAME="${LOGNAME:-}" \
+            SHELL="${SHELL:-/bin/sh}" \
+            LANG="${LANG:-C.UTF-8}" \
+            NODE_OPTIONS= \
+            NPM_CONFIG_NODE_OPTIONS= \
+            npm_config_node_options= \
+            ./node_modules/.bin/next build
+}
+
 # -----------------------------------------------------------------------------
 # Platform detection
 # -----------------------------------------------------------------------------
@@ -456,7 +471,7 @@ install_files() {
             run_npm_clean "npm install" 20 "$INSTALL_ROOT/frontend" install --loglevel=error || die "npm install failed"
         fi
         log "building dashboard"
-        run_npm_clean "npm run build" 40 "$INSTALL_ROOT/frontend" run build || die "npm run build failed"
+        run_next_build_clean "$INSTALL_ROOT/frontend" || die "next build failed"
         [ -f "$INSTALL_ROOT/frontend/.next/BUILD_ID" ] || die "dashboard build did not create .next/BUILD_ID"
         log "pruning dev dependencies"
         run_npm_clean "npm prune" 10 "$INSTALL_ROOT/frontend" prune --omit=dev --loglevel=error || warn "npm prune failed (non-fatal)"

@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [2.5.10-pre] — 2026-04-25
+
+### Fixed
+
+- **Dashboard production builds now bypass npm scripts and run Next.js in a minimal clean environment.** The installer calls `./node_modules/.bin/next build` directly through `env -i`, preserving only basic process variables like `HOME`, `PATH`, and locale while clearing every `NODE_OPTIONS` / npm node-options form. This prevents user shell, nvm, npm config, or lifecycle-script behavior from reintroducing invalid flags such as `--r=` into the Next.js build worker.
+
 ## [2.5.9-pre] — 2026-04-25
 
 ### Fixed
@@ -905,7 +911,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v2.5.9-pre...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v2.5.10-pre...HEAD
+[2.5.10-pre]: https://github.com/kevinzezel/pulse/releases/tag/v2.5.10-pre
 [2.5.9-pre]: https://github.com/kevinzezel/pulse/releases/tag/v2.5.9-pre
 [2.5.8-pre]: https://github.com/kevinzezel/pulse/releases/tag/v2.5.8-pre
 [2.5.7]: https://github.com/kevinzezel/pulse/releases/tag/v2.5.7
