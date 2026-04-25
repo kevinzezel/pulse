@@ -179,7 +179,13 @@ ensure_node() {
     case "$PULSE_PM" in
         apt)
             log "installing Node.js 20 via NodeSource"
-            curl -fsSL https://deb.nodesource.com/setup_20.x | $PULSE_SUDO -E bash -
+            if [ -z "$PULSE_SUDO" ]; then
+                curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+            elif [ "$PULSE_SUDO" = sudo ]; then
+                curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+            else
+                curl -fsSL https://deb.nodesource.com/setup_20.x | "$PULSE_SUDO" bash -
+            fi
             $PULSE_SUDO DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends nodejs
             ;;
     esac

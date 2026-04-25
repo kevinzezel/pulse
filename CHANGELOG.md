@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [2.5.6-pre] — 2026-04-25
+
+### Fixed
+
+- **Linux installer now runs the NodeSource setup script correctly when invoked as root.** `install/install.sh` no longer appends `-E` after an empty sudo command while installing Node.js 20, which previously made `/bin/sh` try to execute `-E` as a command and abort with `sh: 182: -E: not found` on fresh root installs.
+
 ## [2.5.5-pre] — 2026-04-25
 
 ### Fixed
@@ -881,7 +887,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v2.5.5-pre...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v2.5.6-pre...HEAD
+[2.5.6-pre]: https://github.com/kevinzezel/pulse/releases/tag/v2.5.6-pre
 [2.5.5-pre]: https://github.com/kevinzezel/pulse/releases/tag/v2.5.5-pre
 [2.5.4]: https://github.com/kevinzezel/pulse/releases/tag/v2.5.4
 [2.5.3]: https://github.com/kevinzezel/pulse/releases/tag/v2.5.3
