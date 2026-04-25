@@ -22,10 +22,16 @@ export default function ComposeModal({
   const [savingAs, setSavingAs] = useState(false);
   const [promptName, setPromptName] = useState('');
   const [savingPrompt, setSavingPrompt] = useState(false);
+  const [sending, setSending] = useState(false);
 
   const taRef = useRef(null);
   const textRef = useRef(initialValue);
   const debounceRef = useRef(null);
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    return () => { mountedRef.current = false; };
+  }, []);
 
   useEffect(() => {
     const ta = taRef.current;
@@ -53,15 +59,25 @@ export default function ComposeModal({
     };
   }, [sessionCompositeId, onDraftPersist]);
 
-  function submit(sendEnter) {
-    // load-bearing order: must clear debounceRef before onSend so the unmount
-    // cleanup effect does not re-persist stale text after handleComposeSend
-    // already cleared the draft.
+  async function submit(sendEnter) {
+    if (sending) return;
+    // Load-bearing order: clear the pending debounce before a successful send
+    // can unmount this modal, otherwise cleanup may re-persist stale text after
+    // the parent already cleared the draft. On failure we persist explicitly.
     if (debounceRef.current) {
       clearTimeout(debounceRef.current);
       debounceRef.current = null;
     }
-    onSend(text, sendEnter);
+    setSending(true);
+    let sent = false;
+    try {
+      sent = await onSend(text, sendEnter) === true;
+    } finally {
+      if (!sent && sessionCompositeId && onDraftPersist) {
+        onDraftPersist(sessionCompositeId, textRef.current);
+      }
+      if (mountedRef.current) setSending(false);
+    }
   }
 
   function startSaveAs() {
@@ -127,7 +143,7 @@ export default function ComposeModal({
       {onSaveAsPrompt && (
         <button
           onClick={startSaveAs}
-          disabled={!text.trim()}
+          disabled={!text.trim() || sending}
           className="inline-flex items-center justify-center px-3 py-2.5 rounded-md text-sm font-medium border border-border text-foreground hover:bg-muted/40 transition-colors disabled:opacity-50 flex-shrink-0"
           title={t('compose.saveAs')}
           aria-label={t('compose.saveAs')}
@@ -137,16 +153,18 @@ export default function ComposeModal({
       )}
       <button
         onClick={() => submit(false)}
-        className="flex-1 inline-flex items-center justify-center gap-2 py-2.5 rounded-md text-sm font-medium border border-border text-foreground hover:bg-muted/40 transition-colors"
+        disabled={sending}
+        className="flex-1 inline-flex items-center justify-center gap-2 py-2.5 rounded-md text-sm font-medium border border-border text-foreground hover:bg-muted/40 transition-colors disabled:opacity-60"
       >
-        <Send size={14} />
+        {sending ? <Loader size={14} className="animate-spin" /> : <Send size={14} />}
         {t('compose.sendOnly')}
       </button>
       <button
         onClick={() => submit(true)}
-        className="flex-1 inline-flex items-center justify-center gap-2 py-2.5 rounded-md text-sm font-medium text-white bg-brand-gradient hover:opacity-90 transition-opacity"
+        disabled={sending}
+        className="flex-1 inline-flex items-center justify-center gap-2 py-2.5 rounded-md text-sm font-medium text-white bg-brand-gradient hover:opacity-90 transition-opacity disabled:opacity-60"
       >
-        <CornerDownLeft size={14} />
+        {sending ? <Loader size={14} className="animate-spin" /> : <CornerDownLeft size={14} />}
         {t('compose.sendEnter')}
       </button>
     </div>
@@ -162,7 +180,8 @@ export default function ComposeModal({
         {onClose && (
           <button
             onClick={onClose}
-            className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-md text-muted-foreground hover:bg-muted/40 hover:text-foreground transition-colors"
+            disabled={sending}
+            className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-md text-muted-foreground hover:bg-muted/40 hover:text-foreground transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             title={t('common.cancel')}
             aria-label={t('common.cancel')}
           >

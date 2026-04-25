@@ -1,15 +1,14 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
-import { Settings, X, FileText, MessageSquareText, Bell, BellOff, Keyboard, Loader } from 'lucide-react';
+import { Settings, X, FileText, Sparkles, Bell, BellOff, Keyboard, Loader } from 'lucide-react';
 import { useTranslation } from '@/providers/I18nProvider';
 import { useNotifications } from '@/providers/NotificationsProvider';
+import { isTerminalConnected, subscribeTerminalConnection } from './TerminalPane';
 
-const RADIUS = 64;
-const ANGLES_DEG = [180, 210, 240, 270];
-const STAGGER_MS = 40;
-const TRANSITION_MS = 180;
+const STAGGER_MS = 35;
+const TRANSITION_MS = 160;
 
 export default function PaneActionsFab({
   sessionId,
@@ -30,13 +29,24 @@ export default function PaneActionsFab({
     permissionReason: notifyPermissionReason,
     requestBrowserPermission,
   } = useNotifications();
+  const [connected, setConnected] = useState(() => isTerminalConnected(sessionId));
+
+  useEffect(() => {
+    setConnected(isTerminalConnected(sessionId));
+    return subscribeTerminalConnection(sessionId, setConnected);
+  }, [sessionId]);
+
+  // Se a conexão cai com o FAB aberto, recolher pra evitar disparar ação
+  // numa sessão que não vai responder.
+  useEffect(() => {
+    if (isOpen && !connected) onToggle();
+  }, [connected, isOpen, onToggle]);
 
   useEffect(() => {
     if (!isOpen) return;
     function handleKey(e) {
       if (e.key === 'Escape') onToggle();
     }
-    // Containment check (not stopPropagation) is what protects gear/satellite clicks from re-closing the FAB.
     function handleClick(e) {
       if (containerRef.current && !containerRef.current.contains(e.target)) {
         onToggle();
@@ -91,80 +101,48 @@ export default function PaneActionsFab({
     {
       key: 'capture',
       icon: <FileText size={14} />,
-      label: t('toolbar.capture'),
+      label: t('terminal.actions.captureShort'),
       onClick: closeAnd(() => onCapture?.(sessionId)),
     },
     {
       key: 'prompts',
-      icon: <MessageSquareText size={14} />,
-      label: t('toolbar.prompts'),
+      icon: <Sparkles size={14} />,
+      label: t('terminal.actions.promptsShort'),
       onClick: closeAnd(() => onOpenPrompts?.(sessionId)),
     },
     {
       key: 'notify',
       icon: notifyOn ? <Bell size={14} /> : <BellOff size={14} />,
-      label: notifyOn ? t('sidebar.notifyOn') : t('sidebar.notifyOff'),
+      label: t('terminal.actions.notifyShort'),
       onClick: handleNotifyClick,
       activeColor: notifyOn,
     },
     {
       key: 'keyboard',
       icon: composeLoading ? <Loader size={14} className="animate-spin" /> : <Keyboard size={14} />,
-      label: t('sidebar.compose'),
+      label: t('terminal.actions.composeShort'),
       onClick: closeAnd(() => onRequestCompose?.(sessionId)),
       disabled: composeLoading,
     },
   ];
 
-  return (
-    <div ref={containerRef} className="absolute top-2 right-4 z-10">
-      {buttons.map((b, i) => {
-        const rad = (ANGLES_DEG[i] * Math.PI) / 180;
-        const x = RADIUS * Math.cos(rad);
-        const y = -RADIUS * Math.sin(rad);
-        const delay = isOpen ? i * STAGGER_MS : (buttons.length - 1 - i) * STAGGER_MS;
-        return (
-          <button
-            key={b.key}
-            onClick={b.onClick}
-            disabled={b.disabled}
-            title={b.label}
-            aria-label={b.label}
-            className={`group absolute w-8 h-8 rounded-full border bg-card shadow-md inline-flex items-center justify-center transition-all disabled:opacity-50 disabled:pointer-events-none ${
-              b.activeColor ? 'text-primary border-primary/40' : 'text-muted-foreground hover:text-primary border-border'
-            }`}
-            style={{
-              top: '4px',
-              right: '4px',
-              transform: isOpen
-                ? `translate(${x}px, ${y}px) scale(1)`
-                : 'translate(0, 0) scale(0)',
-              opacity: isOpen ? 1 : 0,
-              transitionDuration: `${TRANSITION_MS}ms`,
-              transitionTimingFunction: 'cubic-bezier(0.34, 1.56, 0.64, 1)',
-              transitionDelay: `${delay}ms`,
-              pointerEvents: isOpen ? 'auto' : 'none',
-            }}
-          >
-            {b.icon}
-            <span
-              className="absolute right-10 top-1/2 -translate-y-1/2 px-2 py-0.5 rounded text-xs whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"
-              style={{
-                background: 'hsl(var(--foreground) / 0.85)',
-                color: 'hsl(var(--background))',
-              }}
-            >
-              {b.label}
-            </span>
-          </button>
-        );
-      })}
+  const gearTitle = !connected
+    ? t('terminal.actions.disconnected')
+    : t('terminal.actions.menu');
 
+  return (
+    <div ref={containerRef} className="absolute top-2 right-4 z-10 flex flex-col items-end gap-1.5">
       <button
-        onClick={(e) => { e.stopPropagation(); onToggle(); }}
-        title={t('terminal.actions.menu')}
-        aria-label={t('terminal.actions.menu')}
-        className={`relative w-9 h-9 rounded-full inline-flex items-center justify-center border transition-all shadow-sm ${
+        onClick={(e) => {
+          e.stopPropagation();
+          if (!connected) return;
+          onToggle();
+        }}
+        disabled={!connected}
+        title={gearTitle}
+        aria-label={gearTitle}
+        aria-disabled={!connected}
+        className={`relative w-9 h-9 rounded-full inline-flex items-center justify-center border transition-all shadow-sm disabled:cursor-not-allowed disabled:opacity-60 ${
           isOpen
             ? 'bg-primary text-primary-foreground border-primary'
             : 'border-primary/50 bg-primary/15 text-primary hover:bg-primary/25'
@@ -176,6 +154,39 @@ export default function PaneActionsFab({
       >
         {isOpen ? <X size={16} strokeWidth={2.5} /> : <Settings size={16} strokeWidth={2.25} />}
       </button>
+
+      <div
+        className="flex flex-col items-end gap-1.5"
+        style={{ pointerEvents: isOpen ? 'auto' : 'none' }}
+      >
+        {buttons.map((b, i) => {
+          const delay = isOpen ? i * STAGGER_MS : (buttons.length - 1 - i) * STAGGER_MS;
+          return (
+            <button
+              key={b.key}
+              onClick={b.onClick}
+              disabled={b.disabled}
+              title={b.label}
+              aria-label={b.label}
+              className={`inline-flex items-center gap-1.5 px-2.5 h-7 rounded-md border bg-card shadow-sm text-xs font-medium transition-all disabled:opacity-50 disabled:pointer-events-none ${
+                b.activeColor
+                  ? 'text-primary border-primary/40'
+                  : 'text-foreground hover:text-primary border-border'
+              }`}
+              style={{
+                transform: isOpen ? 'translateY(0) scale(1)' : 'translateY(-8px) scale(0.85)',
+                opacity: isOpen ? 1 : 0,
+                transitionDuration: `${TRANSITION_MS}ms`,
+                transitionTimingFunction: 'cubic-bezier(0.34, 1.56, 0.64, 1)',
+                transitionDelay: `${delay}ms`,
+              }}
+            >
+              {b.icon}
+              <span>{b.label}</span>
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }

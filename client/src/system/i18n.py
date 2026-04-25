@@ -2,6 +2,7 @@ CATALOGS = {
     "pt-BR": {
         "errors.unauthorized": "Não autorizado",
         "errors.image_too_large": "Imagem excede o limite de {max_mb} MB",
+        "errors.file_too_large": "Arquivo excede o limite de {max_mb} MB",
         "errors.session_not_found": "Sessão não encontrada",
         "errors.empty_name": "Nome não pode ser vazio",
         "errors.cwd_unavailable": "Não foi possível obter o diretório atual",
@@ -13,6 +14,7 @@ CATALOGS = {
         "success.session_cloned": "Sessão clonada",
         "success.editor_opened": "Editor aberto",
         "success.image_saved": "Imagem salva",
+        "success.file_saved": "Arquivo salvo",
         "success.text_sent": "Texto enviado para o terminal",
         "success.session_group_assigned": "Sessão movida de grupo",
         "success.settings_updated": "Configurações atualizadas",
@@ -33,6 +35,7 @@ CATALOGS = {
     "en": {
         "errors.unauthorized": "Unauthorized",
         "errors.image_too_large": "Image exceeds {max_mb} MB limit",
+        "errors.file_too_large": "File exceeds {max_mb} MB limit",
         "errors.session_not_found": "Session not found",
         "errors.empty_name": "Name cannot be empty",
         "errors.cwd_unavailable": "Could not get current directory",
@@ -44,6 +47,7 @@ CATALOGS = {
         "success.session_cloned": "Session cloned",
         "success.editor_opened": "Editor opened",
         "success.image_saved": "Image saved",
+        "success.file_saved": "File saved",
         "success.text_sent": "Text sent to terminal",
         "success.session_group_assigned": "Session moved to group",
         "success.settings_updated": "Settings updated",
@@ -64,6 +68,7 @@ CATALOGS = {
     "es": {
         "errors.unauthorized": "No autorizado",
         "errors.image_too_large": "La imagen excede el límite de {max_mb} MB",
+        "errors.file_too_large": "El archivo excede el límite de {max_mb} MB",
         "errors.session_not_found": "Sesión no encontrada",
         "errors.empty_name": "El nombre no puede estar vacío",
         "errors.cwd_unavailable": "No se pudo obtener el directorio actual",
@@ -75,6 +80,7 @@ CATALOGS = {
         "success.session_cloned": "Sesión clonada",
         "success.editor_opened": "Editor abierto",
         "success.image_saved": "Imagen guardada",
+        "success.file_saved": "Archivo guardado",
         "success.text_sent": "Texto enviado al terminal",
         "success.session_group_assigned": "Sesión movida de grupo",
         "success.settings_updated": "Configuración actualizada",

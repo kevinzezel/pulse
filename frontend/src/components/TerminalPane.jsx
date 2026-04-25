@@ -10,6 +10,52 @@ import { getXtermTheme } from '@/themes/xterm';
 
 const terminalCache = new Map();
 
+// Subscribers por sessionId pra reagir a mudanças de conectividade do WS sem
+// precisar pollar terminalCache. Usado pelo FAB de ações (engrenagem) pra
+// desabilitar e fechar quando a sessão perde a conexão.
+const connectionListeners = new Map();
+
+function notifyConnection(sessionId) {
+  const set = connectionListeners.get(sessionId);
+  if (!set) return;
+  const connected = isTerminalConnected(sessionId);
+  for (const cb of set) {
+    try { cb(connected); } catch {}
+  }
+}
+
+export function isTerminalConnected(sessionId) {
+  const entry = terminalCache.get(sessionId);
+  return entry?.ws?.readyState === WebSocket.OPEN && entry.streamActive === true;
+}
+
+export function getTerminalConnectionState(sessionId) {
+  const entry = terminalCache.get(sessionId);
+  if (!entry || !entry.ws) return 'absent';
+  switch (entry.ws.readyState) {
+    case WebSocket.CONNECTING: return 'connecting';
+    case WebSocket.OPEN: return entry.streamActive ? 'open' : 'connecting';
+    case WebSocket.CLOSING: return 'closing';
+    default: return 'closed';
+  }
+}
+
+export function subscribeTerminalConnection(sessionId, cb) {
+  if (!sessionId || typeof cb !== 'function') return () => {};
+  let set = connectionListeners.get(sessionId);
+  if (!set) {
+    set = new Set();
+    connectionListeners.set(sessionId, set);
+  }
+  set.add(cb);
+  return () => {
+    const cur = connectionListeners.get(sessionId);
+    if (!cur) return;
+    cur.delete(cb);
+    if (cur.size === 0) connectionListeners.delete(sessionId);
+  };
+}
+
 // Heartbeat de presença ("tô olhando"): cada TerminalPane manda a cada 10s pelo
 // WS multi-cliente de notificações SE a aba está visível e o terminal está na
 // viewport. A decisão final por modo de presença (strict / smart / visible)
@@ -34,6 +80,7 @@ export function destroyTerminal(sessionId) {
   }
   entry.terminal?.dispose();
   terminalCache.delete(sessionId);
+  notifyConnection(sessionId);
 }
 
 export function destroyTerminalsByServerId(serverId) {
@@ -57,8 +104,12 @@ export function applyXtermThemeToAll(theme) {
 
 export function sendKey(sessionId, data) {
   const entry = terminalCache.get(sessionId);
-  if (entry?.ws?.readyState === WebSocket.OPEN) {
+  if (entry?.ws?.readyState !== WebSocket.OPEN) return false;
+  try {
     entry.ws.send(JSON.stringify({ type: 'input', data }));
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -238,6 +289,7 @@ export default function TerminalPane({ session, onSessionEnded, onReconnect, isM
         const cur = terminalCache.get(session.id);
         if (cur) cur.streamActive = true;
         ws.send(JSON.stringify({ type: 'resize', cols: terminal.cols, rows: terminal.rows }));
+        notifyConnection(session.id);
       };
 
       ws.onmessage = (event) => {
@@ -258,6 +310,7 @@ export default function TerminalPane({ session, onSessionEnded, onReconnect, isM
       ws.onclose = (event) => {
         const cur = terminalCache.get(session.id);
         if (cur?.ws === ws) cur.streamActive = false;
+        notifyConnection(session.id);
         const tr = tRef.current;
         if (event.code === 1000 && event.reason === 'Session ended') {
           onSessionEndedRef.current?.();

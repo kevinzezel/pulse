@@ -1,32 +1,61 @@
 'use client';
 
 import { useState, useRef } from 'react';
-import { X, Send, CornerDownLeft, Terminal, Loader, Image as ImageIcon, Plus } from 'lucide-react';
+import { X, Send, CornerDownLeft, Terminal, Loader, Paperclip, Plus, FileIcon } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { saveImageToTemp, sendTextToSession, splitSessionId } from '@/services/api';
+import { saveFileToTemp, sendTextToSession, splitSessionId } from '@/services/api';
 import { useTranslation, useErrorToast } from '@/providers/I18nProvider';
 import { getAllServers } from '@/providers/ServersProvider';
 import ServerTag from './ServerTag';
 
-let _imgCounter = 0;
+let _fileCounter = 0;
+const MAX_ITEMS = 15;
 
-export default function AttachImageButton({ sessions = [], iconOnly = false }) {
+function isImageFile(file) {
+  return !!(file && file.type && file.type.startsWith('image/'));
+}
+
+function formatBytes(bytes) {
+  if (!bytes && bytes !== 0) return '';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+export default function AttachFileButton({ sessions = [], iconOnly = false }) {
   const { t } = useTranslation();
   const showError = useErrorToast();
   const fileInputRef = useRef(null);
-  const [selectedImgs, setSelectedImgs] = useState([]);
+  const [selectedFiles, setSelectedFiles] = useState([]);
   const [sendingKey, setSendingKey] = useState(null);
 
   function handleFileChange(e) {
     const files = Array.from(e.target.files || []);
     if (files.length === 0) return;
-    const newImgs = files.map(file => ({
-      id: `${Date.now()}-${_imgCounter++}`,
-      url: URL.createObjectURL(file),
-      blob: file,
-      _tempPaths: {},
-    }));
-    setSelectedImgs(prev => [...prev, ...newImgs]);
+    setSelectedFiles(prev => {
+      const slotsLeft = MAX_ITEMS - prev.length;
+      if (slotsLeft <= 0) {
+        toast.error(t('clipboard.limitReached', { max: MAX_ITEMS }));
+        return prev;
+      }
+      const accepted = files.slice(0, slotsLeft);
+      if (accepted.length < files.length) {
+        toast.error(t('clipboard.limitReached', { max: MAX_ITEMS }));
+      }
+      const next = accepted.map(file => {
+        const isImg = isImageFile(file);
+        return {
+          id: `${Date.now()}-${_fileCounter++}`,
+          url: isImg ? URL.createObjectURL(file) : null,
+          blob: file,
+          name: file.name || (isImg ? 'image' : 'file'),
+          size: file.size || 0,
+          isImage: isImg,
+          _tempPaths: {},
+        };
+      });
+      return [...prev, ...next];
+    });
     e.target.value = '';
   }
 
@@ -34,32 +63,32 @@ export default function AttachImageButton({ sessions = [], iconOnly = false }) {
     fileInputRef.current?.click();
   }
 
-  function handleRemoveImg(id) {
-    setSelectedImgs(prev => {
-      const img = prev.find(i => i.id === id);
-      if (img) URL.revokeObjectURL(img.url);
+  function handleRemoveFile(id) {
+    setSelectedFiles(prev => {
+      const item = prev.find(i => i.id === id);
+      if (item?.url) URL.revokeObjectURL(item.url);
       return prev.filter(i => i.id !== id);
     });
   }
 
   function handleClose() {
-    selectedImgs.forEach(img => URL.revokeObjectURL(img.url));
-    setSelectedImgs([]);
+    selectedFiles.forEach(item => { if (item.url) URL.revokeObjectURL(item.url); });
+    setSelectedFiles([]);
     setSendingKey(null);
   }
 
   async function ensurePathsFor(serverId) {
-    const paths = await Promise.all(selectedImgs.map(async (img) => {
-      if (!img._tempPaths[serverId]) {
-        img._tempPaths[serverId] = await saveImageToTemp(serverId, img.blob);
+    const paths = await Promise.all(selectedFiles.map(async (item) => {
+      if (!item._tempPaths[serverId]) {
+        item._tempPaths[serverId] = await saveFileToTemp(serverId, item.blob, item.name);
       }
-      return img._tempPaths[serverId];
+      return item._tempPaths[serverId];
     }));
     return paths;
   }
 
   async function handleSend(sessionId, sendEnter) {
-    if (selectedImgs.length === 0) return;
+    if (selectedFiles.length === 0) return;
     const key = `${sessionId}:${sendEnter ? '1' : '0'}`;
     const { serverId } = splitSessionId(sessionId);
     setSendingKey(key);
@@ -83,7 +112,6 @@ export default function AttachImageButton({ sessions = [], iconOnly = false }) {
       <input
         ref={fileInputRef}
         type="file"
-        accept="image/*"
         multiple
         className="hidden"
         onChange={handleFileChange}
@@ -92,26 +120,26 @@ export default function AttachImageButton({ sessions = [], iconOnly = false }) {
         <button
           onClick={openPicker}
           className="p-2 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
-          title={t('clipboard.pickImage')}
-          aria-label={t('clipboard.pickImage')}
+          title={t('clipboard.pickFile')}
+          aria-label={t('clipboard.pickFile')}
         >
-          <ImageIcon size={16} />
+          <Paperclip size={16} />
         </button>
       ) : (
         <div className="p-3">
           <button
             onClick={openPicker}
             className="w-full flex items-center justify-center gap-2 py-1.5 rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
-            title={t('clipboard.pickImage')}
-            aria-label={t('clipboard.pickImage')}
+            title={t('clipboard.pickFile')}
+            aria-label={t('clipboard.pickFile')}
           >
-            <ImageIcon size={14} />
-            <span className="text-xs">{t('clipboard.pickImage')}</span>
+            <Paperclip size={14} />
+            <span className="text-xs">{t('clipboard.pickFile')}</span>
           </button>
         </div>
       )}
 
-      {selectedImgs.length > 0 && (
+      {selectedFiles.length > 0 && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-overlay/60 px-4 py-6"
           onClick={handleClose}
@@ -122,7 +150,7 @@ export default function AttachImageButton({ sessions = [], iconOnly = false }) {
           >
             <div className="flex items-center justify-between">
               <h3 className="text-foreground font-semibold text-sm">
-                {t('clipboard.sendTitle')} ({selectedImgs.length})
+                {t('clipboard.sendTitle')} ({selectedFiles.length})
               </h3>
               <button
                 onClick={handleClose}
@@ -134,11 +162,21 @@ export default function AttachImageButton({ sessions = [], iconOnly = false }) {
             </div>
 
             <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
-              {selectedImgs.map(img => (
-                <div key={img.id} className="relative flex-shrink-0 w-20 h-20 rounded border border-border overflow-hidden">
-                  <img src={img.url} alt="" className="w-full h-full object-cover" />
+              {selectedFiles.map(item => (
+                <div key={item.id} className="relative flex-shrink-0 w-20 h-20 rounded border border-border overflow-hidden">
+                  {item.isImage && item.url ? (
+                    <img src={item.url} alt="" className="w-full h-full object-cover" />
+                  ) : (
+                    <div className="flex flex-col items-center justify-center h-full w-full p-1 text-muted-foreground bg-muted/30">
+                      <FileIcon size={18} />
+                      <span className="mt-0.5 text-[8px] text-center truncate w-full px-1" title={item.name}>
+                        {item.name}
+                      </span>
+                      <span className="text-[8px] opacity-60">{formatBytes(item.size)}</span>
+                    </div>
+                  )}
                   <button
-                    onClick={() => handleRemoveImg(img.id)}
+                    onClick={() => handleRemoveFile(item.id)}
                     disabled={busy}
                     className="absolute top-0.5 right-0.5 p-0.5 rounded-full bg-overlay/70 text-white hover:bg-destructive/80 disabled:opacity-50"
                     title={t('clipboard.delete')}
@@ -152,8 +190,8 @@ export default function AttachImageButton({ sessions = [], iconOnly = false }) {
                 onClick={openPicker}
                 disabled={busy}
                 className="flex-shrink-0 w-20 h-20 rounded border border-dashed border-border flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors disabled:opacity-50"
-                title={t('clipboard.pickImage')}
-                aria-label={t('clipboard.pickImage')}
+                title={t('clipboard.pickFile')}
+                aria-label={t('clipboard.pickFile')}
               >
                 <Plus size={20} />
               </button>

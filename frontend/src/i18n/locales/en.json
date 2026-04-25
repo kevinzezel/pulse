@@ -273,17 +273,17 @@
     "title": "Clipboard",
     "clearAll": "Clear all",
     "delete": "Delete",
-    "captureHint": "Ctrl+V or drop images here",
+    "captureHint": "Ctrl+V or drop files here",
     "dropHint": "Drop to attach",
     "sendToTerminal": "Send to terminal",
-    "sendTitle": "Send image to terminal",
+    "sendTitle": "Send to terminal",
     "sendSubtitle": "Pick a terminal — Claude Code recognizes @path as attachment",
     "sendOnly": "Send",
     "sendEnter": "Send + ↵",
     "noSessions": "No active sessions",
-    "pickImage": "Attach image",
+    "pickFile": "Attach file",
     "sendAll": "Send all to terminal",
-    "limitReached": "Limit of {max} images — delete some before adding more",
+    "limitReached": "Limit of {max} files — delete some before adding more",
     "errorPrefix": "Error: {message}"
   },
   "terminal": {
@@ -292,7 +292,12 @@
     "connectionError": "Connection error",
     "serverNotConfigured": "Server not configured",
     "actions": {
-      "menu": "Terminal actions"
+      "menu": "Terminal actions",
+      "disconnected": "Session disconnected — reconnect before running actions",
+      "captureShort": "Capture",
+      "promptsShort": "Prompts",
+      "notifyShort": "Notify",
+      "composeShort": "Compose"
     }
   },
   "toast": {

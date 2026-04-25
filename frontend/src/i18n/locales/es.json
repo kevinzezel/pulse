@@ -273,17 +273,17 @@
     "title": "Clipboard",
     "clearAll": "Limpiar todo",
     "delete": "Eliminar",
-    "captureHint": "Ctrl+V o arrastra imágenes aquí",
+    "captureHint": "Ctrl+V o arrastra archivos aquí",
     "dropHint": "Suelta para adjuntar",
     "sendToTerminal": "Enviar al terminal",
-    "sendTitle": "Enviar imagen al terminal",
+    "sendTitle": "Enviar al terminal",
     "sendSubtitle": "Elige el terminal — Claude Code reconoce @path como adjunto",
     "sendOnly": "Enviar",
     "sendEnter": "Enviar + ↵",
     "noSessions": "No hay sesiones activas",
-    "pickImage": "Adjuntar imagen",
-    "sendAll": "Enviar todas al terminal",
-    "limitReached": "Límite de {max} imágenes — elimina alguna antes de añadir más",
+    "pickFile": "Adjuntar archivo",
+    "sendAll": "Enviar todos al terminal",
+    "limitReached": "Límite de {max} archivos — elimina alguno antes de añadir más",
     "errorPrefix": "Error: {message}"
   },
   "terminal": {
@@ -292,7 +292,12 @@
     "connectionError": "Error de conexión",
     "serverNotConfigured": "Servidor no configurado",
     "actions": {
-      "menu": "Acciones del terminal"
+      "menu": "Acciones del terminal",
+      "disconnected": "Sesión desconectada — reconéctala antes de ejecutar acciones",
+      "captureShort": "Capturar",
+      "promptsShort": "Prompts",
+      "notifyShort": "Notificar",
+      "composeShort": "Editor"
     }
   },
   "toast": {

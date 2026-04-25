@@ -10,6 +10,9 @@ import { NoteBody } from './NoteBody';
 import { NoteEditorModal } from './NoteEditorModal';
 
 const DRAG_HANDLE_CLASS = 'rt-note-drag-handle';
+// Altura visível só do cabeçalho quando a nota está minimizada. Bate com o
+// padding y do <header> em NoteHeader (py-1.5) + ícones de 24px.
+const MINIMIZED_HEIGHT = 36;
 
 export function StickyNote({ note }) {
   const { t } = useTranslation();
@@ -21,6 +24,10 @@ export function StickyNote({ note }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  // Estado local: o pedido é só comportamento visual imediato. Sobrevive
+  // enquanto a nota estiver aberta — fechar/reabrir reseta. Persistir exigiria
+  // adicionar um campo no model server-side, fora do escopo do bug.
+  const [minimized, setMinimized] = useState(false);
 
   if (expanded) {
     return <NoteEditorModal note={note} fullscreen={false} onBack={() => setExpanded(false)} />;
@@ -28,19 +35,23 @@ export function StickyNote({ note }) {
 
   const isSaving = !!savingIds[note.id];
   const z = getZ(note);
+  const effectiveHeight = minimized ? MINIMIZED_HEIGHT : note.h;
+  const effectiveMinHeight = minimized ? MINIMIZED_HEIGHT : MIN_HEIGHT;
 
   return (
     <>
       <Rnd
-        size={{ width: note.w, height: note.h }}
+        size={{ width: note.w, height: effectiveHeight }}
         position={{ x: note.x, y: note.y }}
         minWidth={MIN_WIDTH}
-        minHeight={MIN_HEIGHT}
+        minHeight={effectiveMinHeight}
+        enableResizing={!minimized}
         bounds="window"
         dragHandleClassName={DRAG_HANDLE_CLASS}
         onDragStart={() => bringToFront(note.id)}
         onDragStop={(_e, d) => patchNoteImmediate(note.id, { x: d.x, y: d.y })}
         onResizeStop={(_e, _dir, ref, _delta, pos) => {
+          if (minimized) return;
           patchNoteImmediate(note.id, {
             w: parseInt(ref.style.width, 10),
             h: parseInt(ref.style.height, 10),
@@ -63,24 +74,28 @@ export function StickyNote({ note }) {
             onTogglePin={() => patchNoteImmediate(note.id, { pinned: !note.pinned })}
             onDelete={() => setConfirmDelete(true)}
             onExpand={() => setExpanded(true)}
-            onMinimize={() => closeOrDeleteIfEmpty(note.id)}
+            onMinimize={() => setMinimized((m) => !m)}
             onClose={() => closeOrDeleteIfEmpty(note.id)}
           />
-          <NoteBody
-            value={note.content}
-            color={note.color}
-            onChange={(v) => updateNoteContent(note.id, { content: v })}
-          />
-          <footer
-            className="flex items-center justify-between border-t px-2.5 py-1 text-[10.5px]"
-            style={{
-              color: `hsl(var(--note-${note.color}-fg))`,
-              opacity: 0.6,
-              borderColor: 'rgba(0,0,0,0.08)',
-            }}
-          >
-            <span>{isSaving ? t('notes.status.saving') : t('notes.status.saved')}</span>
-          </footer>
+          {!minimized && (
+            <>
+              <NoteBody
+                value={note.content}
+                color={note.color}
+                onChange={(v) => updateNoteContent(note.id, { content: v })}
+              />
+              <footer
+                className="flex items-center justify-between border-t px-2.5 py-1 text-[10.5px]"
+                style={{
+                  color: `hsl(var(--note-${note.color}-fg))`,
+                  opacity: 0.6,
+                  borderColor: 'rgba(0,0,0,0.08)',
+                }}
+              >
+                <span>{isSaving ? t('notes.status.saving') : t('notes.status.saved')}</span>
+              </footer>
+            </>
+          )}
         </div>
       </Rnd>
       {confirmDelete && (

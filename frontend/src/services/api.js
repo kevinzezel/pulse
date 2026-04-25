@@ -551,7 +551,7 @@ export function resolveEditor(serverId) {
   return request(serverId, '/api/settings/editor/resolve', { method: 'POST' });
 }
 
-export async function saveImageToTemp(compositeIdOrServerId, blob) {
+export async function saveFileToTemp(compositeIdOrServerId, fileOrBlob, originalName = null) {
   let serverId = compositeIdOrServerId;
   if (typeof compositeIdOrServerId === 'string' && compositeIdOrServerId.includes(SESSION_ID_SEP)) {
     serverId = splitSessionId(compositeIdOrServerId).serverId;
@@ -560,8 +560,13 @@ export async function saveImageToTemp(compositeIdOrServerId, blob) {
   if (!server) throw notConfiguredError();
   const locale = getCurrentLocale();
   const formData = new FormData();
-  formData.append('image', blob);
-  const res = await fetch(`${buildBaseUrl(server)}/api/clipboard/image`, {
+  // Preserva o nome original se vier de um File (drop / picker). Fallback para
+  // o name passado explicitamente ou um nome genérico.
+  const filename = originalName
+    || (fileOrBlob && typeof fileOrBlob === 'object' && fileOrBlob.name)
+    || 'file';
+  formData.append('file', fileOrBlob, filename);
+  const res = await fetch(`${buildBaseUrl(server)}/api/clipboard/file`, {
     method: 'POST',
     body: formData,
     headers: {
@@ -571,7 +576,7 @@ export async function saveImageToTemp(compositeIdOrServerId, blob) {
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    const err = new Error(data.detail || 'Image save error');
+    const err = new Error(data.detail || 'File save error');
     err.detail = data.detail;
     err.detail_key = data.detail_key;
     err.detail_params = data.detail_params;
@@ -580,6 +585,12 @@ export async function saveImageToTemp(compositeIdOrServerId, blob) {
     throw err;
   }
   return data.path;
+}
+
+// Wrapper de compatibilidade: callers antigos chamavam `saveImageToTemp(id, blob)`
+// com um Blob de imagem. Mapeia direto pra saveFileToTemp.
+export function saveImageToTemp(compositeIdOrServerId, blob) {
+  return saveFileToTemp(compositeIdOrServerId, blob, blob?.name || 'image.png');
 }
 
 // ===== Notes =====

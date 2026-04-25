@@ -1,12 +1,14 @@
 import logging
 import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
 import time
+from pathlib import Path
 
-from fastapi import APIRouter, Body, WebSocket, WebSocketDisconnect, UploadFile, File, Request, Query
+from fastapi import APIRouter, Body, WebSocket, WebSocketDisconnect, UploadFile, File, Request, Query, Path as PathParam
 
 logger = logging.getLogger(__name__)
 from resources.terminal import create_session_request, list_sessions_request, kill_session_request, rename_session_request, clone_session_request, websocket_terminal, sessions, set_session_notify_request, set_session_scope_names_request, restore_sessions_request, record_session_viewing, _sessions_lock
@@ -17,29 +19,59 @@ from system.log import AppException
 from system.i18n import build_i18n_response
 from envs.load import API_KEY
 
-MAX_IMAGE_BYTES = 20 * 1024 * 1024
-IMAGE_CHUNK_BYTES = 64 * 1024
-IMAGE_TMP_MAX_AGE_SECONDS = 24 * 3600
+MAX_CLIPBOARD_FILE_BYTES = 20 * 1024 * 1024
+CLIPBOARD_CHUNK_BYTES = 64 * 1024
+CLIPBOARD_TMP_MAX_AGE_SECONDS = 24 * 3600
+# Prefixo controlado pra que a limpeza periódica só toque arquivos criados pelo
+# Pulse, em vez de varrer qualquer .png em /tmp (comportamento legado).
+CLIPBOARD_TMP_PREFIX = "pulse-clip-"
+# Allowlist defensiva: garante que mesmo um nome arbitrário enviado pelo
+# cliente vire algo simples e previsível em disco.
+_SAFE_NAME_RE = re.compile(r"[^A-Za-z0-9._-]+")
+MAX_SAFE_FILENAME_LENGTH = 80
 
 router = APIRouter()
 ws_router = APIRouter()
 NOTIFICATIONS_WS_MAX_MESSAGE_BYTES = 1024
 SESSION_ID_MAX_LENGTH = 64
+SEND_TEXT_MAX_LENGTH = 10000
 
 
-def _cleanup_old_clipboard_images():
+def _cleanup_old_clipboard_files():
     try:
         now = time.time()
         for entry in os.scandir('/tmp'):
-            if not entry.name.endswith('.png'):
+            if not entry.name.startswith(CLIPBOARD_TMP_PREFIX):
                 continue
             try:
-                if entry.is_file() and (now - entry.stat().st_mtime) > IMAGE_TMP_MAX_AGE_SECONDS:
+                if entry.is_file() and (now - entry.stat().st_mtime) > CLIPBOARD_TMP_MAX_AGE_SECONDS:
                     os.unlink(entry.path)
             except OSError:
                 pass
     except OSError:
         pass
+
+
+def _safe_filename_parts(raw_name: str | None, default_ext: str = ""):
+    """Sanitiza um nome enviado pelo cliente: ignora paths, normaliza, limita
+    tamanho. Retorna (stem, ext_with_dot)."""
+    name = (raw_name or "").strip()
+    if not name:
+        return ("file", default_ext)
+    # Remove qualquer separador de path antes de aplicar a allowlist.
+    base = Path(name).name
+    if not base:
+        return ("file", default_ext)
+    parts = base.rsplit(".", 1)
+    if len(parts) == 2 and parts[1] and len(parts[1]) <= 16:
+        stem, ext = parts[0], "." + parts[1]
+    else:
+        stem, ext = base, default_ext
+    stem = _SAFE_NAME_RE.sub("_", stem) or "file"
+    stem = stem[:MAX_SAFE_FILENAME_LENGTH]
+    ext = _SAFE_NAME_RE.sub("", ext.replace(".", "")).lower()
+    ext = ("." + ext) if ext else default_ext
+    return (stem, ext)
 
 
 @router.post("/sessions")
@@ -149,8 +181,8 @@ def set_notify(
 @router.post("/sessions/{session_id}/send-text")
 def send_text(
     request: Request,
-    session_id: str,
-    text: str = Body("", embed=True),
+    session_id: str = PathParam(..., max_length=SESSION_ID_MAX_LENGTH),
+    text: str = Body("", embed=True, max_length=SEND_TEXT_MAX_LENGTH),
     send_enter: bool = Body(False, embed=True),
 ):
     with _sessions_lock:
@@ -180,30 +212,71 @@ def send_text(
     return build_i18n_response(request, 200, {"detail_key": "success.text_sent"})
 
 
-@router.post("/clipboard/image")
-async def clipboard_image(request: Request, image: UploadFile = File(...)):
-    _cleanup_old_clipboard_images()
-    tmp = tempfile.NamedTemporaryFile(suffix='.png', delete=False, dir='/tmp')
+async def _persist_upload_to_tmp(upload: UploadFile, default_ext: str):
+    """Streama o UploadFile para um arquivo temporário em /tmp com nome
+    previsível (`pulse-clip-<random><ext>`), enforçando MAX_CLIPBOARD_FILE_BYTES.
+    Retorna o path final no disco. Lança AppException em excesso de tamanho.
+    """
+    _cleanup_old_clipboard_files()
+    stem, ext = _safe_filename_parts(getattr(upload, "filename", None), default_ext)
+    # tempfile garante unicidade; o stem sanitizado vai como sufixo legível.
+    tmp = tempfile.NamedTemporaryFile(
+        prefix=CLIPBOARD_TMP_PREFIX,
+        suffix=f"-{stem}{ext}" if ext else f"-{stem}",
+        delete=False,
+        dir='/tmp',
+    )
     total = 0
     try:
         while True:
-            chunk = await image.read(IMAGE_CHUNK_BYTES)
+            chunk = await upload.read(CLIPBOARD_CHUNK_BYTES)
             if not chunk:
                 break
             total += len(chunk)
-            if total > MAX_IMAGE_BYTES:
+            if total > MAX_CLIPBOARD_FILE_BYTES:
                 tmp.close()
                 try:
                     os.unlink(tmp.name)
                 except OSError:
                     pass
-                raise AppException(key="errors.image_too_large", status_code=413, params={"max_mb": MAX_IMAGE_BYTES // (1024 * 1024)})
+                raise AppException(
+                    key="errors.file_too_large",
+                    status_code=413,
+                    params={"max_mb": MAX_CLIPBOARD_FILE_BYTES // (1024 * 1024)},
+                )
             tmp.write(chunk)
     finally:
         tmp.close()
+    return tmp.name
+
+
+@router.post("/clipboard/file")
+async def clipboard_file(request: Request, file: UploadFile = File(...)):
+    path = await _persist_upload_to_tmp(file, default_ext="")
+    return build_i18n_response(request, 200, {
+        "detail_key": "success.file_saved",
+        "path": path,
+    })
+
+
+@router.post("/clipboard/image")
+async def clipboard_image(request: Request, image: UploadFile = File(...)):
+    # Wrapper de compatibilidade pra clientes antigos que ainda mandam o campo
+    # `image`. Mantém as chaves i18n antigas pra que bundles pré-2.6 continuem
+    # resolvendo os mesmos textos no frontend.
+    try:
+        path = await _persist_upload_to_tmp(image, default_ext=".png")
+    except AppException as exc:
+        if exc.key == "errors.file_too_large":
+            raise AppException(
+                key="errors.image_too_large",
+                status_code=exc.status_code,
+                params=exc.params,
+            ) from exc
+        raise
     return build_i18n_response(request, 200, {
         "detail_key": "success.image_saved",
-        "path": tmp.name,
+        "path": path,
     })
 
 

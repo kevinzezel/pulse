@@ -1,45 +1,64 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { X, Trash2, Image, Loader, Send, CornerDownLeft, Terminal } from 'lucide-react';
+import { X, Trash2, Paperclip, FileIcon, Loader, Send, CornerDownLeft, Terminal } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { saveImageToTemp, sendTextToSession, splitSessionId } from '@/services/api';
+import { saveFileToTemp, sendTextToSession, splitSessionId } from '@/services/api';
 import { useTranslation, useErrorToast } from '@/providers/I18nProvider';
 import { getAllServers } from '@/providers/ServersProvider';
 import ServerTag from './ServerTag';
 
+const MAX_ITEMS = 15;
+
+function isImageFile(file) {
+  return !!(file && file.type && file.type.startsWith('image/'));
+}
+
+function formatBytes(bytes) {
+  if (!bytes && bytes !== 0) return '';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 export default function ClipboardGallery({ sessions = [] }) {
   const { t, formatTime } = useTranslation();
   const showError = useErrorToast();
-  const [images, setImages] = useState([]);
-  const [previewImage, setPreviewImage] = useState(null);
-  const [sendingImg, setSendingImg] = useState(null);
+  const [items, setItems] = useState([]);
+  const [previewItem, setPreviewItem] = useState(null);
+  const [sendingItem, setSendingItem] = useState(null);
   const [sendingAll, setSendingAll] = useState(false);
   const [sendingKey, setSendingKey] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
   const dragCounter = useRef(0);
 
-  const MAX_IMAGES = 15;
-
-  const addImages = useCallback((files) => {
-    const imageFiles = files.filter(f => f && f.type && f.type.startsWith('image/'));
-    if (imageFiles.length === 0) return;
-    setImages(prev => {
-      const slotsLeft = MAX_IMAGES - prev.length;
+  const addFiles = useCallback((files) => {
+    const valid = files.filter(Boolean);
+    if (valid.length === 0) return;
+    setItems(prev => {
+      const slotsLeft = MAX_ITEMS - prev.length;
       if (slotsLeft <= 0) {
-        toast.error(t('clipboard.limitReached', { max: MAX_IMAGES }));
+        toast.error(t('clipboard.limitReached', { max: MAX_ITEMS }));
         return prev;
       }
-      const accepted = imageFiles.slice(0, slotsLeft);
-      if (accepted.length < imageFiles.length) {
-        toast.error(t('clipboard.limitReached', { max: MAX_IMAGES }));
+      const accepted = valid.slice(0, slotsLeft);
+      if (accepted.length < valid.length) {
+        toast.error(t('clipboard.limitReached', { max: MAX_ITEMS }));
       }
-      const entries = accepted.map((blob, idx) => ({
-        id: `${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 7)}`,
-        url: URL.createObjectURL(blob),
-        blob,
-        timestamp: new Date(),
-      }));
+      const entries = accepted.map((blob, idx) => {
+        const isImg = isImageFile(blob);
+        return {
+          id: `${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 7)}`,
+          // Só geramos URL pra preview de imagem; pra outros arquivos não gasta
+          // memória do browser à toa.
+          url: isImg ? URL.createObjectURL(blob) : null,
+          blob,
+          name: blob.name || (isImg ? 'image' : 'file'),
+          size: blob.size || 0,
+          isImage: isImg,
+          timestamp: new Date(),
+        };
+      });
       return [...entries, ...prev];
     });
   }, [t]);
@@ -47,12 +66,17 @@ export default function ClipboardGallery({ sessions = [] }) {
   const handlePaste = useCallback((e) => {
     const items = e.clipboardData?.items;
     if (!items) return;
-    const imageItem = Array.from(items).find(i => i.type.startsWith('image/'));
-    if (!imageItem) return;
+    const blobs = [];
+    for (const i of items) {
+      if (i.kind === 'file') {
+        const f = i.getAsFile();
+        if (f) blobs.push(f);
+      }
+    }
+    if (blobs.length === 0) return;
     e.preventDefault();
-    const blob = imageItem.getAsFile();
-    if (blob) addImages([blob]);
-  }, [addImages]);
+    addFiles(blobs);
+  }, [addFiles]);
 
   function handleDragEnter(e) {
     if (!Array.from(e.dataTransfer?.types || []).includes('Files')) return;
@@ -84,7 +108,7 @@ export default function ClipboardGallery({ sessions = [] }) {
     setIsDragging(false);
     const files = Array.from(e.dataTransfer?.files || []);
     if (files.length === 0) return;
-    addImages(files);
+    addFiles(files);
   }
 
   useEffect(() => {
@@ -92,25 +116,25 @@ export default function ClipboardGallery({ sessions = [] }) {
     return () => document.removeEventListener('paste', handlePaste);
   }, [handlePaste]);
 
-  async function ensurePathFor(img, serverId) {
+  async function ensurePathFor(item, serverId) {
     if (!serverId) throw new Error('no server');
-    if (!img._tempPaths) img._tempPaths = {};
-    if (img._tempPaths[serverId]) return img._tempPaths[serverId];
-    const path = await saveImageToTemp(serverId, img.blob);
-    img._tempPaths[serverId] = path;
+    if (!item._tempPaths) item._tempPaths = {};
+    if (item._tempPaths[serverId]) return item._tempPaths[serverId];
+    const path = await saveFileToTemp(serverId, item.blob, item.name);
+    item._tempPaths[serverId] = path;
     return path;
   }
 
   async function handleSend(sessionId, sendEnter) {
-    if (!sendingImg) return;
+    if (!sendingItem) return;
     const key = `${sessionId}:${sendEnter ? '1' : '0'}`;
     const { serverId } = splitSessionId(sessionId);
     setSendingKey(key);
     try {
-      const path = await ensurePathFor(sendingImg, serverId);
+      const path = await ensurePathFor(sendingItem, serverId);
       const data = await sendTextToSession(sessionId, `@${path}`, sendEnter);
       toast.success(data.detail);
-      setSendingImg(null);
+      setSendingItem(null);
     } catch (err) {
       showError(err);
     } finally {
@@ -118,18 +142,18 @@ export default function ClipboardGallery({ sessions = [] }) {
     }
   }
 
-  function openSendFor(e, img) {
+  function openSendFor(e, item) {
     e.stopPropagation();
-    setSendingImg(img);
+    setSendingItem(item);
   }
 
   async function handleSendAll(sessionId, sendEnter) {
-    if (images.length === 0) return;
+    if (items.length === 0) return;
     const key = `${sessionId}:${sendEnter ? '1' : '0'}`;
     const { serverId } = splitSessionId(sessionId);
     setSendingKey(key);
     try {
-      const paths = await Promise.all(images.map(img => ensurePathFor(img, serverId)));
+      const paths = await Promise.all(items.map(item => ensurePathFor(item, serverId)));
       const text = paths.map(p => `@${p}`).join(' ');
       const data = await sendTextToSession(sessionId, text, sendEnter);
       toast.success(data.detail);
@@ -143,29 +167,43 @@ export default function ClipboardGallery({ sessions = [] }) {
 
   function handleDelete(e, id) {
     e.stopPropagation();
-    setImages(prev => {
-      const img = prev.find(i => i.id === id);
-      if (img) URL.revokeObjectURL(img.url);
+    setItems(prev => {
+      const item = prev.find(i => i.id === id);
+      if (item?.url) URL.revokeObjectURL(item.url);
       return prev.filter(i => i.id !== id);
     });
-    if (previewImage?.id === id) setPreviewImage(null);
-    if (sendingImg?.id === id) setSendingImg(null);
+    if (previewItem?.id === id) setPreviewItem(null);
+    if (sendingItem?.id === id) setSendingItem(null);
   }
 
   function handleClearAll() {
-    images.forEach(img => URL.revokeObjectURL(img.url));
-    setImages([]);
+    items.forEach(item => { if (item.url) URL.revokeObjectURL(item.url); });
+    setItems([]);
   }
 
-  function SendToTerminalButton({ img, size = 12, className = '' }) {
+  function SendToTerminalButton({ item, size = 12, className = '' }) {
     return (
       <button
-        onClick={(e) => openSendFor(e, img)}
+        onClick={(e) => openSendFor(e, item)}
         className={`flex items-center justify-center transition-colors ${className}`}
         title={t('clipboard.sendToTerminal')}
       >
         <Send size={size} />
       </button>
+    );
+  }
+
+  function ItemThumb({ item }) {
+    if (item.isImage && item.url) {
+      return <img src={item.url} alt="" className="w-full h-full object-cover" />;
+    }
+    return (
+      <div className="flex flex-col items-center justify-center h-full w-full p-1 text-muted-foreground bg-muted/30">
+        <FileIcon size={20} />
+        <span className="mt-0.5 text-[8px] text-center truncate w-full px-1" title={item.name}>
+          {item.name}
+        </span>
+      </div>
     );
   }
 
@@ -191,7 +229,7 @@ export default function ClipboardGallery({ sessions = [] }) {
           <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
             {t('clipboard.title')}
           </p>
-          {images.length > 0 && (
+          {items.length > 0 && (
             <div className="flex items-center gap-0.5">
               <button
                 onClick={() => setSendingAll(true)}
@@ -213,24 +251,24 @@ export default function ClipboardGallery({ sessions = [] }) {
           )}
         </div>
 
-        {images.length > 0 ? (
+        {items.length > 0 ? (
           <div className="grid grid-cols-3 gap-1 max-h-48 overflow-y-auto">
-            {images.map(img => (
+            {items.map(item => (
               <div
-                key={img.id}
+                key={item.id}
                 className="relative aspect-video rounded overflow-hidden border border-border hover:border-primary/60 transition-colors group cursor-pointer"
-                onClick={() => setPreviewImage(img)}
+                onClick={() => setPreviewItem(item)}
               >
-                <img src={img.url} alt="" className="w-full h-full object-cover" />
+                <ItemThumb item={item} />
                 <div className="absolute inset-0 bg-overlay/0 group-hover:bg-overlay/40 transition-colors" />
                 <div className="absolute top-0.5 right-0.5 flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
                   <SendToTerminalButton
-                    img={img}
+                    item={item}
                     size={10}
                     className="p-0.5 rounded bg-overlay/60 text-white hover:bg-primary/80"
                   />
                   <button
-                    onClick={(e) => handleDelete(e, img.id)}
+                    onClick={(e) => handleDelete(e, item.id)}
                     className="p-0.5 rounded bg-overlay/60 text-white hover:bg-destructive/80 transition-colors"
                     title={t('clipboard.delete')}
                   >
@@ -238,43 +276,43 @@ export default function ClipboardGallery({ sessions = [] }) {
                   </button>
                 </div>
                 <div className="absolute bottom-0 left-0 right-0 bg-overlay/60 text-[8px] text-center text-white py-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                  {formatTime(img.timestamp)}
+                  {formatTime(item.timestamp)}
                 </div>
               </div>
             ))}
           </div>
         ) : (
           <div className="flex flex-col items-center justify-center py-3 gap-1 text-muted-foreground">
-            <Image size={16} className="opacity-30" />
+            <Paperclip size={16} className="opacity-30" />
             <p className="text-[10px] opacity-50">{t('clipboard.captureHint')}</p>
           </div>
         )}
       </div>
 
-      {previewImage && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-overlay/70" onClick={() => setPreviewImage(null)}>
+      {previewItem && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-overlay/70" onClick={() => setPreviewItem(null)}>
           <div className="relative max-w-[90vw] max-h-[90vh] bg-card border border-border rounded-lg overflow-hidden" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between px-3 py-2 border-b border-border">
-              <span className="text-xs text-muted-foreground">
-                {formatTime(previewImage.timestamp)}
+              <span className="text-xs text-muted-foreground truncate max-w-[60vw]" title={previewItem.name}>
+                {previewItem.name} · {formatBytes(previewItem.size)} · {formatTime(previewItem.timestamp)}
               </span>
               <div className="flex items-center gap-1">
                 <button
-                  onClick={(e) => openSendFor(e, previewImage)}
+                  onClick={(e) => openSendFor(e, previewItem)}
                   className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium bg-primary/20 text-primary hover:bg-primary/30 transition-colors"
                 >
                   <Send size={12} />
                   {t('clipboard.sendToTerminal')}
                 </button>
                 <button
-                  onClick={(e) => handleDelete(e, previewImage.id)}
+                  onClick={(e) => handleDelete(e, previewItem.id)}
                   className="p-1 text-muted-foreground hover:text-destructive transition-colors"
                   title={t('clipboard.delete')}
                 >
                   <Trash2 size={14} />
                 </button>
                 <button
-                  onClick={() => setPreviewImage(null)}
+                  onClick={() => setPreviewItem(null)}
                   className="p-1 text-muted-foreground hover:text-foreground transition-colors"
                 >
                   <X size={14} />
@@ -282,23 +320,31 @@ export default function ClipboardGallery({ sessions = [] }) {
               </div>
             </div>
             <div className="p-2 flex items-center justify-center" style={{ maxHeight: 'calc(90vh - 44px)' }}>
-              <img
-                src={previewImage.url}
-                alt=""
-                className="max-w-full max-h-[calc(90vh-60px)] object-contain rounded"
-              />
+              {previewItem.isImage && previewItem.url ? (
+                <img
+                  src={previewItem.url}
+                  alt=""
+                  className="max-w-full max-h-[calc(90vh-60px)] object-contain rounded"
+                />
+              ) : (
+                <div className="flex flex-col items-center justify-center gap-2 px-8 py-12 text-muted-foreground">
+                  <FileIcon size={48} />
+                  <span className="text-sm font-medium text-foreground">{previewItem.name}</span>
+                  <span className="text-xs">{formatBytes(previewItem.size)}</span>
+                </div>
+              )}
             </div>
           </div>
         </div>
       )}
 
-      {sendingImg && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-overlay/60 px-4 py-6" onClick={() => setSendingImg(null)}>
+      {sendingItem && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-overlay/60 px-4 py-6" onClick={() => setSendingItem(null)}>
           <div onClick={(e) => e.stopPropagation()} className="bg-card border border-border rounded-lg p-5 w-full max-w-md flex flex-col gap-3 max-h-full overflow-y-auto">
             <div className="flex items-center justify-between">
               <h3 className="text-foreground font-semibold">{t('clipboard.sendTitle')}</h3>
               <button
-                onClick={() => setSendingImg(null)}
+                onClick={() => setSendingItem(null)}
                 disabled={sendingKey !== null}
                 className="p-1 text-muted-foreground hover:text-foreground disabled:opacity-50"
               >
@@ -347,7 +393,7 @@ export default function ClipboardGallery({ sessions = [] }) {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-overlay/60 px-4 py-6" onClick={() => setSendingAll(false)}>
           <div onClick={(e) => e.stopPropagation()} className="bg-card border border-border rounded-lg p-5 w-full max-w-md flex flex-col gap-3 max-h-full overflow-y-auto">
             <div className="flex items-center justify-between">
-              <h3 className="text-foreground font-semibold">{t('clipboard.sendTitle')} ({images.length})</h3>
+              <h3 className="text-foreground font-semibold">{t('clipboard.sendTitle')} ({items.length})</h3>
               <button
                 onClick={() => setSendingAll(false)}
                 disabled={sendingKey !== null}

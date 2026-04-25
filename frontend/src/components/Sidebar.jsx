@@ -16,10 +16,11 @@ import { buildRemoteEditorUrl } from '@/utils/host';
 import NewTerminalModal from './NewTerminalModal';
 import RenameSessionModal from './RenameSessionModal';
 import ClipboardGallery from './ClipboardGallery';
-import AttachImageButton from './AttachImageButton';
+import AttachFileButton from './AttachFileButton';
 import ServerTag from './ServerTag';
 import SidebarCard from './SidebarCard';
 import SidebarShell from './SidebarShell';
+import { isTerminalConnected, subscribeTerminalConnection } from './TerminalPane';
 
 export default function Sidebar({
   sessions,
@@ -63,11 +64,21 @@ export default function Sidebar({
   const [hydratedSelected, setHydratedSelected] = useState(false);
   const [confirmDeleteServerId, setConfirmDeleteServerId] = useState(null);
   const [deletingServerId, setDeletingServerId] = useState(null);
+  const [activeTerminalConnected, setActiveTerminalConnected] = useState(false);
 
   const [assignPopoverSessionId, setAssignPopoverSessionId] = useState(null);
   const [creatingInlineFor, setCreatingInlineFor] = useState(null);
   const [inlineGroupName, setInlineGroupName] = useState('');
   const [assigningGroup, setAssigningGroup] = useState(false);
+
+  useEffect(() => {
+    if (!activeTerminalId) {
+      setActiveTerminalConnected(false);
+      return undefined;
+    }
+    setActiveTerminalConnected(isTerminalConnected(activeTerminalId));
+    return subscribeTerminalConnection(activeTerminalId, setActiveTerminalConnected);
+  }, [activeTerminalId]);
 
   useEffect(() => {
     try {
@@ -596,7 +607,7 @@ export default function Sidebar({
               </div>
             )}
             <div className="border-t flex-shrink-0" style={{ borderColor: 'hsl(var(--sidebar-border))' }}>
-              <AttachImageButton sessions={allSessions} />
+              <AttachFileButton sessions={allSessions} />
             </div>
           </>
         ) : (
@@ -626,15 +637,26 @@ export default function Sidebar({
             </div>
             {isMobile && (
               <div className="mt-auto flex flex-col items-center gap-2 pb-3">
-                <AttachImageButton sessions={allSessions} iconOnly />
+                <AttachFileButton sessions={allSessions} iconOnly />
+                {(() => {
+                  const composeDisabled = !activeTerminalId
+                    || !activeTerminalConnected
+                    || composeLoadingId === activeTerminalId;
+                  const composeTitle = activeTerminalId && !activeTerminalConnected
+                    ? t('terminal.actions.disconnected')
+                    : t('sidebar.compose');
+                  return (
                 <button
-                  onClick={() => activeTerminalId && onRequestCompose?.(activeTerminalId)}
-                  disabled={!activeTerminalId || composeLoadingId === activeTerminalId}
+                  onClick={() => activeTerminalId && activeTerminalConnected && onRequestCompose?.(activeTerminalId)}
+                  disabled={composeDisabled}
                   className="p-2 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors disabled:opacity-40 disabled:pointer-events-none"
-                  title={t('sidebar.compose')}
+                  title={composeTitle}
+                  aria-label={composeTitle}
                 >
                   {activeTerminalId && composeLoadingId === activeTerminalId ? <Loader size={16} className="animate-spin" /> : <Keyboard size={16} />}
                 </button>
+                  );
+                })()}
               </div>
             )}
           </>

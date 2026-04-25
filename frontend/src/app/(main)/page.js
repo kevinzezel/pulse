@@ -9,13 +9,13 @@ import {
   composeSessionId, splitSessionId,
   getSessionsSnapshot, setSessionsSnapshot, restoreSessions,
   getComposeDrafts, setComposeDrafts as putComposeDrafts,
-  addRecentCwd,
+  addRecentCwd, sendTextToSession,
 } from '@/services/api';
 import { ssRead, ssWrite, ssRemove, ssListKeysWithPrefix } from '@/lib/sessionState';
 import { cleanupLegacyKeys } from '@/lib/legacyCleanup';
 import { reorderById } from '@/utils/reorder';
-import { replaceInTree, removeFromTree, getVisibleSessionIds, validateTree } from '@/utils/mosaicHelpers';
-import { destroyTerminal, destroyAllTerminals, sendKey, hasDeadConnections, probeAllTerminals } from '@/components/TerminalPane';
+import { replaceInTree, removeFromTree, getVisibleSessionIds, validateTree, insertSession, normalizeMosaicTree } from '@/utils/mosaicHelpers';
+import { destroyTerminal, destroyAllTerminals, hasDeadConnections, probeAllTerminals, isTerminalConnected } from '@/components/TerminalPane';
 import { useTranslation, useErrorToast } from '@/providers/I18nProvider';
 import { useServers } from '@/providers/ServersProvider';
 import { useProjects } from '@/providers/ProjectsProvider';
@@ -108,11 +108,17 @@ function Dashboard() {
     for (const fullKey of keys) {
       const inner = fullKey.slice(prefix.length);
       const value = ssRead(fullKey, null);
+      let raw;
       if (value && typeof value === 'object' && !Array.isArray(value) && 'mosaic' in value) {
-        normalized[inner] = value.mosaic ?? null;
+        raw = value.mosaic ?? null;
       } else {
-        normalized[inner] = value ?? null;
+        raw = value ?? null;
       }
+      // Layouts persistidos antes da normalização entrar podem estar no
+      // formato customizado {type, children, splitPercentages}. Normalizar
+      // aqui evita o bug do "terceiro terminal somem" assim que a árvore
+      // mistura formatos.
+      normalized[inner] = raw ? normalizeMosaicTree(raw) : raw;
     }
     previousLayoutsRef.current = { ...normalized };
     setMosaicLayouts(normalized);
@@ -209,7 +215,12 @@ function Dashboard() {
     setMosaicLayouts(prev => {
       const key = `${activeProjectId}::${selectedGroupId ?? '__none__'}`;
       const cur = prev[key] ?? null;
-      const next = typeof updater === 'function' ? updater(cur) : updater;
+      const raw = typeof updater === 'function' ? updater(cur) : updater;
+      // Normaliza qualquer árvore antes de persistir, independente da fonte
+      // (react-mosaic onChange, insertSession, replaceInTree, validateTree).
+      // Mantém o estado em um único formato canônico e elimina tiles sumidos
+      // por nós com filho ausente.
+      const next = raw === cur ? cur : normalizeMosaicTree(raw);
       if (next === cur) return prev;
       return { ...prev, [key]: next };
     });
@@ -532,15 +543,7 @@ function Dashboard() {
     const visibleIds = getVisibleSessionIds(mosaicLayout);
     if (!visibleIds.has(sid)) {
       if (isMaximized) setSavedLayout(null);
-      setMosaicLayout(prev => {
-        if (!prev) return sid;
-        return {
-          type: 'split',
-          direction: 'row',
-          children: [prev, sid],
-          splitPercentages: [50, 50],
-        };
-      });
+      setMosaicLayout(prev => insertSession(prev, sid));
     }
     if (isMobile) {
       setActiveTerminalId(sid);
@@ -562,15 +565,7 @@ function Dashboard() {
     if (isMobile) {
       if (!mobileOpenIds.includes(sessionId)) {
         if (isMaximized) setSavedLayout(null);
-        setMosaicLayout(prev => {
-          if (!prev) return sessionId;
-          return {
-            type: 'split',
-            direction: 'row',
-            children: [prev, sessionId],
-            splitPercentages: [50, 50],
-          };
-        });
+        setMosaicLayout(prev => insertSession(prev, sessionId));
       }
       setActiveTerminalId(sessionId);
       setSidebarOpen(false);
@@ -584,15 +579,7 @@ function Dashboard() {
     if (isMaximized) {
       setSavedLayout(null);
     }
-    setMosaicLayout(prev => {
-      if (!prev) return sessionId;
-      return {
-        type: 'split',
-        direction: 'row',
-        children: [prev, sessionId],
-        splitPercentages: [50, 50],
-      };
-    });
+    setMosaicLayout(prev => insertSession(prev, sessionId));
   }
 
   async function handleRename(id, newName) {
@@ -633,15 +620,7 @@ function Dashboard() {
       // otherwise skip this server and sessions.json would never record the
       // new session (it skips every srv in offlineServerIds).
       setOfflineServerIds(prev => prev.filter(id => id !== serverId));
-      setMosaicLayout(prev => {
-        if (!prev) return session.id;
-        return {
-          type: 'split',
-          direction: 'row',
-          children: [prev, session.id],
-          splitPercentages: [50, 50],
-        };
-      });
+      setMosaicLayout(prev => insertSession(prev, session.id));
       if (isMobile) setActiveTerminalId(session.id);
       // Fire-and-forget: persist this cwd as a recent for the dropdown next
       // time the user opens the modal. Failure to persist doesn't undo the
@@ -687,10 +666,10 @@ function Dashboard() {
       setOfflineServerIds(prev => prev.filter(id => id !== serverId));
       setMosaicLayout(prev =>
         replaceInTree(prev, sourceSessionId, {
-          type: 'split',
           direction,
-          children: [sourceSessionId, session.id],
-          splitPercentages: [50, 50],
+          first: sourceSessionId,
+          second: session.id,
+          splitPercentage: 50,
         })
       );
       if (isMobile) setActiveTerminalId(session.id);
@@ -831,16 +810,22 @@ function Dashboard() {
     });
   }, []);
 
-  function handleComposeSend(text, sendEnter) {
+  async function handleComposeSend(text, sendEnter) {
     const sid = composeTargetId;
-    if (!sid) { setComposeTargetId(null); return; }
-    sendKey(sid, '\x03');
-    setTimeout(() => {
-      if (text) sendKey(sid, text);
-      if (sendEnter) sendKey(sid, '\r');
-    }, 50);
+    if (!sid) { setComposeTargetId(null); return false; }
+    if (!isTerminalConnected(sid)) {
+      toast.error(t('terminal.actions.disconnected'));
+      return false;
+    }
+    try {
+      await sendTextToSession(sid, text || '', !!sendEnter);
+    } catch (err) {
+      showError(err);
+      return false;
+    }
     handleDraftPersist(sid, '');
     setComposeTargetId(null);
+    return true;
   }
 
   async function handleComposeSaveAsPrompt({ name, body }) {

@@ -6,6 +6,34 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [2.6.0-pre] — 2026-04-25
+
+### Added
+
+- **Smart mosaic insertion that keeps tiles balanced and avoids the third-terminal disappearance.** A new `insertSession()` helper in `frontend/src/utils/mosaicHelpers.js` walks the current tree and attaches the new pane to the lightest branch while alternating the parent split direction (`row`/`column`). It replaces the four hand-rolled `{type:'split', children:[…]}` blocks in `frontend/src/app/(main)/page.js` (used by `handleCreate`, `handleSelectSession`, the deep-link `?session=` flow and the mobile path).
+- **Generic clipboard upload.** A new client endpoint `POST /api/clipboard/file` accepts any `UploadFile`, sanitizes the original name through an allowlist, and stores it under `/tmp/pulse-clip-<random>-<safe>.<ext>`. The frontend ships a matching `saveFileToTemp(serverId, file, name)` and a renamed `AttachFileButton` (drops `accept="image/*"`) so users can attach PDFs, source files, etc., not just images. The legacy `POST /api/clipboard/image` and `saveImageToTemp()` are kept as thin wrappers for backwards compatibility.
+- **Disconnection-aware terminal action menu.** The pane gear FAB (`frontend/src/components/PaneActionsFab.jsx`) subscribes to a new `subscribeTerminalConnection()` helper exported by `TerminalPane.jsx`. When the WebSocket of that session is `closed` / `replaced`, the gear is disabled with a tooltip (`terminal.actions.disconnected`) and any open menu is auto-collapsed so the user can no longer fire actions that would silently no-op.
+- **`isTerminalConnected(sessionId)` / `getTerminalConnectionState(sessionId)`.** Read-only helpers exposed by `TerminalPane.jsx`. Used by the compose flow and the FAB to gate UI on real WebSocket health.
+
+### Changed
+
+- **Compose modal is now transactional.** `frontend/src/app/(main)/page.js#handleComposeSend` no longer calls `sendKey()` (raw WebSocket) plus a `setTimeout` race. It calls `sendTextToSession()` (HTTP), and only on a successful response does it clear the persisted draft and close the modal. On `isTerminalConnected()=false` the modal stays open and shows the disconnected toast; on a server error the draft is preserved. The `ComposeModal` itself now disables both Send buttons and shows a `<Loader>` while the request is in flight.
+- **Pane action menu redesign.** The four satellite buttons that orbited the gear are now compact pill buttons (icon + short label) stacked under the gear, using new short labels `terminal.actions.{capture,prompts,notify,compose}Short`. The “prompts” button switched from `MessageSquareText` to `Sparkles` (`lucide-react`) to signal the AI/snippet nature of saved prompts.
+- **Mosaic tree is normalized at every entry point.** `normalizeMosaicTree()` is run on layouts read from `sessionStorage`, on every `Mosaic onChange`, and inside `setMosaicLayout` itself. The legacy `{type, children, splitPercentages}` shape is converted to the canonical `{direction, first, second, splitPercentage}` shape and any node with a missing child is collapsed into its surviving sibling.
+- **`sendKey(sessionId, data)` returns a boolean** instead of failing silently when the WebSocket is not `OPEN`. Existing callers now gain visibility into "did this keystroke actually leave the browser?".
+- **Notification renamed: `_cleanup_old_clipboard_files()`** in `client/src/routes/terminal.py` only removes files that start with the controlled `pulse-clip-` prefix, instead of indiscriminately deleting every `.png` under `/tmp` older than 24h. Constants renamed to `MAX_CLIPBOARD_FILE_BYTES`, `CLIPBOARD_CHUNK_BYTES`, `CLIPBOARD_TMP_MAX_AGE_SECONDS`.
+
+### Fixed
+
+- **Third terminal no longer disappears when dropped beside two existing tiles.** The previous code mixed two split shapes (`{type, children, splitPercentages}` from in-app helpers, `{direction, first, second, splitPercentage}` from `react-mosaic-component`'s drag/drop). When a node ended up with one valid child plus an unrecognized sibling, `react-mosaic-component` rendered an empty tile slot for the missing side and effectively hid one of the panes. Normalization now collapses one-child splits and converts every node to the canonical shape before persisting/rendering.
+- **Compose modal no longer wipes the draft when the WebSocket was already dead.** Previously the click handler unconditionally called `sendKey()` (silent no-op on a closed socket) and then cleared the draft, so a pre-typed message vanished without ever reaching the terminal. With the HTTP-based confirmation, the draft now survives any failure mode and the user sees a toast instead.
+- **Compose drafts are now preserved even when the last edit was still debounced.** A failed send immediately persists the current textarea content before the modal can be closed, and the modal close button is disabled while a send request is in flight.
+- **The HTTP `send-text` endpoint now has an explicit payload limit.** Compose sends are capped server-side before writing to the PTY.
+- **Legacy clipboard image uploads keep their original i18n contract.** `/api/clipboard/image` still emits `success.image_saved` / `errors.image_too_large`, while the new generic file endpoint uses the file-specific keys.
+- **Mobile compose now follows the same disconnected-session guard as the pane action menu.** The collapsed sidebar compose button stays disabled until the active terminal is connected.
+- **The file attach picker now enforces the same 15-item limit as the clipboard gallery.** Oversized selections are trimmed before previews or upload paths are created.
+- **Note minimize (`-`) only collapses the body now.** `frontend/src/components/Notes/StickyNote.jsx` keeps a local `minimized` flag: when on, `Rnd` shrinks to the header height (36px), `NoteBody` and the saved-status footer are hidden, and resizing is disabled. The `X` button keeps its prior behavior (`closeOrDeleteIfEmpty`); the `-` button no longer doubles as “close”.
+
 ## [2.5.12] — 2026-04-25
 
 ### Fixed
@@ -923,7 +951,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v2.5.12...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v2.6.0-pre...HEAD
+[2.6.0-pre]: https://github.com/kevinzezel/pulse/releases/tag/v2.6.0-pre
 [2.5.12]: https://github.com/kevinzezel/pulse/releases/tag/v2.5.12
 [2.5.11-pre]: https://github.com/kevinzezel/pulse/releases/tag/v2.5.11-pre
 [2.5.10-pre]: https://github.com/kevinzezel/pulse/releases/tag/v2.5.10-pre

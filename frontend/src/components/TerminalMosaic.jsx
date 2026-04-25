@@ -5,6 +5,7 @@ import { Monitor, Columns2, Rows2, FolderOpen, ExternalLink, Maximize2, Minimize
 import { Mosaic, MosaicWindow } from 'react-mosaic-component';
 import 'react-mosaic-component/react-mosaic-component.css';
 import { openEditor, getSessionCwd, splitSessionId } from '@/services/api';
+import { normalizeMosaicTree } from '@/utils/mosaicHelpers';
 import { useTranslation, useErrorToast } from '@/providers/I18nProvider';
 import { getServerById, isServerLocal, useServers } from '@/providers/ServersProvider';
 import { useProjects } from '@/providers/ProjectsProvider';
@@ -247,7 +248,7 @@ export default function TerminalMosaic({
     <div className="flex-1 min-h-0 min-w-0" style={{ padding: '2px' }}>
       <Mosaic
         value={layout}
-        onChange={onLayoutChange}
+        onChange={(next) => onLayoutChange(normalizeMosaicTree(next))}
         className="mosaic-dark-theme"
         renderTile={(id, path) => {
           const session = findSession(id);
