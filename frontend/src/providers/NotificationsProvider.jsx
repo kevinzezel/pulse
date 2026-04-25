@@ -10,15 +10,47 @@ const NotificationsContext = createContext(null);
 
 const MUTE_STORAGE_KEY = 'rt:notify-mute';
 const PRESENCE_POLICY_STORAGE_KEY = 'rt:notify-presence-policy';
-const PRESENCE_POLICY_STRICT = 'strict';
-const PRESENCE_POLICY_VISIBLE = 'visible';
+export const PRESENCE_POLICY_STRICT = 'strict';
+export const PRESENCE_POLICY_SMART = 'smart';
+export const PRESENCE_POLICY_VISIBLE = 'visible';
+const VALID_POLICIES = new Set([PRESENCE_POLICY_STRICT, PRESENCE_POLICY_SMART, PRESENCE_POLICY_VISIBLE]);
+// Padrão pra novas instalações: smart. Preferências salvas como strict/visible
+// continuam valendo — não fazemos migração silenciosa.
+const DEFAULT_PRESENCE_POLICY = PRESENCE_POLICY_SMART;
+// Janela de atividade local. No modo strict é a única evidência de presença
+// junto com foco. No modo smart é o fallback quando o IdleDetector não está
+// disponível ou não foi autorizado.
+const STRICT_ACTIVITY_THRESHOLD_MS = 30 * 1000;
+const SMART_FALLBACK_ACTIVITY_THRESHOLD_MS = 2 * 60 * 1000;
+// Threshold mínimo aceito pela Idle Detection API é 60s. Acima disso o
+// detector reporta `idle` quando não há input de teclado/mouse no SO.
+const IDLE_DETECTOR_THRESHOLD_MS = 60 * 1000;
+const IDLE_DETECTION_STORAGE_KEY = 'rt:notify-idle-detection-armed';
 const EVENT_DEDUPE_PREFIX = 'rt:notify-event:';
 const EVENT_DEDUPE_TTL_MS = 10 * 60 * 1000;
 const EVENT_DEDUPE_CHANNEL = 'rt:notify-dedupe';
 const BACKOFF_MS = [1000, 2000, 4000, 8000, 15000, 30000];
 const CONNECTION_LOST_TOAST_DELAY_MS = 5000;
+const NOTIFICATIONS_WS_PING_INTERVAL_MS = 30000;
+const NOTIFICATIONS_WS_PONG_TIMEOUT_MS = 5000;
 const handledEvents = new Map();
 let dedupeChannel = null;
+
+// Atividade local: evento global, compartilhado por todos os TerminalPanes.
+// Ouve qualquer interação física com a página (mouse/teclado/touch). Module-
+// level pra que registros tardios (ex: terminal aberto depois) já encontrem o
+// timestamp atualizado, sem depender da árvore de React.
+let lastUserActivityTs = typeof window !== 'undefined' ? Date.now() : 0;
+if (typeof window !== 'undefined') {
+  const bumpActivity = () => { lastUserActivityTs = Date.now(); };
+  ['mousemove', 'keydown', 'pointerdown', 'wheel', 'touchstart'].forEach((ev) => {
+    window.addEventListener(ev, bumpActivity, { passive: true });
+  });
+}
+
+export function getLastUserActivityTs() {
+  return lastUserActivityTs;
+}
 
 function getSupported() {
   return typeof window !== 'undefined' && 'Notification' in window;
@@ -46,13 +78,27 @@ function readInitialMute() {
 }
 
 function readInitialPresencePolicy() {
-  if (typeof window === 'undefined') return PRESENCE_POLICY_STRICT;
+  if (typeof window === 'undefined') return DEFAULT_PRESENCE_POLICY;
   try {
     const value = localStorage.getItem(PRESENCE_POLICY_STORAGE_KEY);
-    return value === PRESENCE_POLICY_VISIBLE ? PRESENCE_POLICY_VISIBLE : PRESENCE_POLICY_STRICT;
+    if (value && VALID_POLICIES.has(value)) return value;
+    return DEFAULT_PRESENCE_POLICY;
   } catch {
-    return PRESENCE_POLICY_STRICT;
+    return DEFAULT_PRESENCE_POLICY;
   }
+}
+
+function readInitialIdleDetectionArmed() {
+  if (typeof window === 'undefined') return false;
+  try {
+    return localStorage.getItem(IDLE_DETECTION_STORAGE_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
+
+function isIdleDetectionSupported() {
+  return typeof window !== 'undefined' && 'IdleDetector' in window;
 }
 
 function rememberEvent(eventId, ts = Date.now()) {
@@ -163,14 +209,33 @@ export function NotificationsProvider({ children }) {
   // prompt (non-HTTPS / non-localhost). Everything else leaves it null.
   const [permissionReason, setPermissionReason] = useState(null);
   const [muted, setMutedState] = useState(false);
-  const [presencePolicy, setPresencePolicyState] = useState(PRESENCE_POLICY_STRICT);
+  const [presencePolicy, setPresencePolicyState] = useState(() => readInitialPresencePolicy());
+  // Idle Detection: status reflete o ciclo da Browser Idle Detection API.
+  //   unsupported       — browser sem IdleDetector
+  //   unrequested       — suportado mas usuário ainda não pediu
+  //   permission-denied — usuário negou permissão (ou bloqueio de policy)
+  //   monitoring        — detector ativo, vamos confiar em userState/screenState
+  //   failed            — start() rejeitou por outro motivo
+  const [idleDetectionStatus, setIdleDetectionStatus] = useState('unsupported');
+  const [idleUserState, setIdleUserState] = useState('active');
+  const [idleScreenState, setIdleScreenState] = useState('unlocked');
 
   const connectionsRef = useRef(new Map());
   const mutedRef = useRef(false);
   const permissionRef = useRef('default');
+  const presencePolicyRef = useRef(readInitialPresencePolicy());
+  const idleDetectionStatusRef = useRef('unsupported');
+  const idleUserStateRef = useRef('active');
+  const idleScreenStateRef = useRef('unlocked');
+  const idleDetectorRef = useRef(null);
+  const idleDetectorAbortRef = useRef(null);
 
   mutedRef.current = muted;
   permissionRef.current = permission;
+  presencePolicyRef.current = presencePolicy;
+  idleDetectionStatusRef.current = idleDetectionStatus;
+  idleUserStateRef.current = idleUserState;
+  idleScreenStateRef.current = idleScreenState;
 
   useEffect(() => {
     setSupported(getSupported());
@@ -182,7 +247,7 @@ export function NotificationsProvider({ children }) {
       setPermissionReason('insecure-context');
     }
     setMutedState(readInitialMute());
-    setPresencePolicyState(readInitialPresencePolicy());
+    setIdleDetectionStatus(isIdleDetectionSupported() ? 'unrequested' : 'unsupported');
     ensureDedupeChannel();
   }, []);
 
@@ -194,11 +259,126 @@ export function NotificationsProvider({ children }) {
   }, []);
 
   const setPresencePolicy = useCallback((value) => {
-    const next = value === PRESENCE_POLICY_VISIBLE ? PRESENCE_POLICY_VISIBLE : PRESENCE_POLICY_STRICT;
+    const next = VALID_POLICIES.has(value) ? value : DEFAULT_PRESENCE_POLICY;
     setPresencePolicyState(next);
     try {
       localStorage.setItem(PRESENCE_POLICY_STORAGE_KEY, next);
     } catch {}
+  }, []);
+
+  const stopIdleDetector = useCallback(() => {
+    if (idleDetectorAbortRef.current) {
+      try { idleDetectorAbortRef.current.abort(); } catch {}
+      idleDetectorAbortRef.current = null;
+    }
+    idleDetectorRef.current = null;
+  }, []);
+
+  const startGrantedIdleDetector = useCallback(async () => {
+    if (!isIdleDetectionSupported()) {
+      setIdleDetectionStatus('unsupported');
+      return 'unsupported';
+    }
+    stopIdleDetector();
+
+    const controller = new AbortController();
+    const detector = new window.IdleDetector();
+    detector.addEventListener('change', () => {
+      // Após `start()`, userState é 'active'|'idle' e screenState é
+      // 'locked'|'unlocked'. Refs são lidas pelo canSendViewingHeartbeat.
+      setIdleUserState(detector.userState || 'active');
+      setIdleScreenState(detector.screenState || 'unlocked');
+    });
+
+    try {
+      await detector.start({ threshold: IDLE_DETECTOR_THRESHOLD_MS, signal: controller.signal });
+    } catch {
+      setIdleDetectionStatus('failed');
+      try { localStorage.removeItem(IDLE_DETECTION_STORAGE_KEY); } catch {}
+      return 'failed';
+    }
+
+    idleDetectorRef.current = detector;
+    idleDetectorAbortRef.current = controller;
+    setIdleUserState(detector.userState || 'active');
+    setIdleScreenState(detector.screenState || 'unlocked');
+    setIdleDetectionStatus('monitoring');
+    try { localStorage.setItem(IDLE_DETECTION_STORAGE_KEY, 'true'); } catch {}
+    return 'monitoring';
+  }, [stopIdleDetector]);
+
+  const requestIdleDetection = useCallback(async () => {
+    if (!isIdleDetectionSupported()) {
+      setIdleDetectionStatus('unsupported');
+      return 'unsupported';
+    }
+    // requestPermission() exige transient user activation pela spec. Este
+    // caminho só roda a partir do clique em Settings; re-arm posterior usa
+    // startGrantedIdleDetector() direto após permissions.query === 'granted'.
+    try {
+      const permissionState = await window.IdleDetector.requestPermission();
+      if (permissionState !== 'granted') {
+        setIdleDetectionStatus('permission-denied');
+        try { localStorage.removeItem(IDLE_DETECTION_STORAGE_KEY); } catch {}
+        return 'permission-denied';
+      }
+    } catch {
+      setIdleDetectionStatus('permission-denied');
+      try { localStorage.removeItem(IDLE_DETECTION_STORAGE_KEY); } catch {}
+      return 'permission-denied';
+    }
+    return startGrantedIdleDetector();
+  }, [startGrantedIdleDetector]);
+
+  // Re-arma o detector silenciosamente em sessões futuras se o usuário já
+  // tinha autorizado antes. start() não pede gesto se a permissão já está
+  // 'granted'. Falhas viram unrequested/permission-denied dependendo do caso.
+  useEffect(() => {
+    if (!isIdleDetectionSupported()) return;
+    if (!readInitialIdleDetectionArmed()) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        if (!navigator.permissions?.query) return;
+        const perm = await navigator.permissions.query({ name: 'idle-detection' });
+        if (cancelled) return;
+        if (perm.state !== 'granted') {
+          setIdleDetectionStatus(perm.state === 'denied' ? 'permission-denied' : 'unrequested');
+          return;
+        }
+        await startGrantedIdleDetector();
+      } catch {
+        // permissions.query pode lançar pra nomes desconhecidos; ignora.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [startGrantedIdleDetector]);
+
+  useEffect(() => () => stopIdleDetector(), [stopIdleDetector]);
+
+  // Helper síncrono pra ser chamado dentro do setInterval de heartbeat sem
+  // forçar re-render do TerminalPane. Lê tudo via ref.
+  const canSendViewingHeartbeat = useCallback(() => {
+    const policy = presencePolicyRef.current;
+    if (policy === PRESENCE_POLICY_VISIBLE) return true;
+    if (policy === PRESENCE_POLICY_STRICT) {
+      if (typeof document === 'undefined') return false;
+      if (!document.hasFocus()) return false;
+      return Date.now() - lastUserActivityTs <= STRICT_ACTIVITY_THRESHOLD_MS;
+    }
+    // smart
+    const status = idleDetectionStatusRef.current;
+    if (status === 'monitoring') {
+      if (idleScreenStateRef.current === 'locked') return false;
+      if (idleUserStateRef.current === 'idle') return false;
+      return true;
+    }
+    // Fallback: sem IdleDetector (ou negado/falho), confiamos só em
+    // atividade local recente — sem exigir foco. Janela maior que strict
+    // pra dar margem ao uso multi-monitor.
+    return Date.now() - lastUserActivityTs <= SMART_FALLBACK_ACTIVITY_THRESHOLD_MS;
   }, []);
 
   const requestBrowserPermission = useCallback(async () => {
@@ -295,13 +475,56 @@ export function NotificationsProvider({ children }) {
       reconnectTimer: null,
       disconnectedAt: 0,
       lostToastShownId: null,
+      pingTimer: null,
+      pongTimer: null,
+      lastPingTs: 0,
+      lastPongTs: 0,
     };
 
     const scheduleReconnect = () => {
       if (ctrl.closed) return;
+      if (ctrl.reconnectTimer) return;
       const delay = BACKOFF_MS[Math.min(ctrl.attempt, BACKOFF_MS.length - 1)];
       ctrl.attempt += 1;
-      ctrl.reconnectTimer = setTimeout(open, delay);
+      ctrl.reconnectTimer = setTimeout(() => {
+        ctrl.reconnectTimer = null;
+        open();
+      }, delay);
+    };
+
+    const stopHealthProbe = () => {
+      if (ctrl.pingTimer) {
+        clearInterval(ctrl.pingTimer);
+        ctrl.pingTimer = null;
+      }
+      if (ctrl.pongTimer) {
+        clearTimeout(ctrl.pongTimer);
+        ctrl.pongTimer = null;
+      }
+    };
+
+    const startHealthProbe = (ws) => {
+      stopHealthProbe();
+      const ping = () => {
+        if (ctrl.closed || ctrl.ws !== ws || ws.readyState !== WebSocket.OPEN) return;
+        const pingTs = Date.now();
+        ctrl.lastPingTs = pingTs;
+        try {
+          ws.send(JSON.stringify({ type: 'ping' }));
+        } catch {
+          try { ws.close(); } catch {}
+          scheduleReconnect();
+          return;
+        }
+        if (ctrl.pongTimer) clearTimeout(ctrl.pongTimer);
+        ctrl.pongTimer = setTimeout(() => {
+          if (ctrl.closed || ctrl.ws !== ws) return;
+          if ((ctrl.lastPongTs || 0) >= pingTs) return;
+          try { ws.close(); } catch {}
+          scheduleReconnect();
+        }, NOTIFICATIONS_WS_PONG_TIMEOUT_MS);
+      };
+      ctrl.pingTimer = setInterval(ping, NOTIFICATIONS_WS_PING_INTERVAL_MS);
     };
 
     function open() {
@@ -316,6 +539,8 @@ export function NotificationsProvider({ children }) {
       ctrl.ws = ws;
       ws.onopen = () => {
         ctrl.attempt = 0;
+        ctrl.lastPongTs = Date.now();
+        startHealthProbe(ws);
         if (ctrl.disconnectedAt && Date.now() - ctrl.disconnectedAt > CONNECTION_LOST_TOAST_DELAY_MS) {
           const tr = tRef.current;
           if (ctrl.lostToastShownId) {
@@ -329,11 +554,17 @@ export function NotificationsProvider({ children }) {
       ws.onmessage = (e) => {
         try {
           const msg = JSON.parse(e.data);
+          if (msg?.type === 'pong') {
+            ctrl.lastPongTs = Date.now();
+            return;
+          }
           handleEvent(ctrl.serverId, msg);
         } catch {}
       };
       ws.onclose = () => {
+        if (ctrl.ws !== ws) return;
         if (ctrl.closed) return;
+        stopHealthProbe();
         if (!ctrl.disconnectedAt) {
           ctrl.disconnectedAt = Date.now();
           setTimeout(() => {
@@ -357,6 +588,14 @@ export function NotificationsProvider({ children }) {
     if (ctrl.reconnectTimer) {
       clearTimeout(ctrl.reconnectTimer);
       ctrl.reconnectTimer = null;
+    }
+    if (ctrl.pingTimer) {
+      clearInterval(ctrl.pingTimer);
+      ctrl.pingTimer = null;
+    }
+    if (ctrl.pongTimer) {
+      clearTimeout(ctrl.pongTimer);
+      ctrl.pongTimer = null;
     }
     if (ctrl.lostToastShownId) {
       toast.dismiss(ctrl.lostToastShownId);
@@ -408,6 +647,11 @@ export function NotificationsProvider({ children }) {
     setMuted,
     presencePolicy,
     setPresencePolicy,
+    idleDetectionStatus,
+    idleUserState,
+    idleScreenState,
+    requestIdleDetection,
+    canSendViewingHeartbeat,
     sendViewing,
   };
 

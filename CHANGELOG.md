@@ -6,6 +6,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [2.4.0] — 2026-04-25
+
+### Added
+
+- **Smart multi-monitor presence policy** in `Settings → Notifications`, now the default for new installs (`localStorage.rt:notify-presence-policy = "smart"`). Designed for the multi-monitor workflow where Pulse stays visible on a side monitor while the user works in another app: the heartbeat keeps suppressing idle alerts as long as (a) the tab is visible and the terminal is in viewport, and (b) the operating system reports recent input via the [Idle Detection API](https://developer.mozilla.org/en-US/docs/Web/API/Idle_Detection_API) — even without window focus. When the user steps away from the keyboard or locks the screen, the OS-level signal flips and the watcher's Rule 5 stops being acked → the alert fires normally. Existing preferences (`strict`, `visible`) are preserved verbatim, no silent migration. The legacy "Multi-monitor" mode was renamed to "Always-visible multi-monitor" and kept as an advanced option for users who explicitly want presence to require nothing more than tab visibility.
+- **Idle Detection API integration** centralized in `frontend/src/providers/NotificationsProvider.jsx`. The new `requestIdleDetection()` triggers `IdleDetector.requestPermission()` strictly under a user gesture (the `Enable system detection` button in Settings), starts a detector with the spec-minimum threshold of 60s and exposes the live `userState` (`active`/`idle`) and `screenState` (`locked`/`unlocked`) so the heartbeat decision can read them synchronously. After the first authorization, the detector is re-armed silently on subsequent sessions by checking `navigator.permissions.query({name: 'idle-detection'})` and then starting the detector directly (no permission prompt, no user-gesture dependency). A persistent flag `localStorage.rt:notify-idle-detection-armed` records the user's intent so re-arming doesn't keep retrying after revocation. Without permission (or on browsers without the API), `smart` falls back to "input within Pulse in the last 2 minutes (no focus required)" — explained in the Settings UI so the user knows what to expect.
+- **`canSendViewingHeartbeat()`** exported from `NotificationsProvider`, replacing the per-mode logic that used to live inline in `TerminalPane.sendHeartbeat`. The decision tree now lives in one place: `visible` → always; `strict` → focus + activity in last 30s; `smart` → IdleDetector says active+unlocked, or fallback to local activity in last 2 min. `lastUserActivityTs` (the global keyboard/mouse/touch listener) was moved from `TerminalPane.jsx` to `NotificationsProvider.jsx` so both presence modes can consult it without duplication.
+- **Health probe for the multi-client notifications WebSocket.** `/ws/notifications` now accepts `{type:"ping"}` and responds with `{type:"pong"}`; the frontend probes it every 30s and reconnects if no pong arrives within 5s, avoiding the "OPEN but dead TCP" state where viewing heartbeats looked sent but never reached the client. `TerminalPane` also mirrors `{type:"viewing"}` through the terminal WS when available, so the exclusive terminal connection remains a best-effort fallback instead of being skipped whenever `sendViewing()` returns successfully.
+- **3-mode presence picker** in `frontend/src/components/settings/NotificationsTab.jsx` (Strict / Smart multi-monitor / Always-visible multi-monitor) with descriptive hints, a `(recommended)` badge on Smart, and a status block that appears under Smart explaining the Idle Detection state (unsupported / unrequested / permission-denied / monitoring with live `userState`+`screenState` / failed) and offering the `Enable system detection` action when applicable.
+- **i18n keys** for all the above in `pt-BR.json`, `en.json`, `es.json`: `notifications.presencePolicySmart`, `notifications.presencePolicySmartHint`, `notifications.presencePolicyRecommended`, `notifications.idleDetectionTitle`, `notifications.idleDetectionPrompt`, `notifications.idleDetectionEnable`, `notifications.idleDetectionRequesting`, `notifications.idleDetectionMonitoring`, `notifications.idleDetectionUnsupported`, `notifications.idleDetectionDenied`, `notifications.idleDetectionFailed`, `notifications.idleDetectionFallback`, `notifications.idleDetectionEnabledToast`, `notifications.idleDetectionDeniedToast`, `notifications.idleDetectionUnsupportedToast`, `notifications.idleDetectionFailedToast`, `notifications.idleUserState.{active,idle}`, `notifications.idleScreenState.{locked,unlocked}`. Existing `presencePolicyVisible` / `presencePolicyVisibleHint` strings were updated to reflect the rename to "Always-visible multi-monitor (advanced)".
+
+### Changed
+
+- **`NOTIFICATIONS.md` updated** to document the smart policy, the Idle Detection enrollment flow, the notifications-WS health probe, the new constants (`STRICT_ACTIVITY_THRESHOLD_MS`, `SMART_FALLBACK_ACTIVITY_THRESHOLD_MS`, `IDLE_DETECTOR_THRESHOLD_MS`, `NOTIFICATIONS_WS_PING_INTERVAL_MS`, `NOTIFICATIONS_WS_PONG_TIMEOUT_MS`), the new `localStorage` keys, and an expanded verification checklist (now 13 items, separating smart with/without Idle Detection from the legacy always-visible mode).
+
 ## [2.3.0] — 2026-04-25
 
 ### Added
@@ -805,7 +820,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v2.2.0...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v2.4.0...HEAD
+[2.4.0]: https://github.com/kevinzezel/pulse/releases/tag/v2.4.0
 [2.3.0]: https://github.com/kevinzezel/pulse/releases/tag/v2.3.0
 [2.2.0]: https://github.com/kevinzezel/pulse/releases/tag/v2.2.0
 [2.1.1]: https://github.com/kevinzezel/pulse/releases/tag/v2.1.1

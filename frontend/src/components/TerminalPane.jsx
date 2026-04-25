@@ -12,18 +12,10 @@ const terminalCache = new Map();
 
 // Heartbeat de presença ("tô olhando"): cada TerminalPane manda a cada 10s pelo
 // WS multi-cliente de notificações SE a aba está visível e o terminal está na
-// viewport. No modo estrito, também exige foco da janela + atividade recente.
+// viewport. A decisão final por modo de presença (strict / smart / visible)
+// vive em NotificationsProvider.canSendViewingHeartbeat().
 // O backend usa esse sinal pra suprimir alerta idle (Rule 5 do watcher).
 const VIEWING_HEARTBEAT_MS = 10000;
-const USER_ACTIVITY_THRESHOLD_MS = 30000;
-
-let lastUserActivityTs = typeof window !== 'undefined' ? Date.now() : 0;
-if (typeof window !== 'undefined') {
-  const bumpActivity = () => { lastUserActivityTs = Date.now(); };
-  ['mousemove', 'keydown', 'pointerdown', 'wheel', 'touchstart'].forEach((ev) => {
-    window.addEventListener(ev, bumpActivity, { passive: true });
-  });
-}
 
 export function destroyAllTerminals() {
   for (const id of [...terminalCache.keys()]) {
@@ -134,7 +126,7 @@ export async function probeAllTerminals(timeoutMs = 2000) {
 export default function TerminalPane({ session, onSessionEnded, onReconnect, isMobile = false }) {
   const { theme } = useTheme();
   const { t } = useTranslation();
-  const { sendViewing, presencePolicy } = useNotifications();
+  const { sendViewing, canSendViewingHeartbeat } = useNotifications();
   const slotRef = useRef(null);
   const onSessionEndedRef = useRef(onSessionEnded);
   const onReconnectRef = useRef(onReconnect);
@@ -513,11 +505,8 @@ export default function TerminalPane({ session, onSessionEnded, onReconnect, isM
         if (rect.width <= 0 || rect.height <= 0) return;
         intersectingRef.current = true;
       }
-      if (presencePolicy !== 'visible') {
-        if (!document.hasFocus()) return;
-        if (Date.now() - lastUserActivityTs > USER_ACTIVITY_THRESHOLD_MS) return;
-      }
-      if (sendViewing(session.id)) return;
+      if (!canSendViewingHeartbeat()) return;
+      sendViewing(session.id);
       if (fallbackWs?.readyState === WebSocket.OPEN) {
         try { fallbackWs.send(JSON.stringify({ type: 'viewing' })); } catch {}
       }
@@ -525,7 +514,7 @@ export default function TerminalPane({ session, onSessionEnded, onReconnect, isM
     sendHeartbeat();
     const id = setInterval(sendHeartbeat, VIEWING_HEARTBEAT_MS);
     return () => clearInterval(id);
-  }, [session.id, sendViewing, presencePolicy]);
+  }, [session.id, sendViewing, canSendViewingHeartbeat]);
 
   // Heartbeat passivo de saúde do WS de terminal: a cada 30s, manda ping e
   // espera pong em 5s. Se estourar, considera zumbi e chama onReconnect()

@@ -457,7 +457,11 @@ async def ws_notifications(websocket: WebSocket):
                 continue
             if not isinstance(msg, dict):
                 continue
-            if msg.get("type") != "viewing":
+            msg_type = msg.get("type")
+            if msg_type == "ping":
+                await websocket.send_json({"type": "pong"})
+                continue
+            if msg_type != "viewing":
                 continue
             session_id = msg.get("session_id")
             if not isinstance(session_id, str) or len(session_id) > SESSION_ID_MAX_LENGTH:

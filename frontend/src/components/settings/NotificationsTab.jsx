@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
-import { Bell, Check, Loader, Copy, Monitor, Volume2, VolumeX, Send, AlertTriangle } from 'lucide-react';
+import { Bell, Check, Loader, Copy, Monitor, Volume2, VolumeX, Send, AlertTriangle, Activity } from 'lucide-react';
 import { getSettings, updateNotificationsSettings } from '@/services/api';
 import { useTranslation, useErrorToast } from '@/providers/I18nProvider';
 import { useServers } from '@/providers/ServersProvider';
@@ -10,6 +10,7 @@ import { useNotifications } from '@/providers/NotificationsProvider';
 import ServerSelector from './ServerSelector';
 
 const PRESENCE_POLICY_STRICT = 'strict';
+const PRESENCE_POLICY_SMART = 'smart';
 const PRESENCE_POLICY_VISIBLE = 'visible';
 
 function clampTimeout(v) {
@@ -58,7 +59,30 @@ export default function NotificationsTab() {
     setMuted,
     presencePolicy,
     setPresencePolicy,
+    idleDetectionStatus,
+    idleUserState,
+    idleScreenState,
+    requestIdleDetection,
   } = useNotifications();
+  const [requestingIdle, setRequestingIdle] = useState(false);
+
+  async function handleRequestIdleDetection() {
+    setRequestingIdle(true);
+    try {
+      const result = await requestIdleDetection();
+      if (result === 'monitoring') {
+        toast.success(t('notifications.idleDetectionEnabledToast'));
+      } else if (result === 'permission-denied') {
+        toast.error(t('notifications.idleDetectionDeniedToast'));
+      } else if (result === 'unsupported') {
+        toast.error(t('notifications.idleDetectionUnsupportedToast'));
+      } else if (result === 'failed') {
+        toast.error(t('notifications.idleDetectionFailedToast'));
+      }
+    } finally {
+      setRequestingIdle(false);
+    }
+  }
   const insecureOrigin = typeof window !== 'undefined' ? window.location.origin : '';
   const insecurePort = typeof window !== 'undefined' ? window.location.port : '';
 
@@ -228,20 +252,37 @@ export default function NotificationsTab() {
 
           <div className="flex flex-col gap-2 pt-2">
             <label className="text-xs text-muted-foreground">{t('notifications.presencePolicyLabel')}</label>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2" role="radiogroup" aria-label={t('notifications.presencePolicyLabel')}>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2" role="radiogroup" aria-label={t('notifications.presencePolicyLabel')}>
               <button
                 type="button"
                 role="radio"
-                aria-checked={presencePolicy !== PRESENCE_POLICY_VISIBLE}
+                aria-checked={presencePolicy === PRESENCE_POLICY_STRICT}
                 onClick={() => setPresencePolicy(PRESENCE_POLICY_STRICT)}
                 className={`rounded-md border px-3 py-2 text-left text-xs transition-colors ${
-                  presencePolicy !== PRESENCE_POLICY_VISIBLE
+                  presencePolicy === PRESENCE_POLICY_STRICT
                     ? 'border-primary bg-primary/10 text-foreground'
                     : 'border-border text-muted-foreground hover:bg-muted/40'
                 }`}
               >
                 <span className="block font-medium">{t('notifications.presencePolicyStrict')}</span>
                 <span className="block mt-1 leading-relaxed">{t('notifications.presencePolicyStrictHint')}</span>
+              </button>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={presencePolicy === PRESENCE_POLICY_SMART}
+                onClick={() => setPresencePolicy(PRESENCE_POLICY_SMART)}
+                className={`rounded-md border px-3 py-2 text-left text-xs transition-colors ${
+                  presencePolicy === PRESENCE_POLICY_SMART
+                    ? 'border-primary bg-primary/10 text-foreground'
+                    : 'border-border text-muted-foreground hover:bg-muted/40'
+                }`}
+              >
+                <span className="block font-medium">
+                  {t('notifications.presencePolicySmart')}
+                  <span className="ml-1 text-[10px] text-primary">{t('notifications.presencePolicyRecommended')}</span>
+                </span>
+                <span className="block mt-1 leading-relaxed">{t('notifications.presencePolicySmartHint')}</span>
               </button>
               <button
                 type="button"
@@ -259,6 +300,49 @@ export default function NotificationsTab() {
               </button>
             </div>
             <p className="text-[11px] text-muted-foreground">{t('notifications.presencePolicyNote')}</p>
+
+            {presencePolicy === PRESENCE_POLICY_SMART && (
+              <div className="mt-2 rounded-md border px-3 py-2.5 text-xs flex flex-col gap-2" style={{ borderColor: 'hsl(var(--border))', background: 'hsl(var(--muted) / 0.25)' }}>
+                <div className="flex items-center gap-2">
+                  <Activity size={13} className="text-primary flex-shrink-0" />
+                  <span className="font-medium text-foreground">{t('notifications.idleDetectionTitle')}</span>
+                </div>
+                {idleDetectionStatus === 'unsupported' && (
+                  <p className="text-muted-foreground leading-relaxed">{t('notifications.idleDetectionUnsupported')}</p>
+                )}
+                {idleDetectionStatus === 'permission-denied' && (
+                  <p className="text-muted-foreground leading-relaxed">{t('notifications.idleDetectionDenied')}</p>
+                )}
+                {idleDetectionStatus === 'failed' && (
+                  <p className="text-muted-foreground leading-relaxed">{t('notifications.idleDetectionFailed')}</p>
+                )}
+                {idleDetectionStatus === 'unrequested' && (
+                  <>
+                    <p className="text-muted-foreground leading-relaxed">{t('notifications.idleDetectionPrompt')}</p>
+                    <button
+                      type="button"
+                      onClick={handleRequestIdleDetection}
+                      disabled={requestingIdle}
+                      className="self-start inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium border border-border text-foreground hover:bg-muted/40 transition-colors disabled:opacity-50"
+                    >
+                      {requestingIdle ? <Loader size={12} className="animate-spin" /> : <Activity size={12} />}
+                      {requestingIdle ? t('notifications.idleDetectionRequesting') : t('notifications.idleDetectionEnable')}
+                    </button>
+                  </>
+                )}
+                {idleDetectionStatus === 'monitoring' && (
+                  <p className="text-muted-foreground leading-relaxed">
+                    {t('notifications.idleDetectionMonitoring', {
+                      userState: t(`notifications.idleUserState.${idleUserState}`),
+                      screenState: t(`notifications.idleScreenState.${idleScreenState}`),
+                    })}
+                  </p>
+                )}
+                {idleDetectionStatus !== 'monitoring' && (
+                  <p className="text-[11px] text-muted-foreground">{t('notifications.idleDetectionFallback')}</p>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}

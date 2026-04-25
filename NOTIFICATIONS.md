@@ -115,18 +115,35 @@ if last_viewing > 0 and (now - last_viewing) < VIEWING_GRACE_SECONDS:
 
 ## Viewing heartbeat (frontend)
 
-Implemented in `frontend/src/components/TerminalPane.jsx` (heartbeat + IntersectionObserver). The primary path goes through `NotificationsProvider.sendViewing()` on `/ws/notifications`, which accepts multiple clients. The terminal-exclusive WS still accepts `{type:'viewing'}` as a fallback.
+Implemented in `frontend/src/components/TerminalPane.jsx` (heartbeat + IntersectionObserver). The primary path goes through `NotificationsProvider.sendViewing()` on `/ws/notifications`, which accepts multiple clients. The terminal-exclusive WS still accepts `{type:'viewing'}` as a best-effort fallback, and `TerminalPane` mirrors the heartbeat there whenever that WS is open.
+
+`/ws/notifications` is health-probed separately from the terminal stream: the frontend sends `{type:'ping'}` every 30s and expects `{type:'pong'}` within 5s. If the pong does not arrive, the provider closes/reconnects that WS. This covers the "WebSocket.readyState is OPEN but the TCP path is dead" case that otherwise makes viewing heartbeats appear sent while the backend never receives them.
 
 ### Local presence policies
 
-Browsers don't expose "the user is physically looking at this monitor". Pulse can only combine the available signals: tab visibility, window focus, viewport intersection, and recent input activity.
+Browsers don't expose "the user is physically looking at this monitor". Pulse can only combine the available signals: tab visibility, window focus, viewport intersection, recent input activity inside Pulse, and (when authorized) the [Idle Detection API](https://developer.mozilla.org/en-US/docs/Web/API/Idle_Detection_API) — which observes mouse/keyboard activity at the operating system level, regardless of which window is focused.
 
-- **Strict (default)**: `document.visibilityState === 'visible'`, `document.hasFocus()`, terminal in viewport, and activity in the last 30s.
-- **Multi-monitor**: `document.visibilityState === 'visible'` and terminal in viewport. Useful when the dashboard sits open on another monitor while focus is in your editor.
+The mode is a per-browser preference in `localStorage.rt:notify-presence-policy`, configurable in Settings → Notifications. New installs default to **Smart multi-monitor**. Existing preferences (`strict`, `visible`) are preserved verbatim — no silent migration.
 
-The mode is a per-browser preference in `localStorage.rt:notify-presence-policy`, configurable in Settings → Notifications.
+| Mode | Tab visible + viewport | Focus required | Pulse activity required | OS-level idle check |
+|---|---|---|---|---|
+| `strict` | yes | yes | last 30s | no |
+| `smart` (default) | yes | no | last 2 min (fallback only) | preferred via Idle Detection API |
+| `visible` (advanced) | yes | no | no | no |
 
-`lastUserActivityTs` is updated by global listeners on `mousemove`, `keydown`, `pointerdown`, `wheel`, `touchstart`. It's **module-level**, shared by every `<TerminalPane>` on the page — that means activity anywhere in the app (including sidebar, modal) counts as "user active".
+**Smart** is the new recommended default for multi-monitor workflows. The decision tree inside `NotificationsProvider.canSendViewingHeartbeat()`:
+
+1. If the Idle Detection API is monitoring (status `monitoring`):
+   - Reject if `screenState === 'locked'`.
+   - Reject if `userState === 'idle'` (no input across the whole OS for ≥60s).
+   - Accept otherwise — even with focus on a different app on another monitor.
+2. If the Idle Detection API is unavailable or unauthorized:
+   - Fall back to "input within Pulse in the last 2 minutes" (no focus required).
+   - This is more permissive than strict but doesn't catch "user walked away while still moving the mouse in another app".
+
+**Idle Detection enrollment**: `IdleDetector.requestPermission()` requires a user gesture, so the prompt only fires when the user clicks **Enable system detection** in Settings → Notifications. Once granted, the detector is re-armed silently on subsequent sessions via `navigator.permissions.query({name: 'idle-detection'})`; if the permission is already `granted`, Pulse starts the detector directly without calling `requestPermission()` again. We persist a flag at `localStorage.rt:notify-idle-detection-armed` so re-arming doesn't keep retrying after revocation.
+
+`lastUserActivityTs` is updated by global listeners on `mousemove`, `keydown`, `pointerdown`, `wheel`, `touchstart`. It's **module-level inside `NotificationsProvider.jsx`**, shared by every `<TerminalPane>` on the page — that means activity anywhere in the app (including sidebar, modal) counts as "user active".
 
 `intersectingRef` is updated by an `IntersectionObserver` (threshold 0.1) observing the `<div ref={slotRef}>` where xterm renders.
 
@@ -249,8 +266,13 @@ With direct PTY, the watcher no longer depends on `tmux capture-pane` (which was
 | `TIMEOUT_MAX` | `3600` | `client/src/resources/settings.py` |
 | `DEFAULT_TIMEOUT` | `30` | `client/src/resources/settings.py` |
 | `VIEWING_HEARTBEAT_MS` | `10000` | `frontend/src/components/TerminalPane.jsx` |
-| `USER_ACTIVITY_THRESHOLD_MS` | `30000` | `frontend/src/components/TerminalPane.jsx` |
-| `rt:notify-presence-policy` | `strict`/`visible` | `frontend/src/providers/NotificationsProvider.jsx` |
+| `STRICT_ACTIVITY_THRESHOLD_MS` | `30000` | `frontend/src/providers/NotificationsProvider.jsx` |
+| `SMART_FALLBACK_ACTIVITY_THRESHOLD_MS` | `120000` | `frontend/src/providers/NotificationsProvider.jsx` |
+| `IDLE_DETECTOR_THRESHOLD_MS` | `60000` | `frontend/src/providers/NotificationsProvider.jsx` |
+| `NOTIFICATIONS_WS_PING_INTERVAL_MS` | `30000` | `frontend/src/providers/NotificationsProvider.jsx` |
+| `NOTIFICATIONS_WS_PONG_TIMEOUT_MS` | `5000` | `frontend/src/providers/NotificationsProvider.jsx` |
+| `rt:notify-presence-policy` | `strict`/`smart`/`visible` (default `smart`) | `frontend/src/providers/NotificationsProvider.jsx` |
+| `rt:notify-idle-detection-armed` | `true`/missing | `frontend/src/providers/NotificationsProvider.jsx` |
 | `EVENT_DEDUPE_TTL_MS` | `600000` | `frontend/src/providers/NotificationsProvider.jsx` |
 
 ## For future changes (checklist)
@@ -292,13 +314,16 @@ Current decision: keep detection inside the component (it depends on the mounted
 
 1. Reproduce the original bug scenario (terminal visible in "No group", move it to "Test", open it there, wait for idle): **MUST NOT NOTIFY**.
 2. Reproduce "default watching": terminal visible, wait for idle: **MUST NOT NOTIFY**.
-3. Reproduce multi-monitor: in `Multi-monitor` mode, Pulse visible on another monitor without focus, wait for idle: **MUST NOT NOTIFY**.
-4. Reproduce "stepped away": minimize / switch tab / leave for another group, wait for idle: **MUST NOTIFY**.
-5. Reproduce phone + desktop: open the same session on the phone while the desktop is visible, wait for idle: the desktop **MUST NOT** lose suppression because of code 4000.
-6. Reproduce resize after alert: let a session alert, don't open/interact, resize / open on the phone: **MUST NOT NOTIFY AGAIN** just because of redraw/wrap.
-7. Reproduce multiple tabs: two tabs of the same browser connected, generate 1 idle alert: **MUST PLAY/SHOW ONCE**.
-8. Reproduce mid-composition: type a partial command without Enter, wait for idle: **MUST NOT NOTIFY**.
-9. Reproduce dedup: agent alerts, you reply, agent returns to the same prompt: **MUST NOT NOTIFY AGAIN, EVER** (eternal hash dedup; only re-alerts if the agent moves to a different visual state).
-10. Reproduce fresh enable: arm `notify_on_idle` on a dormant session: **MUST NOT NOTIFY until the next real PTY output**.
+3. Reproduce smart multi-monitor *with* Idle Detection authorized: focus on another app, mouse moving over there, Pulse visible on a side monitor, wait for idle: **MUST NOT NOTIFY**.
+4. Reproduce smart multi-monitor *with* Idle Detection authorized, then walk away (no input anywhere) for ≥60s: **MUST NOTIFY**.
+5. Reproduce smart multi-monitor *without* Idle Detection: focus on another app, no input inside Pulse for >2 min, wait for idle: **MUST NOTIFY**.
+6. Reproduce always-visible multi-monitor (legacy `visible` mode): Pulse visible on another monitor without focus, wait for idle: **MUST NOT NOTIFY**.
+7. Reproduce "stepped away": minimize / switch tab / leave for another group, wait for idle: **MUST NOTIFY**.
+8. Reproduce phone + desktop: open the same session on the phone while the desktop is visible, wait for idle: the desktop **MUST NOT** lose suppression because of code 4000.
+9. Reproduce resize after alert: let a session alert, don't open/interact, resize / open on the phone: **MUST NOT NOTIFY AGAIN** just because of redraw/wrap.
+10. Reproduce multiple tabs: two tabs of the same browser connected, generate 1 idle alert: **MUST PLAY/SHOW ONCE**.
+11. Reproduce mid-composition: type a partial command without Enter, wait for idle: **MUST NOT NOTIFY**.
+12. Reproduce dedup: agent alerts, you reply, agent returns to the same prompt: **MUST NOT NOTIFY AGAIN, EVER** (eternal hash dedup; only re-alerts if the agent moves to a different visual state).
+13. Reproduce fresh enable: arm `notify_on_idle` on a dormant session: **MUST NOT NOTIFY until the next real PTY output**.
 
 If any of these break, come back to this doc, identify which rule failed, and fix it.
