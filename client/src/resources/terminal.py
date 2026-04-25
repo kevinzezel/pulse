@@ -85,6 +85,7 @@ def recover_sessions():
                 "notify_on_idle": get_notify_on_idle(sid),
                 "bytes_since_enter": 0,
                 "last_viewing_ts": 0,
+                "last_resize_ts": 0,
             }
             try:
                 num = int(sid.split('-')[1])
@@ -131,6 +132,7 @@ def sync_sessions_request():
                 "notify_on_idle": get_notify_on_idle(sid),
                 "bytes_since_enter": 0,
                 "last_viewing_ts": 0,
+                "last_resize_ts": 0,
             }
             if sid.startswith(f"{SESSION_PREFIX}-"):
                 try:
@@ -199,6 +201,7 @@ def create_session_request(payload):
             "notify_on_idle": False,
             "bytes_since_enter": 0,
             "last_viewing_ts": 0,
+            "last_resize_ts": 0,
         }
         snapshot = dict(sessions[session_id])
 
@@ -258,6 +261,7 @@ def restore_sessions_request(payload):
                     "notify_on_idle": bool(item.get("notify_on_idle")),
                     "bytes_since_enter": 0,
                     "last_viewing_ts": 0,
+                    "last_resize_ts": 0,
                 }
                 try:
                     num = int(sid.split('-')[1])
@@ -367,6 +371,7 @@ def clone_session_request(source_session_id):
             "notify_on_idle": False,
             "bytes_since_enter": 0,
             "last_viewing_ts": 0,
+            "last_resize_ts": 0,
         }
         snapshot = dict(sessions[session_id])
 
@@ -437,6 +442,15 @@ def record_session_viewing(session_id):
         if s is None:
             return False
         s["last_viewing_ts"] = time.time()
+        return True
+
+
+def record_session_resize(session_id):
+    with _sessions_lock:
+        s = sessions.get(session_id)
+        if s is None:
+            return False
+        s["last_resize_ts"] = time.time()
         return True
 
 
@@ -593,6 +607,7 @@ async def websocket_terminal(websocket: WebSocket, session_id: str):
                 # idle no watcher (Rule 5) durante a janela de grace.
                 record_session_viewing(session_id)
             elif msg_type == "resize":
+                record_session_resize(session_id)
                 set_pty_size(fd, msg["rows"], msg["cols"])
                 try:
                     os.kill(process.pid, signal.SIGWINCH)

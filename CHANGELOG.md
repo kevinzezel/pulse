@@ -6,6 +6,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [1.14.1-pre] — 2026-04-24
+
+### Fixed
+
+- **Watcher de notificações idle agora é menos sensível a resize/redraw do tmux.** Cada sessão grava `last_resize_ts` quando recebe `resize`; se uma sessão já tinha alertado e o hash do pane muda dentro de 20s após resize, o watcher atualiza apenas o baseline visual e mantém `notified=True`, evitando reenvio quando celular/desktop mudam o tamanho do tmux e TUIs redesenham/wrapam a tela.
+- **Hash usado para detectar "output novo" agora é normalizado antes da comparação.** Linhas puramente decorativas (`-----`, `────`, bordas de caixas) são removidas, labels cercados por bordas são de-decorados e espaços finais são ignorados. O snippet da notificação continua usando o conteúdo capturado limpo para exibição. Isso reduz falsos positivos causados por barras/caixas que aparecem em redraw de agentes e por diferenças pequenas de formatação pós-resize.
+
 ## [1.14.0] — 2026-04-24
 
 ### Added

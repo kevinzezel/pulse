@@ -10,6 +10,7 @@ WATCHER_INTERVAL_SECONDS = 5
 CAPTURE_LINES = 100
 SNIPPET_MAX_LINES = 20
 SNIPPET_MAX_CHARS = 3500
+RESIZE_GRACE_SECONDS = 20
 # Janela após a qual re-notificamos mesmo que a tela capturada seja bit-idêntica
 # à já alertada. Evita spam do tipo "agente esperando input" que volta pro mesmo
 # estado visual após cada resposta do user, mas ainda dá um lembrete se ficar
@@ -20,17 +21,18 @@ NOTIFIED_HASH_TTL_SECONDS = 1800
 # Maior que o intervalo de heartbeat (10s) com folga pra absorver jitter de rede
 # e re-mounts do react-mosaic durante drag/resize de painéis.
 VIEWING_GRACE_SECONDS = 15
-# Lines that are ONLY box-drawing border chars (plus surrounding whitespace)
-# — the bare separator bars around agent input boxes.
-_BORDER_ONLY_LINE_RE = re.compile(r"^\s*[─━═▀▄█]{2,}\s*$")
+# Lines that are ONLY border chars (plus surrounding whitespace) — the bare
+# separator bars around agent input boxes. Includes ASCII '-' because tmux
+# redraws/wraps on narrow mobile clients often show plain dashed separators.
+_BORDER_ONLY_LINE_RE = re.compile(r"^\s*[-─━═▀▄█│┃┌┐└┘┬┴├┤┼╭╮╰╯+|]{2,}\s*$")
 # Lines that START with a long run of border chars but also contain a
 # label (e.g. Claude Code's `──────── fix-sessions-json-empty-install ─`).
 # Visually in the Telegram <pre>, the many ─ before/after the label wrap
 # into several "wall of dash" rows. We strip the border decoration and
 # keep just the text inside.
-_BORDER_DECORATED_LINE_RE = re.compile(r"^\s*[─━═▀▄█]{10,}")
+_BORDER_DECORATED_LINE_RE = re.compile(r"^\s*[-─━═▀▄█│┃┌┐└┘┬┴├┤┼╭╮╰╯+|]{10,}")
 # Any run of border chars (to replace with a single space when stripping).
-_BORDER_RUN_RE = re.compile(r"[─━═▀▄█]+")
+_BORDER_RUN_RE = re.compile(r"[-─━═▀▄█│┃┌┐└┘┬┴├┤┼╭╮╰╯+|]+")
 
 
 def _clean_snippet_line(line):
@@ -73,6 +75,18 @@ def reset_session_state(session_id):
 
 def _hash_content(content):
     return hashlib.md5(content.encode("utf-8", errors="replace")).digest()
+
+
+def _normalize_content_for_hash(content):
+    lines = []
+    for raw in content.replace("\r\n", "\n").split("\n"):
+        out = _clean_snippet_line(raw.rstrip())
+        if out is None:
+            continue
+        lines.append(out)
+    while lines and not lines[-1]:
+        lines.pop()
+    return "\n".join(lines)
 
 
 def _html_escape(text):
@@ -184,7 +198,8 @@ async def notification_watcher():
                 if content is None:
                     continue
 
-                h = _hash_content(content)
+                normalized_content = _normalize_content_for_hash(content)
+                h = _hash_content(normalized_content)
                 state = _state.get(sid)
 
                 if state is None:
@@ -203,6 +218,15 @@ async def notification_watcher():
 
                 if h != state["hash"]:
                     state["hash"] = h
+                    last_resize = sess.get("last_resize_ts", 0)
+                    if (state["notified"] and last_resize > 0
+                            and (now - last_resize) < RESIZE_GRACE_SECONDS):
+                        logger.debug(
+                            "Idle notification streak kept for %s: hash changed %.1fs after resize",
+                            sid,
+                            now - last_resize,
+                        )
+                        continue
                     state["last_output_ts"] = now
                     state["notified"] = False
                     continue

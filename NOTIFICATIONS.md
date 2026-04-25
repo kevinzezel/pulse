@@ -43,12 +43,13 @@ TerminalPane (visível)           sessions[sid].last_viewing_ts
 
 ## As 5 regras do watcher (em ordem)
 
-Implementadas em `client/src/resources/notifications.py:175-295`. Para cada sessão monitorada, o watcher calcula o hash do `capture-pane` e roda na ordem:
+Implementadas em `client/src/resources/notifications.py:175-315`. Para cada sessão monitorada, o watcher calcula um hash normalizado do `capture-pane` e roda na ordem:
 
 ### Pré-checks (antes das regras)
 
+- **Hash normalizado** — antes de comparar, remove linhas puramente decorativas (`-----`, `────`, bordas de caixa), tira espaços finais e de-decora labels cercados por barras. O snippet continua usando o conteúdo capturado limpo para exibição.
 - **Linha 190-202** — Estado novo: cria baseline `{hash, last_output_ts:0, …}` e segue. Importante: `last_output_ts=0` significa "nunca observei mudança real"; uma sessão dormente recém-marcada com `notify_on_idle=True` **não** vai falsamente alertar.
-- **Linha 204-208** — Hash mudou: atualiza `last_output_ts=now`, reseta `notified=False`, segue. Toda saída nova "renova" a contagem de idle.
+- **Linha 204-215** — Hash mudou: em geral atualiza `last_output_ts=now`, reseta `notified=False` e segue. Exceção: se a sessão já tinha notificado e a mudança ocorreu logo após resize (`RESIZE_GRACE_SECONDS`), o watcher atualiza só o baseline do hash e mantém `notified=True`, evitando re-alerta por redraw/wrap do tmux.
 - **Linha 210-211** — Já alertou nesse streak (`notified=True`): segue. Garante 1 alerta por sequência idle.
 
 ### Rule 1 — Exige saída real observada (linha 218-219)
@@ -230,7 +231,7 @@ Antes era silenciado junto com `FileNotFoundError` — sem alerta + sem log = ca
 
 ### 8. Watcher snapshot é cópia rasa
 
-`monitored_snapshot = {sid: dict(sessions[sid])}` em `notifications.py:135` faz **shallow copy**. Suficiente porque os campos lidos (`last_viewing_ts`, `bytes_since_enter`, etc.) são primitivos. Se alguma vez precisar ler um sub-dict mutável, vai precisar de `copy.deepcopy` — não é o caso hoje.
+`monitored_snapshot = {sid: dict(sessions[sid])}` em `notifications.py:135` faz **shallow copy**. Suficiente porque os campos lidos (`last_viewing_ts`, `last_resize_ts`, `bytes_since_enter`, etc.) são primitivos. Se alguma vez precisar ler um sub-dict mutável, vai precisar de `copy.deepcopy` — não é o caso hoje.
 
 ## Constantes de referência (com paths)
 
@@ -240,8 +241,9 @@ Antes era silenciado junto com `FileNotFoundError` — sem alerta + sem log = ca
 | `CAPTURE_LINES` | `100` | `client/src/resources/notifications.py:10` |
 | `SNIPPET_MAX_LINES` | `20` | `client/src/resources/notifications.py:11` |
 | `SNIPPET_MAX_CHARS` | `3500` | `client/src/resources/notifications.py:12` |
-| `NOTIFIED_HASH_TTL_SECONDS` | `1800` | `client/src/resources/notifications.py:17` |
-| `VIEWING_GRACE_SECONDS` | `15` | `client/src/resources/notifications.py:22` |
+| `RESIZE_GRACE_SECONDS` | `20` | `client/src/resources/notifications.py:13` |
+| `NOTIFIED_HASH_TTL_SECONDS` | `1800` | `client/src/resources/notifications.py:18` |
+| `VIEWING_GRACE_SECONDS` | `15` | `client/src/resources/notifications.py:23` |
 | `TIMEOUT_MIN` | `15` | `client/src/resources/settings.py:13` |
 | `TIMEOUT_MAX` | `3600` | `client/src/resources/settings.py:14` |
 | `DEFAULT_TIMEOUT` | `30` | `client/src/resources/settings.py:15` |
@@ -292,9 +294,10 @@ Decisão atual: manter a detecção dentro do componente, porque ela depende do 
 3. Reproduz multi-monitor: modo `Multi-monitor`, Pulse visível em outro monitor sem foco, esperar idle: **NÃO DEVE NOTIFICAR**.
 4. Reproduz "saí da tela": minimizar / trocar de aba / sair pra outro grupo, esperar idle: **DEVE NOTIFICAR**.
 5. Reproduz celular + desktop: abrir mesma sessão no celular enquanto desktop está visível, esperar idle: desktop **NÃO DEVE** perder a supressão por causa do código 4000.
-6. Reproduz múltiplas abas: duas abas do mesmo browser conectadas, gerar 1 idle alert: **DEVE TOCAR/MOSTRAR UMA VEZ**.
-7. Reproduz mid-composition: digitar parcial sem Enter, esperar idle: **NÃO DEVE NOTIFICAR**.
-8. Reproduz dedup: agente alerta, responder, agente volta pro mesmo prompt: **NÃO DEVE NOTIFICAR de novo dentro de 30 min**.
-9. Reproduz fresh enable: marcar `notify_on_idle` numa sessão dormente: **NÃO DEVE NOTIFICAR até a próxima saída real do tmux**.
+6. Reproduz resize após alerta: deixar uma sessão alertar, não abrir/interagir, redimensionar/abrir no celular: **NÃO DEVE NOTIFICAR DE NOVO** só por redraw/wrap.
+7. Reproduz múltiplas abas: duas abas do mesmo browser conectadas, gerar 1 idle alert: **DEVE TOCAR/MOSTRAR UMA VEZ**.
+8. Reproduz mid-composition: digitar parcial sem Enter, esperar idle: **NÃO DEVE NOTIFICAR**.
+9. Reproduz dedup: agente alerta, responder, agente volta pro mesmo prompt: **NÃO DEVE NOTIFICAR de novo dentro de 30 min**.
+10. Reproduz fresh enable: marcar `notify_on_idle` numa sessão dormente: **NÃO DEVE NOTIFICAR até a próxima saída real do tmux**.
 
 Se algum desses quebrar, voltar pra este doc, identificar qual regra falhou, e corrigir.
