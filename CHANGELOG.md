@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [2.5.8-pre] — 2026-04-25
+
+### Fixed
+
+- **Dashboard builds now also clear lowercase `npm_config_node_options`.** Some shells or user npm environments export `npm_config_node_options=...` instead of `NPM_CONFIG_NODE_OPTIONS`, letting npm re-inject a broken `NODE_OPTIONS` value such as `--r=` into the Next.js build worker. `install/install.sh` now clears both forms for `npm ci`, `npm install`, `npm run build`, and `npm prune`.
+
 ## [2.5.7] — 2026-04-25
 
 ### Fixed
@@ -893,7 +899,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v2.5.7...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v2.5.8-pre...HEAD
+[2.5.8-pre]: https://github.com/kevinzezel/pulse/releases/tag/v2.5.8-pre
 [2.5.7]: https://github.com/kevinzezel/pulse/releases/tag/v2.5.7
 [2.5.6-pre]: https://github.com/kevinzezel/pulse/releases/tag/v2.5.6-pre
 [2.5.5-pre]: https://github.com/kevinzezel/pulse/releases/tag/v2.5.5-pre
