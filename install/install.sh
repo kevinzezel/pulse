@@ -215,12 +215,14 @@ _resolve_release_tag_to_install() {
         *) printf '%s' "$PULSE_VERSION"; return 0 ;;
     esac
     list_url="https://api.github.com/repos/$GITHUB_REPO/releases?per_page=100"
-    json="$(curl -fsSL "$list_url")" || die "could not fetch releases list from $list_url"
-    [ -n "$json" ] || die "empty releases list from $list_url"
-    tag="$(CHANNEL="$PULSE_VERSION" python3 - "$json" <<'PY'
+    json_file="$TEMP_DIR/releases.json"
+    curl -fsSL "$list_url" -o "$json_file" || die "could not fetch releases list from $list_url"
+    [ -s "$json_file" ] || die "empty releases list from $list_url"
+    tag="$(CHANNEL="$PULSE_VERSION" python3 - "$json_file" <<'PY'
 import json, os, sys
 try:
-    data = json.loads(sys.argv[1])
+    with open(sys.argv[1], 'r', encoding='utf-8') as fh:
+        data = json.load(fh)
 except Exception:
     sys.exit(0)
 channel = os.environ['CHANNEL']

@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [2.5.1] — 2026-04-25
+
+### Fixed
+
+- **`pulse upgrade` no longer crashes while resolving the latest release.** `install/install.sh` and `install/pulse.sh` now read the GitHub releases payload from temporary files before invoking Python, instead of passing the full JSON response as a shell argument. This avoids `python3: Argument list too long` on repositories with many releases.
+
 ## [2.5.0] — 2026-04-25
 
 ### Added
@@ -842,7 +848,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v2.5.0...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v2.5.1...HEAD
+[2.5.1]: https://github.com/kevinzezel/pulse/releases/tag/v2.5.1
 [2.5.0]: https://github.com/kevinzezel/pulse/releases/tag/v2.5.0
 [2.4.1]: https://github.com/kevinzezel/pulse/releases/tag/v2.4.1
 [2.4.0]: https://github.com/kevinzezel/pulse/releases/tag/v2.4.0

@@ -1093,13 +1093,25 @@ _resolve_release_tag() {
         stable|preview) ;;
         *) die "internal: unknown release channel '$_rrt_channel'" ;;
     esac
-    _rrt_json="$(curl -fsSL "https://api.github.com/repos/$GITHUB_REPO/releases?per_page=100" 2>/dev/null)" || return 1
-    [ -n "$_rrt_json" ] || return 1
+    if need_cmd mktemp; then
+        _rrt_file="$(mktemp "${TMPDIR:-/tmp}/pulse-releases.XXXXXX")" || return 1
+    else
+        _rrt_file="${TMPDIR:-/tmp}/pulse-releases.$$"
+    fi
+    curl -fsSL "https://api.github.com/repos/$GITHUB_REPO/releases?per_page=100" -o "$_rrt_file" 2>/dev/null || {
+        rm -f "$_rrt_file"
+        return 1
+    }
+    [ -s "$_rrt_file" ] || {
+        rm -f "$_rrt_file"
+        return 1
+    }
     if need_cmd python3; then
-        CHANNEL="$_rrt_channel" python3 - "$_rrt_json" <<'PY' 2>/dev/null
+        CHANNEL="$_rrt_channel" python3 - "$_rrt_file" <<'PY' 2>/dev/null
 import json, os, sys
 try:
-    data = json.loads(sys.argv[1])
+    with open(sys.argv[1], 'r', encoding='utf-8') as fh:
+        data = json.load(fh)
 except Exception:
     sys.exit(0)
 channel = os.environ['CHANNEL']
@@ -1125,21 +1137,25 @@ for rel in data:
         print(rel['tag_name'])
         break
 PY
+        _rrt_rc=$?
+        rm -f "$_rrt_file"
+        return "$_rrt_rc"
     else
         # Shell-only fallback. We can't read the prerelease flag without a
         # JSON parser, so we rely solely on the tag suffix. Stable channel
         # may pick up a release manually flagged prerelease=true with a
         # plain tag — accepted as a known limitation when python3 is absent.
-        for _rrt_tag in $(printf '%s' "$_rrt_json" | grep -oE '"tag_name"[[:space:]]*:[[:space:]]*"[^"]+"' | cut -d'"' -f4); do
+        for _rrt_tag in $(grep -oE '"tag_name"[[:space:]]*:[[:space:]]*"[^"]+"' "$_rrt_file" | cut -d'"' -f4); do
             case "$_rrt_tag" in
                 *-pre)
-                    [ "$_rrt_channel" = preview ] && { printf '%s\n' "$_rrt_tag"; return 0; }
+                    [ "$_rrt_channel" = preview ] && { printf '%s\n' "$_rrt_tag"; rm -f "$_rrt_file"; return 0; }
                     ;;
                 *)
-                    [ "$_rrt_channel" = stable ] && { printf '%s\n' "$_rrt_tag"; return 0; }
+                    [ "$_rrt_channel" = stable ] && { printf '%s\n' "$_rrt_tag"; rm -f "$_rrt_file"; return 0; }
                     ;;
             esac
         done
+        rm -f "$_rrt_file"
     fi
 }
 
