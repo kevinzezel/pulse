@@ -75,6 +75,19 @@ run_logged_tail() {
     return "$rc"
 }
 
+run_npm_clean() {
+    label="$1"
+    tail_lines="$2"
+    workdir="$3"
+    shift 3
+
+    run_logged_tail "$label" "$tail_lines" "$workdir" \
+        env NODE_OPTIONS= NPM_CONFIG_NODE_OPTIONS= npm_config_node_options= \
+            NPM_CONFIG_USERCONFIG=/dev/null npm_config_userconfig=/dev/null \
+            NPM_CONFIG_GLOBALCONFIG=/dev/null npm_config_globalconfig=/dev/null \
+            npm --node-options= --userconfig=/dev/null --globalconfig=/dev/null "$@"
+}
+
 # -----------------------------------------------------------------------------
 # Platform detection
 # -----------------------------------------------------------------------------
@@ -438,15 +451,15 @@ install_files() {
         # Install full deps — the build step needs devDependencies (tailwind, postcss).
         # We prune devDependencies after the build to reclaim disk space.
         if [ -f "$INSTALL_ROOT/frontend/package-lock.json" ]; then
-            run_logged_tail "npm ci" 20 "$INSTALL_ROOT/frontend" env NODE_OPTIONS= NPM_CONFIG_NODE_OPTIONS= npm_config_node_options= npm ci --loglevel=error || die "npm ci failed"
+            run_npm_clean "npm ci" 20 "$INSTALL_ROOT/frontend" ci --loglevel=error || die "npm ci failed"
         else
-            run_logged_tail "npm install" 20 "$INSTALL_ROOT/frontend" env NODE_OPTIONS= NPM_CONFIG_NODE_OPTIONS= npm_config_node_options= npm install --loglevel=error || die "npm install failed"
+            run_npm_clean "npm install" 20 "$INSTALL_ROOT/frontend" install --loglevel=error || die "npm install failed"
         fi
         log "building dashboard"
-        run_logged_tail "npm run build" 40 "$INSTALL_ROOT/frontend" env NODE_OPTIONS= NPM_CONFIG_NODE_OPTIONS= npm_config_node_options= npm run build || die "npm run build failed"
+        run_npm_clean "npm run build" 40 "$INSTALL_ROOT/frontend" run build || die "npm run build failed"
         [ -f "$INSTALL_ROOT/frontend/.next/BUILD_ID" ] || die "dashboard build did not create .next/BUILD_ID"
         log "pruning dev dependencies"
-        run_logged_tail "npm prune" 10 "$INSTALL_ROOT/frontend" env NODE_OPTIONS= NPM_CONFIG_NODE_OPTIONS= npm_config_node_options= npm prune --omit=dev --loglevel=error || warn "npm prune failed (non-fatal)"
+        run_npm_clean "npm prune" 10 "$INSTALL_ROOT/frontend" prune --omit=dev --loglevel=error || warn "npm prune failed (non-fatal)"
 
         # Restore preserved user data
         if [ -n "$data_backup" ] && [ -d "$data_backup" ]; then

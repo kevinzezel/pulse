@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [2.5.9-pre] — 2026-04-25
+
+### Fixed
+
+- **Dashboard dependency install and build now ignore user/global npm config files.** `install/install.sh` runs npm through a clean helper that clears `NODE_OPTIONS`, both `NPM_CONFIG_NODE_OPTIONS` environment forms, and points npm `--userconfig` / `--globalconfig` at `/dev/null` while forcing `--node-options=`. This prevents a broken `node-options=--r=` in `~/.npmrc` or a global npm config from being re-applied after the installer has sanitized the environment.
+
 ## [2.5.8-pre] — 2026-04-25
 
 ### Fixed
@@ -899,7 +905,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v2.5.8-pre...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v2.5.9-pre...HEAD
+[2.5.9-pre]: https://github.com/kevinzezel/pulse/releases/tag/v2.5.9-pre
 [2.5.8-pre]: https://github.com/kevinzezel/pulse/releases/tag/v2.5.8-pre
 [2.5.7]: https://github.com/kevinzezel/pulse/releases/tag/v2.5.7
 [2.5.6-pre]: https://github.com/kevinzezel/pulse/releases/tag/v2.5.6-pre
