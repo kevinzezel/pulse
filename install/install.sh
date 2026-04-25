@@ -131,12 +131,22 @@ install_packages() {
     case "$PULSE_PM" in
         apt)
             $PULSE_SUDO apt-get update -qq
-            $PULSE_SUDO DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "$@"
+            apt_install_noninteractive "$@"
             ;;
         brew)
             brew install "$@"
             ;;
     esac
+}
+
+apt_install_noninteractive() {
+    if [ -z "$PULSE_SUDO" ]; then
+        DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "$@"
+    elif [ "$PULSE_SUDO" = sudo ]; then
+        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "$@"
+    else
+        "$PULSE_SUDO" env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "$@"
+    fi
 }
 
 ensure_uv() {
@@ -186,7 +196,7 @@ ensure_node() {
             else
                 curl -fsSL https://deb.nodesource.com/setup_20.x | "$PULSE_SUDO" bash -
             fi
-            $PULSE_SUDO DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends nodejs
+            apt_install_noninteractive nodejs
             ;;
     esac
     node_ok || die "Node.js 18.18+ installation failed"

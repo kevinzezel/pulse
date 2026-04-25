@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [2.5.7-pre] — 2026-04-25
+
+### Fixed
+
+- **Linux installer now installs apt packages correctly when invoked as root.** `install/install.sh` uses a dedicated apt helper so `DEBIAN_FRONTEND=noninteractive` is applied before `apt-get` when no sudo wrapper is needed, preventing `/bin/sh` from trying to execute `DEBIAN_FRONTEND=noninteractive` as a command after the NodeSource repository is configured.
+
 ## [2.5.6-pre] — 2026-04-25
 
 ### Fixed
@@ -887,7 +893,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v2.5.6-pre...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v2.5.7-pre...HEAD
+[2.5.7-pre]: https://github.com/kevinzezel/pulse/releases/tag/v2.5.7-pre
 [2.5.6-pre]: https://github.com/kevinzezel/pulse/releases/tag/v2.5.6-pre
 [2.5.5-pre]: https://github.com/kevinzezel/pulse/releases/tag/v2.5.5-pre
 [2.5.4]: https://github.com/kevinzezel/pulse/releases/tag/v2.5.4
