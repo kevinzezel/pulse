@@ -81,11 +81,16 @@ run_npm_clean() {
     workdir="$3"
     shift 3
 
+    npm_userconfig="$TEMP_DIR/npm-userconfig"
+    npm_globalconfig="$TEMP_DIR/npm-globalconfig"
+    : > "$npm_userconfig"
+    : > "$npm_globalconfig"
+
     run_logged_tail "$label" "$tail_lines" "$workdir" \
         env NODE_OPTIONS= NPM_CONFIG_NODE_OPTIONS= npm_config_node_options= \
-            NPM_CONFIG_USERCONFIG=/dev/null npm_config_userconfig=/dev/null \
-            NPM_CONFIG_GLOBALCONFIG=/dev/null npm_config_globalconfig=/dev/null \
-            npm --node-options= --userconfig=/dev/null --globalconfig=/dev/null "$@"
+            NPM_CONFIG_USERCONFIG="$npm_userconfig" npm_config_userconfig="$npm_userconfig" \
+            NPM_CONFIG_GLOBALCONFIG="$npm_globalconfig" npm_config_globalconfig="$npm_globalconfig" \
+            npm --node-options= --userconfig="$npm_userconfig" --globalconfig="$npm_globalconfig" "$@"
 }
 
 run_next_build_clean() {

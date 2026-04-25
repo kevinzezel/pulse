@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [2.5.11-pre] — 2026-04-25
+
+### Fixed
+
+- **Installer npm isolation now uses distinct empty config files.** `install/install.sh` no longer points both npm `--userconfig` and `--globalconfig` at `/dev/null`, which npm rejects as double-loading the same config file before dependency install starts. The clean npm helper now creates separate empty config files under the installer temp directory and uses those paths instead.
+
 ## [2.5.10-pre] — 2026-04-25
 
 ### Fixed
@@ -911,7 +917,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v2.5.10-pre...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v2.5.11-pre...HEAD
+[2.5.11-pre]: https://github.com/kevinzezel/pulse/releases/tag/v2.5.11-pre
 [2.5.10-pre]: https://github.com/kevinzezel/pulse/releases/tag/v2.5.10-pre
 [2.5.9-pre]: https://github.com/kevinzezel/pulse/releases/tag/v2.5.9-pre
 [2.5.8-pre]: https://github.com/kevinzezel/pulse/releases/tag/v2.5.8-pre
