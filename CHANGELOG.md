@@ -6,7 +6,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
-## [2.5.7-pre] — 2026-04-25
+## [2.5.7] — 2026-04-25
 
 ### Fixed
 
@@ -893,8 +893,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v2.5.7-pre...HEAD
-[2.5.7-pre]: https://github.com/kevinzezel/pulse/releases/tag/v2.5.7-pre
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v2.5.7...HEAD
+[2.5.7]: https://github.com/kevinzezel/pulse/releases/tag/v2.5.7
 [2.5.6-pre]: https://github.com/kevinzezel/pulse/releases/tag/v2.5.6-pre
 [2.5.5-pre]: https://github.com/kevinzezel/pulse/releases/tag/v2.5.5-pre
 [2.5.4]: https://github.com/kevinzezel/pulse/releases/tag/v2.5.4
