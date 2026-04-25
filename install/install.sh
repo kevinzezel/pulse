@@ -94,6 +94,45 @@ run_npm_clean() {
 }
 
 run_next_build_clean() {
+    node_options_guard="$TEMP_DIR/clear-node-options.js"
+    cat > "$node_options_guard" <<'JS'
+delete process.env.NODE_OPTIONS;
+delete process.env.NPM_CONFIG_NODE_OPTIONS;
+delete process.env.npm_config_node_options;
+
+const childProcess = require('child_process');
+
+function cleanEnv(env) {
+  const nextEnv = { ...(env || process.env) };
+  delete nextEnv.NODE_OPTIONS;
+  delete nextEnv.NPM_CONFIG_NODE_OPTIONS;
+  delete nextEnv.npm_config_node_options;
+  return nextEnv;
+}
+
+function cleanOptions(options) {
+  return { ...(options || {}), env: cleanEnv(options && options.env) };
+}
+
+const spawn = childProcess.spawn;
+childProcess.spawn = function pulseSpawn(command, args, options) {
+  if (Array.isArray(args)) return spawn.call(this, command, args, cleanOptions(options));
+  return spawn.call(this, command, cleanOptions(args));
+};
+
+const spawnSync = childProcess.spawnSync;
+childProcess.spawnSync = function pulseSpawnSync(command, args, options) {
+  if (Array.isArray(args)) return spawnSync.call(this, command, args, cleanOptions(options));
+  return spawnSync.call(this, command, cleanOptions(args));
+};
+
+const fork = childProcess.fork;
+childProcess.fork = function pulseFork(modulePath, args, options) {
+  if (Array.isArray(args)) return fork.call(this, modulePath, args, cleanOptions(options));
+  return fork.call(this, modulePath, cleanOptions(args));
+};
+JS
+
     run_logged_tail "next build" 40 "$1" \
         env -i \
             HOME="$HOME" \
@@ -102,7 +141,7 @@ run_next_build_clean() {
             LOGNAME="${LOGNAME:-}" \
             SHELL="${SHELL:-/bin/sh}" \
             LANG="${LANG:-C.UTF-8}" \
-            NODE_OPTIONS= \
+            NODE_OPTIONS="--require=$node_options_guard" \
             NPM_CONFIG_NODE_OPTIONS= \
             npm_config_node_options= \
             ./node_modules/.bin/next build

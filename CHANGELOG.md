@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [2.5.12-pre] — 2026-04-25
+
+### Fixed
+
+- **Next.js build workers now have `NODE_OPTIONS` stripped even after Next loads environment files.** The installer preloads a small guard during `next build` that clears `NODE_OPTIONS` and patches child process creation so worker processes cannot inherit invalid flags reintroduced after startup, such as `--r=` from a host-specific env source.
+
 ## [2.5.11-pre] — 2026-04-25
 
 ### Fixed
@@ -917,7 +923,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v2.5.11-pre...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v2.5.12-pre...HEAD
+[2.5.12-pre]: https://github.com/kevinzezel/pulse/releases/tag/v2.5.12-pre
 [2.5.11-pre]: https://github.com/kevinzezel/pulse/releases/tag/v2.5.11-pre
 [2.5.10-pre]: https://github.com/kevinzezel/pulse/releases/tag/v2.5.10-pre
 [2.5.9-pre]: https://github.com/kevinzezel/pulse/releases/tag/v2.5.9-pre
