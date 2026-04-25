@@ -18,7 +18,10 @@ After install, a few commands you'll want. Run `pulse help` for the full list.
 pulse status                    # service health (client + dashboard)
 pulse logs client -f            # follow client logs
 pulse open                      # launch browser at the dashboard
-pulse upgrade                   # fetch latest release and reinstall
+pulse upgrade                   # fetch latest stable release and reinstall
+pulse upgrade --preview         # install the latest preview (vX.Y.Z-pre) instead
+pulse check-updates             # ask GitHub if a newer stable exists
+pulse check-updates --preview   # ask GitHub if a newer preview exists
 pulse uninstall                 # remove everything
 
 pulse keys show                 # print the client's API_KEY

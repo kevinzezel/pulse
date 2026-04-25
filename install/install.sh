@@ -5,7 +5,10 @@
 #   curl -fsSL https://raw.githubusercontent.com/kevinzezel/pulse/main/install/install.sh | sh
 #
 # Flags (via env vars, since `curl | sh` cannot pass args easily):
-#   PULSE_VERSION=v1.2.0            pin a specific release (default: latest)
+#   PULSE_VERSION=latest            install the latest stable (default; ignores *-pre and prereleases)
+#   PULSE_VERSION=preview           install the latest preview (vX.Y.Z-pre or GitHub prerelease=true)
+#   PULSE_VERSION=v1.2.0            pin a specific stable tag
+#   PULSE_VERSION=v1.2.0-pre        pin a specific preview tag (explicit opt-in)
 #   PULSE_CLIENT_ONLY=1             install only the client (no dashboard)
 #   PULSE_DASHBOARD_ONLY=1          install only the dashboard (no client)
 #   PULSE_NO_START=1                don't enable/start services after install
@@ -199,19 +202,69 @@ ensure_runtime_deps() {
 # -----------------------------------------------------------------------------
 # Download + extract
 # -----------------------------------------------------------------------------
+# Resolve PULSE_VERSION to a concrete tag using the releases listing.
+# `latest`  → first release that is NOT prerelease=true and NOT *-pre
+# `preview` → first release that IS prerelease=true OR *-pre
+# anything else → returned verbatim (assumed to be a real tag)
+#
+# python3 is guaranteed available here: ensure_runtime_deps runs before
+# download_and_extract and installs python3 on every supported platform.
+_resolve_release_tag_to_install() {
+    case "$PULSE_VERSION" in
+        latest|preview) ;;
+        *) printf '%s' "$PULSE_VERSION"; return 0 ;;
+    esac
+    list_url="https://api.github.com/repos/$GITHUB_REPO/releases?per_page=100"
+    json="$(curl -fsSL "$list_url")" || die "could not fetch releases list from $list_url"
+    [ -n "$json" ] || die "empty releases list from $list_url"
+    tag="$(CHANNEL="$PULSE_VERSION" python3 - "$json" <<'PY'
+import json, os, sys
+try:
+    data = json.loads(sys.argv[1])
+except Exception:
+    sys.exit(0)
+channel = os.environ['CHANNEL']
+def is_preview(rel):
+    if rel.get('prerelease') is True:
+        return True
+    tag = rel.get('tag_name') or ''
+    if tag.startswith('v'):
+        tag = tag[1:]
+    return tag.endswith('-pre')
+def is_stable(rel):
+    tag = rel.get('tag_name') or ''
+    if not tag:
+        return False
+    return rel.get('prerelease') is not True and not is_preview(rel)
+for rel in data:
+    if not isinstance(rel, dict):
+        continue
+    if not (rel.get('tag_name') or ''):
+        continue
+    ok = is_stable(rel) if channel == 'latest' else is_preview(rel)
+    if ok:
+        print(rel['tag_name'])
+        break
+PY
+)"
+    [ -n "$tag" ] || die "no release matching channel '$PULSE_VERSION' was found in $list_url"
+    printf '%s' "$tag"
+}
+
 resolve_download_url() {
-    if [ "$PULSE_VERSION" = "latest" ]; then
-        api_url="https://api.github.com/repos/$GITHUB_REPO/releases/latest"
-    else
-        api_url="https://api.github.com/repos/$GITHUB_REPO/releases/tags/$PULSE_VERSION"
-    fi
+    # Resolve channel aliases (latest/preview) to a real tag, then ask for
+    # that tag's release detail so we can pick the tarball asset.
+    resolved_tag="$(_resolve_release_tag_to_install)"
+    api_url="https://api.github.com/repos/$GITHUB_REPO/releases/tags/$resolved_tag"
     url="$(curl -fsSL "$api_url" \
         | grep '"browser_download_url":' \
         | grep -o '"https://[^"]*pulse-[^"]*\.tar\.gz"' \
         | head -n 1 \
         | tr -d '"')"
-    [ -n "$url" ] || die "could not resolve tarball URL for version '$PULSE_VERSION' from $api_url"
-    printf '%s' "$url"
+    [ -n "$url" ] || die "could not resolve tarball URL for tag '$resolved_tag' from $api_url"
+    # Surface what we resolved to so users know whether 'latest' meant 1.2.3 or 1.2.4-pre.
+    PULSE_RESOLVED_TAG="$resolved_tag"
+    DOWNLOAD_URL="$url"
 }
 
 verify_checksum() {
@@ -244,7 +297,10 @@ verify_checksum() {
 
 download_and_extract() {
     status "downloading Pulse ($PULSE_VERSION)"
-    DOWNLOAD_URL="$(resolve_download_url)"
+    resolve_download_url
+    case "$PULSE_VERSION" in
+        latest|preview) log "resolved $PULSE_VERSION → $PULSE_RESOLVED_TAG" ;;
+    esac
     log "$DOWNLOAD_URL"
     curl -fsSL "$DOWNLOAD_URL" -o "$TEMP_DIR/pulse.tar.gz" || die "download failed"
     verify_checksum "$TEMP_DIR/pulse.tar.gz"

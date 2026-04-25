@@ -6,6 +6,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [2.5.0] — 2026-04-25
+
+### Added
+
+- **Preview release channel.** Pulse now distinguishes stable releases (`vX.Y.Z`) from preview releases (`vX.Y.Z-pre`). Preview releases are flagged as GitHub prereleases by `.github/workflows/release.yml` (the workflow now passes `--prerelease` automatically when the pushed tag ends in `-pre`) and are filtered out of every default code path: the dashboard's update modal queries `https://api.github.com/repos/kevinzezel/pulse/releases?per_page=100` and picks the first release where `prerelease !== true` and the tag does not end in `-pre`, `pulse upgrade` instructs the installer to resolve `latest` as the latest stable, and `pulse check-updates` compares against the stable channel by default. The two checks (GitHub `prerelease` flag + `*-pre` tag suffix) act as a defense-in-depth pair: the workflow automates the flag for tags created by the standard release script, the suffix catches releases created manually without ticking the prerelease checkbox.
+- **`pulse upgrade --preview`** installs the latest preview release. Resolves `PULSE_VERSION=preview` and forwards it to `install/install.sh`. Useful for users who want to validate an in-flight feature before it lands on stable.
+- **`pulse check-updates --preview`** queries the preview channel without installing anything. Output now uses explicit `latest stable:` / `latest preview:` labels so the channel is unambiguous, and the comparison no longer recommends a downgrade when the installed version is ahead of the queried channel (e.g. running `2.5.0-pre` while querying stable `2.4.1` no longer suggests "Update available").
+- **`PULSE_VERSION=preview`** in `install/install.sh` resolves to the latest preview tag. `PULSE_VERSION=latest` keeps its existing meaning but now explicitly excludes preview tags. Pinning a specific tag (`PULSE_VERSION=v2.5.0-pre`) remains supported as an explicit per-install opt-in. The installer now logs `resolved <channel> → <tag>` so the user sees exactly which tag a `latest`/`preview` request landed on.
+- **`frontend/src/utils/version.js`** with `stripLeadingV`, `isPreviewVersion`, `comparePulseVersions`, and `isOlderThan`. SemVer-lite comparator that understands `X.Y.Z` and `X.Y.Z-pre`, with the rule that same-core stable outranks prerelease (`2.5.0 > 2.5.0-pre`). Used by `UpdateNotifierProvider` so a server running `2.5.0-pre` is no longer flagged as outdated when the latest stable is `2.4.1` — the modal now requires the installed version to be strictly older than the latest stable.
+
+### Changed
+
+- **`UpdateNotifierProvider` outdated-server detection** now uses `isOlderThan(installedVersion, latestStable)` instead of strict string inequality. Servers ahead of the latest stable (typically because they're on the preview channel) are no longer surfaced in the update modal.
+- **`/api/update-status` cache** now stores `latestVersion: null` cleanly when GitHub answers but no stable release exists yet (only previews published). Treated as "no update info" by the dashboard — the modal stays closed instead of misfiring.
+- **`CLAUDE.md` release flow** now defaults all AI-generated releases to `vX.Y.Z-pre` (preview channel). Stable tags (`vX.Y.Z` without `-pre`) are only published when the repo owner explicitly asks for the promotion. The release script template, CHANGELOG section header, and `/tmp/pulse-release-...sh` filename now embed the `-pre` suffix by default.
+
 ## [2.4.1] — 2026-04-25
 
 ### Fixed
@@ -826,7 +842,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v2.4.1...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v2.5.0...HEAD
+[2.5.0]: https://github.com/kevinzezel/pulse/releases/tag/v2.5.0
 [2.4.1]: https://github.com/kevinzezel/pulse/releases/tag/v2.4.1
 [2.4.0]: https://github.com/kevinzezel/pulse/releases/tag/v2.4.0
 [2.3.0]: https://github.com/kevinzezel/pulse/releases/tag/v2.3.0

@@ -270,20 +270,42 @@ cmd_open() {
 
 cmd_upgrade() {
     yes=0
+    preview=0
     for arg in "$@"; do
         case "$arg" in
-            -y|--yes) yes=1 ;;
+            -y|--yes)  yes=1 ;;
+            --preview) preview=1 ;;
             -h|--help)
-                printf "usage: pulse upgrade [-y|--yes]\n"
-                printf "  Re-runs the install script for the latest release.\n"
+                printf "usage: pulse upgrade [-y|--yes] [--preview]\n"
+                printf "  Re-runs the install script for the latest stable release (vX.Y.Z).\n"
+                printf "  Pass --preview to install the latest preview release (vX.Y.Z-pre) instead.\n"
                 printf "  Restarts the Pulse client (terminates running terminals).\n"
                 return 0
                 ;;
-            *) die "unknown arg: $arg (use: -y|--yes)" ;;
+            *) die "unknown arg: $arg (use: -y|--yes, --preview)" ;;
         esac
     done
     _confirm_client_restart || return 0
-    log "upgrading Pulse (re-running install script)..."
+    if [ "$preview" = 1 ]; then
+        log "upgrading Pulse to latest preview (re-running install script)..."
+        case "${PULSE_VERSION:-}" in
+            ""|latest) target_version="preview" ;;
+            *)         target_version="$PULSE_VERSION" ;;
+        esac
+    else
+        log "upgrading Pulse to latest stable (re-running install script)..."
+        case "${PULSE_VERSION:-}" in
+            ""|latest|preview)
+                target_version="latest"
+                ;;
+            *-pre)
+                die "refusing to install preview version '$PULSE_VERSION' without --preview"
+                ;;
+            *)
+                target_version="$PULSE_VERSION"
+                ;;
+        esac
+    fi
     # Forward all opt-in env vars to the installer so upgrades preserve shape
     # (e.g. a --client-only install doesn't accidentally grow a dashboard).
     # PULSE_AUTH_PASSWORD is deliberately NOT forwarded: the installer preserves
@@ -295,7 +317,7 @@ cmd_upgrade() {
     # with a "Syntax error" when its byte offset hit the new file's content.
     # Replacing the process sidesteps that entirely.
     exec env \
-        PULSE_VERSION="${PULSE_VERSION:-latest}" \
+        PULSE_VERSION="$target_version" \
         PULSE_CLIENT_ONLY="${PULSE_CLIENT_ONLY:-0}" \
         PULSE_DASHBOARD_ONLY="${PULSE_DASHBOARD_ONLY:-0}" \
         PULSE_NO_START="${PULSE_NO_START:-0}" \
@@ -1058,20 +1080,151 @@ cmd_version() {
     fi
 }
 
+# Resolve the latest release tag for a channel by listing all releases and
+# picking the first match newest-first. The GitHub `prerelease` flag is the
+# primary signal; the `*-pre` tag suffix is the project-level safety net for
+# releases created manually without flipping the prerelease box.
+#
+# $1 = "stable" | "preview"
+# Echoes the tag (e.g. "v2.5.0" or "v2.5.0-pre"); empty stdout = no match.
+_resolve_release_tag() {
+    _rrt_channel="$1"
+    case "$_rrt_channel" in
+        stable|preview) ;;
+        *) die "internal: unknown release channel '$_rrt_channel'" ;;
+    esac
+    _rrt_json="$(curl -fsSL "https://api.github.com/repos/$GITHUB_REPO/releases?per_page=100" 2>/dev/null)" || return 1
+    [ -n "$_rrt_json" ] || return 1
+    if need_cmd python3; then
+        CHANNEL="$_rrt_channel" python3 - "$_rrt_json" <<'PY' 2>/dev/null
+import json, os, sys
+try:
+    data = json.loads(sys.argv[1])
+except Exception:
+    sys.exit(0)
+channel = os.environ['CHANNEL']
+def is_preview(rel):
+    if rel.get('prerelease') is True:
+        return True
+    tag = rel.get('tag_name') or ''
+    if tag.startswith('v'):
+        tag = tag[1:]
+    return tag.endswith('-pre')
+def is_stable(rel):
+    tag = rel.get('tag_name') or ''
+    if not tag:
+        return False
+    return rel.get('prerelease') is not True and not is_preview(rel)
+for rel in data:
+    if not isinstance(rel, dict):
+        continue
+    if not (rel.get('tag_name') or ''):
+        continue
+    ok = is_stable(rel) if channel == 'stable' else is_preview(rel)
+    if ok:
+        print(rel['tag_name'])
+        break
+PY
+    else
+        # Shell-only fallback. We can't read the prerelease flag without a
+        # JSON parser, so we rely solely on the tag suffix. Stable channel
+        # may pick up a release manually flagged prerelease=true with a
+        # plain tag — accepted as a known limitation when python3 is absent.
+        for _rrt_tag in $(printf '%s' "$_rrt_json" | grep -oE '"tag_name"[[:space:]]*:[[:space:]]*"[^"]+"' | cut -d'"' -f4); do
+            case "$_rrt_tag" in
+                *-pre)
+                    [ "$_rrt_channel" = preview ] && { printf '%s\n' "$_rrt_tag"; return 0; }
+                    ;;
+                *)
+                    [ "$_rrt_channel" = stable ] && { printf '%s\n' "$_rrt_tag"; return 0; }
+                    ;;
+            esac
+        done
+    fi
+}
+
+# Compare two Pulse versions. Echoes "lt", "eq", or "gt" for $1 vs $2.
+# Same X.Y.Z core: stable > prerelease (so v2.5.0 > v2.5.0-pre).
+_compare_versions() {
+    _cv_a="$(printf '%s' "$1" | sed 's/^v//')"
+    _cv_b="$(printf '%s' "$2" | sed 's/^v//')"
+    if need_cmd python3; then
+        A="$_cv_a" B="$_cv_b" python3 - <<'PY' 2>/dev/null
+import os
+def parse(v):
+    pre = v.endswith('-pre')
+    core = v[:-4] if pre else v
+    parts = core.split('.')
+    if len(parts) != 3:
+        return None
+    try:
+        nums = tuple(int(p) for p in parts)
+    except ValueError:
+        return None
+    return (nums, 0 if pre else 1)
+pa = parse(os.environ['A'])
+pb = parse(os.environ['B'])
+if pa is None or pb is None:
+    print('eq')
+elif pa < pb:
+    print('lt')
+elif pa > pb:
+    print('gt')
+else:
+    print('eq')
+PY
+    else
+        if [ "$_cv_a" = "$_cv_b" ]; then printf 'eq\n'; else printf 'lt\n'; fi
+    fi
+}
+
 cmd_check_updates() {
-    log "checking GitHub Releases for latest version..."
-    latest="$(curl -fsSL "https://api.github.com/repos/$GITHUB_REPO/releases/latest" | grep '"tag_name":' | head -1 | cut -d '"' -f 4)"
-    [ -n "$latest" ] || die "could not query latest version"
+    preview=0
+    for arg in "$@"; do
+        case "$arg" in
+            --preview) preview=1 ;;
+            -h|--help)
+                printf "usage: pulse check-updates [--preview]\n"
+                printf "  Queries GitHub for the latest stable release (vX.Y.Z, no -pre).\n"
+                printf "  Pass --preview to query the latest preview channel (vX.Y.Z-pre) instead.\n"
+                return 0
+                ;;
+            *) die "unknown arg: $arg (use: --preview)" ;;
+        esac
+    done
+    if [ "$preview" = 1 ]; then
+        log "checking GitHub Releases for latest preview..."
+        channel_label="latest preview"
+        latest="$(_resolve_release_tag preview)" || die "could not query GitHub releases"
+    else
+        log "checking GitHub Releases for latest stable..."
+        channel_label="latest stable"
+        latest="$(_resolve_release_tag stable)" || die "could not query GitHub releases"
+    fi
+    [ -n "$latest" ] || die "no $channel_label release found"
     current=""
     if v="$(resolve_installed_version)" && [ -n "$v" ]; then
         current="v$v"
     fi
-    printf "  installed: %s\n" "${current:-unknown}"
-    printf "  latest:    %s\n" "$latest"
-    if [ "$current" != "$latest" ] && [ -n "$current" ]; then
-        printf "\n  %bUpdate available.%b Run %bpulse upgrade%b to install.\n" "$GREEN" "$NC" "$BOLD" "$NC"
+    printf "  installed:    %s\n" "${current:-unknown}"
+    printf "  %-12s %s\n" "$channel_label:" "$latest"
+    if [ -z "$current" ]; then
+        printf "\n  %bCannot compare — installed version unknown.%b\n" "$YELLOW" "$NC"
+        return 0
+    fi
+    cmp="$(_compare_versions "$current" "$latest")"
+    if [ "$cmp" = "lt" ]; then
+        if [ "$preview" = 1 ]; then
+            printf "\n  %bNewer preview available.%b Run %bpulse upgrade --preview%b to install.\n" "$GREEN" "$NC" "$BOLD" "$NC"
+        else
+            printf "\n  %bUpdate available.%b Run %bpulse upgrade%b to install.\n" "$GREEN" "$NC" "$BOLD" "$NC"
+        fi
+    elif [ "$cmp" = "gt" ]; then
+        # Common when running a preview while querying the stable channel.
+        # Don't suggest a downgrade.
+        printf "\n  %bYou're ahead of the %s.%b\n" "$GREEN" "$channel_label" "$NC"
     else
-        printf "\n  %bYou're on the latest version.%b\n" "$GREEN" "$NC"
+        printf "\n  %bYou're on the %s.%b\n" "$GREEN" "$channel_label" "$NC"
     fi
 }
 
@@ -1092,10 +1245,10 @@ ${BOLD}Dashboard:${NC}
   open                         open the dashboard in your browser
 
 ${BOLD}Lifecycle:${NC}
-  upgrade [-y]                 fetch latest release and reinstall (confirms — restarts the client)
+  upgrade [-y] [--preview]     fetch latest release and reinstall (--preview = install latest vX.Y.Z-pre)
   uninstall                    remove all files, configs, and services
   version                      print installed version
-  check-updates                query GitHub for newer versions (opt-in network call)
+  check-updates [--preview]    query GitHub for newer versions (--preview queries the preview channel)
 
 ${BOLD}Config:${NC}
   keys show                    print the client's API_KEY

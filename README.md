@@ -49,7 +49,7 @@ Open `http://localhost:3000` when it finishes. That's it.
   <img src="assets/hero.png" alt="Pulse dashboard — split mosaic with two AI CLI panes and a floating sticky note" width="100%"/>
 </p>
 
-> **Pin a version** — `PULSE_VERSION=v1.9.2 curl -fsSL …/install.sh | sh` &nbsp;·&nbsp; **Client only** (remote server) — `PULSE_CLIENT_ONLY=1 curl -fsSL …/install.sh | sh` &nbsp;·&nbsp; **All flags** — see [the installer source](install/install.sh).
+> **Pin a version** — `PULSE_VERSION=v1.9.2 curl -fsSL …/install.sh | sh` &nbsp;·&nbsp; **Preview channel** — `PULSE_VERSION=preview curl -fsSL …/install.sh | sh` (or `pulse upgrade --preview` after install) &nbsp;·&nbsp; **Client only** (remote server) — `PULSE_CLIENT_ONLY=1 curl -fsSL …/install.sh | sh` &nbsp;·&nbsp; **All flags** — see [the installer source](install/install.sh).
 
 ## Why Pulse?
 

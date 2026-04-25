@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation';
 import { useServers } from '@/providers/ServersProvider';
 import { getServerVersion, getUpdateStatus } from '@/services/api';
 import UpdateAvailableModal from '@/components/UpdateAvailableModal';
+import { isOlderThan } from '@/utils/version';
 
 const CHECK_INTERVAL_MS = 60 * 60 * 1000;        // 1h
 const DISMISS_DURATION_MS = 24 * 60 * 60 * 1000; // 24h
@@ -82,7 +83,10 @@ export function UpdateNotifierProvider({ children }) {
         const r = results[i];
         if (r.status === 'fulfilled') {
           const ver = r.value?.data?.version;
-          if (typeof ver === 'string' && ver === latest) continue;
+          // Compare semantically: a server on 2.5.0-pre is NOT outdated
+          // when latest stable is 2.4.1. Only flag if the installed version
+          // is strictly older than the latest stable we resolved.
+          if (typeof ver === 'string' && !isOlderThan(ver, latest)) continue;
           outdated.push({
             id: server.id,
             name: server.name || `${server.host}:${server.port}`,

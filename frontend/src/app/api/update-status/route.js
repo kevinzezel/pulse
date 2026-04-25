@@ -1,8 +1,15 @@
 import { NextResponse } from 'next/server';
 import { withAuth } from '@/lib/auth';
+import { isPreviewVersion } from '@/utils/version';
 
 const GITHUB_REPO = 'kevinzezel/pulse';
-const RELEASES_URL = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`;
+// We list releases instead of hitting /releases/latest because GitHub's
+// "latest" endpoint includes prereleases when prerelease=false on the most
+// recent stable but excludes manually-marked prereleases — its behavior is
+// surprising. Listing + filtering ourselves makes the stable channel obvious
+// and lets `*-pre` tags act as a project-level contract on top of the GitHub
+// `prerelease` flag.
+const RELEASES_URL = `https://api.github.com/repos/${GITHUB_REPO}/releases?per_page=100`;
 
 const CACHE_TTL_MS = 60 * 60 * 1000;        // 1h fresh
 const NEGATIVE_CACHE_TTL_MS = 5 * 60 * 1000; // 5min after a failure
@@ -56,13 +63,27 @@ async function fetchLatestReleaseWithBackoff() {
 
       if (res.ok) {
         const data = await res.json().catch(() => null);
-        const tagName = data?.tag_name;
-        if (typeof tagName === 'string' && tagName.length > 0) {
-          return { ok: true, tagName };
+        if (!Array.isArray(data)) {
+          console.warn('[update-status] GitHub 200 with non-array body');
+          return { ok: false, kind: 'fatal' };
         }
-        // 200 but no tag_name — treat as fatal (something weird with the response)
-        console.warn('[update-status] GitHub 200 without tag_name');
-        return { ok: false, kind: 'fatal' };
+        // Releases come back newest-first. Pick the first one that:
+        //  - has a non-empty tag_name
+        //  - is not flagged as prerelease on GitHub
+        //  - does not end with -pre (project contract / safety net for tags
+        //    created manually without checking the prerelease box)
+        const stable = data.find((r) =>
+          r
+          && typeof r.tag_name === 'string'
+          && r.tag_name.length > 0
+          && r.prerelease !== true
+          && !isPreviewVersion(r.tag_name),
+        );
+        if (stable) {
+          return { ok: true, tagName: stable.tag_name };
+        }
+        // No stable yet — treat as "no update info", not as an error.
+        return { ok: true, tagName: null };
       }
 
       // Rate limit detection: 403 + X-RateLimit-Remaining: 0
@@ -147,7 +168,10 @@ export const GET = withAuth(async (req) => {
   const result = await inFlight;
 
   if (result.ok) {
-    cache.latestVersion = stripV(result.tagName);
+    // tagName === null means GitHub answered cleanly but no stable release
+    // exists yet (e.g. only preview tags published). Cache that as "no
+    // version info" so the dashboard simply doesn't open the modal.
+    cache.latestVersion = result.tagName ? stripV(result.tagName) : null;
     cache.checkedAt = Date.now();
     cache.lastErrorAt = null;
     cache.rateLimitResetAt = null;
