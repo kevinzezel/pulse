@@ -12,10 +12,10 @@ Thanks for your interest in contributing. Pulse is a small, focused project and 
 
 Pulse has two services that run together in dev:
 
-- **client** (Python / FastAPI) — manages tmux sessions on the host
+- **client** (Python / FastAPI) — spawns and manages PTY sessions on the host
 - **frontend** (Next.js) — web dashboard
 
-You need `tmux`, `python3` (3.10+), `node` (18.17+) and `uv` (Astral's Python package manager — the start script installs it for you on first run on Debian/Ubuntu/macOS).
+You need `python3` (3.10+), `node` (18.17+) and `uv` (Astral's Python package manager — the start script installs it for you on first run on Debian/Ubuntu/macOS).
 
 ```bash
 git clone https://github.com/kevinzezel/pulse.git
@@ -39,10 +39,10 @@ To run one service at a time:
 pulse/
 ├── client/              # FastAPI backend — the terminal agent (was "backend")
 │   └── src/
-│       ├── service.py           # FastAPI app
+│       ├── service.py           # FastAPI app + startup tasks
 │       ├── routes/              # HTTP + WS endpoints
-│       ├── resources/           # session logic, websocket_terminal
-│       ├── tools/tmux.py        # tmux CLI wrappers
+│       ├── resources/           # session logic, websocket_terminal, idle watcher
+│       ├── tools/pty.py         # PTYSession + registry (pty.openpty + subprocess)
 │       └── system/              # i18n, auth, logging
 ├── frontend/            # Next.js dashboard
 │   └── src/
@@ -87,11 +87,15 @@ English is the canonical source — write English first, then translate.
 
 ## Architecture notes
 
-Tmux sessions are the source of truth — Pulse's in-memory `sessions` dict in `resources/terminal.py` is rebuilt from `tmux list-sessions` at startup. This means the client process can be restarted without losing sessions.
+Each session is a shell spawned in its own PTY (`pty.openpty()` + `subprocess.Popen` with `os.setsid`), wrapped by `PTYSession` in `client/src/tools/pty.py`. The PTY owns the master fd plus a bounded scrollback buffer (512 KB, trimmed at boundaries) for byte-perfect replay when a WebSocket reconnects. Metadata lives only in memory in `resources/terminal.py:sessions` — a client restart kills the PTYs, but the dashboard's client-side snapshot (`getSessionsSnapshot` / `restoreSessions`) re-creates them automatically with the same name/group/project/cwd (shell history is lost).
 
-WebSocket close reasons `"Session ended"`, `"Replaced by new connection"`, `"Session not found"`, and `"tmux session not found"` are a front↔client contract and must stay in English. The frontend matches them by string to show a localized toast.
+A background task `reap_dead_ptys()` (in `client/src/service.py` startup) checks `is_alive()` every 30s and propagates close 1000 to any open WebSocket plus drops the registry entry — covers the case "shell exited via Ctrl-D while no one was attached".
 
-Only one WebSocket per session (`_active_ws[session_id]`). A new connection closes the old one with code 4000 and reason `"Replaced by new connection"`.
+The idle notification watcher (`resources/notifications.py`) uses [pyte](https://github.com/selectel/pyte) to render the PTY scrollback into a canonical text grid (no ANSI/cursor/colors) and MD5s the result. Five anti-spam rules; see [NOTIFICATIONS.md](./NOTIFICATIONS.md) for the full design.
+
+WebSocket close reasons `"Session ended"`, `"Replaced by new connection"`, and `"Session not found"` are a front↔client contract and must stay in English. The frontend matches them by string to show a localized toast.
+
+Only one WebSocket per session (`_active_ws[session_id]`). A new connection closes the old one with code 4000 and reason `"Replaced by new connection"`. The viewing-presence heartbeat (`{type:'viewing'}`) goes through a separate multi-client `/ws/notifications` channel so opening the same session on a phone doesn't drop the desktop's "I'm watching" signal.
 
 ## License
 

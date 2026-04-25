@@ -1,6 +1,6 @@
 # Multi-server setup
 
-Pulse is split by design into two pieces: the **dashboard** (the web UI you open in the browser) and the **client** (the agent that runs tmux sessions on a host). One dashboard can manage clients running on many machines — your local workstation, a VPS, a LAN box, a Docker host — each appearing as a separate entry in the sidebar, selectable with one click.
+Pulse is split by design into two pieces: the **dashboard** (the web UI you open in the browser) and the **client** (the agent that spawns and manages PTY sessions on a host). One dashboard can manage clients running on many machines — your local workstation, a VPS, a LAN box, a Docker host — each appearing as a separate entry in the sidebar, selectable with one click.
 
 ## Table of contents
 
@@ -19,7 +19,7 @@ PULSE_CLIENT_ONLY=1 curl -fsSL https://raw.githubusercontent.com/kevinzezel/puls
 pulse keys show    # copy the API_KEY printed
 ```
 
-`PULSE_CLIENT_ONLY=1` skips the dashboard install and its Node.js dep — the box only needs `tmux`, `python3 ≥ 3.10`, and `uv` (auto-installed by the script). The client runs under a systemd user unit (Linux) or a launchd agent (macOS) and auto-restarts on failure.
+`PULSE_CLIENT_ONLY=1` skips the dashboard install and its Node.js dep — the box only needs `python3 ≥ 3.10` and `uv` (auto-installed by the script). The client runs under a systemd user unit (Linux) or a launchd agent (macOS) and auto-restarts on failure.
 
 If the remote is behind NAT and you want to reach it from a dashboard running elsewhere:
 
@@ -49,7 +49,7 @@ In the dashboard: **Settings → Servers → Add**. Fill in:
 | Port       | Matches `API_PORT` on the remote client. |
 | API Key    | From `pulse keys show` on the remote. |
 
-Save. The dashboard probes the new client and it appears in the sidebar. Repeat for every machine. Click between entries to switch which host you're driving — each shows its own tmux sessions independently.
+Save. The dashboard probes the new client and it appears in the sidebar. Repeat for every machine. Click between entries to switch which host you're driving — each shows its own PTY sessions independently.
 
 From the same dashboard you can also:
 
@@ -105,4 +105,4 @@ This is a VS Code default behavior, not a Pulse limitation — there is no publi
                            ──►  [ client #3 ] api.example.com (public, HTTPS)
 ```
 
-Dashboard holds `servers.json` (its own config — not shared). Each client is independent, has its own `tmux` sessions, its own API key, and survives dashboard restarts.
+Dashboard holds `servers.json` (its own config — not shared). Each client is independent, owns its own PTY sessions, has its own API key, and survives dashboard restarts.
