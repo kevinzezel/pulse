@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [2.2.0] — 2026-04-25
+
+### Fixed
+
+- **PTY now drains continuously, independent of any WebSocket being connected.** Previously, the asyncio reader on the master fd was registered inside `websocket_terminal()` (`loop.add_reader`) and removed on disconnect. While no client was attached, nothing consumed the master fd — the kernel buffer (4–64 KB) filled up and the shell's `write()` blocked, effectively pausing whatever was running (Claude Code, builds, watchers). On a phone with the browser minimized this looked exactly like "the agent stopped while the tab was hidden and only resumed when I came back". Side-effect on notifications: the watcher reads from `pty_session.get_scrollback_bytes()`; with the reader gone, the scrollback froze and the display hash never changed → the idle alert fired after `idle_timeout` while the agent was actually blocked, not idle. Fix: the reader now lives inside `PTYSession`, registered in `start()` via `asyncio.get_running_loop().add_reader(self.master_fd, self._on_pty_read)` and removed in `close()` (before `os.close(fd)` to avoid an EBADF on the selector callback). The `_on_pty_read` always feeds `append_to_scrollback` (the source of truth) and best-effort enqueues to a per-WS bounded `asyncio.Queue` (`maxsize=256`, drop-oldest on overflow). `websocket_terminal()` no longer manages the reader at all — it only does `attach_listener(queue)` after sending the scrollback replay and `detach_listener(queue)` in the `finally`. EOF (`os.read` returns `b""`) is handled inside `PTYSession._handle_eof`: idempotent, removes the reader, signals the listener with the existing `None` sentinel. `recover_sessions()` was moved from module scope into the `@app.on_event("startup")` handler so any future PTY creation during recovery has a running loop available for `add_reader`.
+
 ### Changed
 
 - **Semantics of idle-watcher Rules 2, 4, and 5 unified.** Previously, "user typing" (Rule 2) and "user watching" (Rule 5) only suppressed the current tick — stepping away for 15s would reopen the alert window. And the hash dedup (Rule 4) had a 30-min TTL ("if you didn't reply in 30 min, I'll alert again"). Now all three rules share the same semantics: **permanent ack per hash**. Typing (even without Enter) or seeing the terminal for one tick marks `notified=True` for that visual state; the system only re-alerts when the agent changes the display (= a new idle phase for real). Rule 4 lost its TTL — it's now eternal dedup keyed on `last_notified_hash`. Constant `NOTIFIED_HASH_TTL_SECONDS` removed. Explicit trade-off: if you saw it and the agent stays stuck on the same screen forever, you don't get a reminder — aligned with "if I saw, I know".
@@ -786,7 +792,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v2.1.1...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v2.2.0...HEAD
+[2.2.0]: https://github.com/kevinzezel/pulse/releases/tag/v2.2.0
 [2.1.1]: https://github.com/kevinzezel/pulse/releases/tag/v2.1.1
 [2.1.0]: https://github.com/kevinzezel/pulse/releases/tag/v2.1.0
 [2.0.2]: https://github.com/kevinzezel/pulse/releases/tag/v2.0.2

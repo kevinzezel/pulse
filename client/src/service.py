@@ -63,10 +63,14 @@ app.include_router(version_route.router, prefix="/api", tags=["Version"], depend
 app.include_router(fs_route.router, prefix="/api", tags=["FS"], dependencies=_auth)
 
 load_settings()
-recover_sessions()
 
 
 @app.on_event("startup")
 async def _start_background_tasks():
+    # recover_sessions() é no-op em PTY mode (não há persistência server-side
+    # do estado do shell), mas roda dentro do startup async para garantir que,
+    # se um dia voltar a criar PTYs, tenha um running loop disponível para
+    # PTYSession.start() registrar o reader permanente via add_reader.
+    recover_sessions()
     asyncio.create_task(notification_watcher())
     asyncio.create_task(reap_dead_ptys())

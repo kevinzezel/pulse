@@ -11,6 +11,7 @@ from fastapi import WebSocket, WebSocketDisconnect
 from envs.load import API_KEY
 from tools.pty import (
     PTYSession,
+    LISTENER_QUEUE_MAX,
     get_pty,
     register_pty,
     unregister_pty,
@@ -422,11 +423,11 @@ async def websocket_terminal(websocket: WebSocket, session_id: str):
                 pass
         _active_ws[session_id] = websocket
 
-    loop = asyncio.get_event_loop()
-    output_queue: asyncio.Queue = asyncio.Queue()
-    fd = pty_session.master_fd
+    # Bounded para que um terminal vomitando + WS lento não cresça a fila
+    # indefinidamente. Em overflow o reader permanente do PTYSession faz
+    # drop oldest; o scrollback (fonte da verdade) continua íntegro.
+    output_queue: asyncio.Queue = asyncio.Queue(maxsize=LISTENER_QUEUE_MAX)
     send_task = None
-    reader_installed = False
 
     try:
         # Replay byte-perfect do scrollback acumulado: cores, cursor positioning
@@ -438,19 +439,10 @@ async def websocket_terminal(websocket: WebSocket, session_id: str):
                 "data": scrollback.decode("utf-8", errors="replace"),
             })
 
-        def on_pty_read():
-            try:
-                data = os.read(fd, 65536)
-                if not data:
-                    output_queue.put_nowait(None)
-                    return
-                pty_session.append_to_scrollback(data)
-                output_queue.put_nowait(data)
-            except OSError:
-                output_queue.put_nowait(None)
-
-        loop.add_reader(fd, on_pty_read)
-        reader_installed = True
+        # O reader do master_fd vive dentro do PTYSession (instalado em
+        # start()) e drena continuamente para o scrollback, independente de WS.
+        # Aqui só registramos a fila para receber o output em tempo real.
+        pty_session.attach_listener(output_queue)
 
         async def send_output():
             try:
@@ -541,11 +533,9 @@ async def websocket_terminal(websocket: WebSocket, session_id: str):
         async with _ws_lock(session_id):
             if _active_ws.get(session_id) is websocket:
                 del _active_ws[session_id]
-        if reader_installed and fd is not None:
-            try:
-                loop.remove_reader(fd)
-            except Exception:
-                pass
+        # Desregistra a fila do PTYSession; o reader permanente continua
+        # rodando e populando o scrollback até a sessão ser fechada.
+        pty_session.detach_listener(output_queue)
         if send_task is not None:
             send_task.cancel()
         # Não fechar fd nem matar process — eles são da PTYSession e ela
