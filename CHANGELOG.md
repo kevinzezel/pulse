@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [2.5.3] — 2026-04-25
+
+### Fixed
+
+- **The installer no longer starts the dashboard after a failed production build.** `install/install.sh` now captures `npm ci` / `npm install` / `npm run build` output to a temporary log and checks the command's real exit status before showing the last log lines on failure. This avoids the previous `cmd | tail` pattern under `/bin/sh`, where `tail` could mask a failed npm command and let installation continue until `pulse.service` crashed at runtime with Next.js' `Could not find a production build in the '.next' directory` error. The installer also asserts that `frontend/.next/BUILD_ID` exists after `next build` before it reports success.
+
 ## [2.5.2] — 2026-04-25
 
 ### Added
@@ -862,7 +868,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v2.5.2...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v2.5.3...HEAD
+[2.5.3]: https://github.com/kevinzezel/pulse/releases/tag/v2.5.3
 [2.5.2]: https://github.com/kevinzezel/pulse/releases/tag/v2.5.2
 [2.5.1]: https://github.com/kevinzezel/pulse/releases/tag/v2.5.1
 [2.5.0]: https://github.com/kevinzezel/pulse/releases/tag/v2.5.0

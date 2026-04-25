@@ -57,6 +57,23 @@ die()    { err "$*"; exit 1; }
 
 need_cmd() { command -v "$1" >/dev/null 2>&1; }
 
+run_logged_tail() {
+    label="$1"
+    tail_lines="$2"
+    workdir="$3"
+    shift 3
+
+    log_file="$TEMP_DIR/command.log"
+    if (cd "$workdir" && "$@") >"$log_file" 2>&1; then
+        return 0
+    fi
+
+    rc="$?"
+    err "$label failed (exit $rc); showing last $tail_lines log lines:"
+    tail -n "$tail_lines" "$log_file" >&2 2>/dev/null || true
+    return "$rc"
+}
+
 # -----------------------------------------------------------------------------
 # Platform detection
 # -----------------------------------------------------------------------------
@@ -404,14 +421,15 @@ install_files() {
         # Install full deps — the build step needs devDependencies (tailwind, postcss).
         # We prune devDependencies after the build to reclaim disk space.
         if [ -f "$INSTALL_ROOT/frontend/package-lock.json" ]; then
-            (cd "$INSTALL_ROOT/frontend" && npm ci      --loglevel=error 2>&1 | tail -5) || die "npm ci failed"
+            run_logged_tail "npm ci" 20 "$INSTALL_ROOT/frontend" npm ci --loglevel=error || die "npm ci failed"
         else
-            (cd "$INSTALL_ROOT/frontend" && npm install --loglevel=error 2>&1 | tail -5) || die "npm install failed"
+            run_logged_tail "npm install" 20 "$INSTALL_ROOT/frontend" npm install --loglevel=error || die "npm install failed"
         fi
         log "building dashboard"
-        (cd "$INSTALL_ROOT/frontend" && npm run build 2>&1 | tail -10) || die "npm run build failed"
+        run_logged_tail "npm run build" 40 "$INSTALL_ROOT/frontend" npm run build || die "npm run build failed"
+        [ -f "$INSTALL_ROOT/frontend/.next/BUILD_ID" ] || die "dashboard build did not create .next/BUILD_ID"
         log "pruning dev dependencies"
-        (cd "$INSTALL_ROOT/frontend" && npm prune --omit=dev --loglevel=error 2>&1 | tail -3) || warn "npm prune failed (non-fatal)"
+        run_logged_tail "npm prune" 10 "$INSTALL_ROOT/frontend" npm prune --omit=dev --loglevel=error || warn "npm prune failed (non-fatal)"
 
         # Restore preserved user data
         if [ -n "$data_backup" ] && [ -d "$data_backup" ]; then
