@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [2.5.5-pre] — 2026-04-25
+
+### Fixed
+
+- **Installer now also clears `NPM_CONFIG_NODE_OPTIONS` for every `npm` call.** A user `.npmrc` with `node-options=...` (or an exported `NPM_CONFIG_NODE_OPTIONS`) made npm reinject `NODE_OPTIONS` for the spawned Next.js build worker even though the installer already set `NODE_OPTIONS=` on the command line. With a malformed value such as `--r=...` the worker would die with `is not allowed in NODE_OPTIONS` (Node exit 9) and `next build` would never produce `.next/BUILD_ID`. `install/install.sh` now passes both `NODE_OPTIONS=` and `NPM_CONFIG_NODE_OPTIONS=` to `npm ci` / `npm install` / `npm run build` / `npm prune`, blocking that reinjection path without requiring the user to clean up their `.npmrc`.
+
 ## [2.5.4] — 2026-04-25
 
 ### Fixed
@@ -875,7 +881,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v2.5.4...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v2.5.5-pre...HEAD
+[2.5.5-pre]: https://github.com/kevinzezel/pulse/releases/tag/v2.5.5-pre
 [2.5.4]: https://github.com/kevinzezel/pulse/releases/tag/v2.5.4
 [2.5.3]: https://github.com/kevinzezel/pulse/releases/tag/v2.5.3
 [2.5.2]: https://github.com/kevinzezel/pulse/releases/tag/v2.5.2
