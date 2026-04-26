@@ -297,7 +297,8 @@
       "captureShort": "Capture",
       "promptsShort": "Prompts",
       "notifyShort": "Notify",
-      "composeShort": "Compose"
+      "composeShort": "Compose",
+      "voiceShort": "Voice"
     }
   },
   "toast": {
@@ -362,6 +363,32 @@
       "secret_key_required": "S3 Secret Access Key is required.",
       "connection_failed": "S3 connection failed: {reason}",
       "bucket_not_found": "S3 bucket not found or not accessible."
+    },
+    "intelligence": {
+      "payload_required": "Provider payload is required.",
+      "audio_required": "An audio recording is required.",
+      "audio_invalid_type": "Unsupported audio mime type: {mime}",
+      "audio_empty": "Audio recording is empty.",
+      "audio_too_large": "Audio exceeds the {max_mb} MB limit.",
+      "gemini": {
+        "api_key_required": "A Gemini API key is required.",
+        "api_key_too_long": "API key must be at most {max} characters.",
+        "not_configured": "Gemini API key not configured. Add it in Settings → Intelligence.",
+        "timeout": "Gemini API timed out. Try a shorter recording.",
+        "upstream_failed": "Gemini API failed: {reason}",
+        "empty_transcript": "Gemini returned an empty transcript ({reason}). Try recording again.",
+        "config_load_failed": "Could not load Intelligence settings."
+      },
+      "voice": {
+        "insecure_context": "Voice input needs HTTPS or localhost. Reload the dashboard from a secure origin.",
+        "unsupported": "This browser does not support audio capture.",
+        "permission_denied": "Microphone permission denied. Allow microphone access in your browser settings and try again.",
+        "no_device": "No microphone detected on this device.",
+        "device_busy": "Microphone is in use by another app. Close it and try again.",
+        "permission_failed": "Could not start the microphone: {reason}",
+        "empty_audio": "Recording captured no audio. Make sure the microphone is unmuted and try again.",
+        "encode_failed": "Could not encode the recording: {reason}"
+      }
     }
   },
   "success": {
@@ -392,6 +419,11 @@
       "sync_local_to_cloud": "Local data pushed to cloud ({count} file(s)).",
       "sync_cloud_to_local": "Cloud data pulled to local files ({count} file(s)).",
       "copied": "Copied to clipboard."
+    },
+    "intelligence": {
+      "gemini_saved": "Gemini API key saved.",
+      "cleared": "Intelligence configuration cleared.",
+      "transcribed": "Audio transcribed."
     }
   },
   "time": {
@@ -417,6 +449,34 @@
     "saveAsConfirm": "Save",
     "promptName": "Prompt name"
   },
+  "voice": {
+    "title": "Voice input",
+    "checking": "Checking configuration...",
+    "requestingPermission": "Requesting microphone permission...",
+    "transcribing": "Transcribing audio...",
+    "notConfigured": {
+      "title": "Configure Gemini first",
+      "body": "Voice input transcribes your microphone with the Gemini API. Add your Gemini API key in Settings → Intelligence to start.",
+      "openSettings": "Open Intelligence settings"
+    },
+    "recording": {
+      "stop": "Stop and transcribe",
+      "hint": "Speak naturally. The transcript appears for review before anything is sent to the terminal.",
+      "softLimit": "Approaching the {max} recording limit"
+    },
+    "review": {
+      "placeholder": "The transcript will appear here for editing.",
+      "send": "Send",
+      "sendEnter": "Send + ↵",
+      "recordAgain": "Record again",
+      "charCount": "{length}/{max} characters",
+      "tooLong": "Transcript is too long ({length}/{max}). Trim it before sending."
+    },
+    "error": {
+      "generic": "Voice input failed.",
+      "retry": "Try again"
+    }
+  },
   "settings": {
     "pageTitle": "Settings",
     "pageSubtitle": "General Pulse preferences",
@@ -430,6 +490,7 @@
       "telegram": "Telegram",
       "notifications": "Notifications",
       "editor": "Editor",
+      "intelligence": "Intelligence",
       "storage": "Storage"
     },
     "editor": {
@@ -530,6 +591,31 @@
       "channelBrowser": "Browser",
       "channelTelegram": "Telegram",
       "telegramNotConfigured": "Set up Telegram in the matching tab to enable this channel."
+    },
+    "intelligence": {
+      "title": "Intelligence",
+      "subtitle": "Configure AI providers used by Pulse features (voice input today; more coming).",
+      "gemini": {
+        "title": "Google Gemini",
+        "subtitle": "Used to transcribe voice input from terminals. Your API key stays on the server.",
+        "configuredBadge": "Configured",
+        "apiKeyLabel": "API key",
+        "apiKeyHintEmpty": "Paste your Gemini API key.",
+        "apiKeyHintConfigured": "A key is already saved. Paste a new value to replace it.",
+        "getKeyLink": "Get a Gemini API key",
+        "modelLabel": "Model",
+        "modelHint": "gemini-2.5-flash is the recommended default for speech transcription.",
+        "updatedAt": "Last updated: {when}",
+        "saveButton": "Save",
+        "clearButton": "Remove key",
+        "show": "Show",
+        "hide": "Hide",
+        "clearConfirm": {
+          "title": "Remove Gemini key?",
+          "body": "Voice input will stop working until you save a key again. The key on the server will be deleted.",
+          "confirm": "Remove"
+        }
+      }
     },
     "storage": {
       "title": "Data storage",

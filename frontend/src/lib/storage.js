@@ -291,6 +291,7 @@ export const DATA_REL_PATHS = Object.freeze([
   'data/sessions.json',
   'data/compose-drafts.json',
   'data/recent-cwds.json',
+  'data/intelligence-config.json',
 ]);
 
 // Load the module for a specific driver (file/mongo/s3). Used by sync

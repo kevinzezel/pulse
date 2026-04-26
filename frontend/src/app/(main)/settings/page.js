@@ -2,19 +2,21 @@
 
 import { Suspense, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Settings as SettingsIcon, Server, Bell, MessageCircle, Folder, Database } from 'lucide-react';
+import { Settings as SettingsIcon, Server, Bell, MessageCircle, Folder, Database, Brain } from 'lucide-react';
 import { useTranslation } from '@/providers/I18nProvider';
 import ServersTab from '@/components/settings/ServersTab';
 import TelegramTab from '@/components/settings/TelegramTab';
 import NotificationsTab from '@/components/settings/NotificationsTab';
 import EditorTab from '@/components/settings/EditorTab';
 import StorageTab from '@/components/settings/StorageTab';
+import IntelligenceTab from '@/components/settings/IntelligenceTab';
 
 const TABS = [
   { id: 'servers', icon: Server, labelKey: 'settings.tabs.servers' },
   { id: 'telegram', icon: MessageCircle, labelKey: 'settings.tabs.telegram' },
   { id: 'notifications', icon: Bell, labelKey: 'settings.tabs.notifications' },
   { id: 'editor', icon: Folder, labelKey: 'settings.tabs.editor' },
+  { id: 'intelligence', icon: Brain, labelKey: 'settings.tabs.intelligence' },
   { id: 'storage', icon: Database, labelKey: 'settings.tabs.storage' },
 ];
 
@@ -65,6 +67,7 @@ function SettingsContent() {
         {activeTab === 'telegram' && <TelegramTab />}
         {activeTab === 'notifications' && <NotificationsTab />}
         {activeTab === 'editor' && <EditorTab />}
+        {activeTab === 'intelligence' && <IntelligenceTab />}
         {activeTab === 'storage' && <StorageTab />}
       </div>
     </div>

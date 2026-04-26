@@ -6,6 +6,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [2.7.0-pre] — 2026-04-25
+
+### Added
+
+- **Voice input for terminal panes.** The pane action menu now includes a microphone action that opens a large mobile-friendly recording modal, captures browser microphone audio with a themed waveform, transcribes it through the configured Gemini API, lets the user edit the transcript, and sends the confirmed text to the target PTY with optional Enter.
+- **Intelligence settings for Gemini transcription.** Settings now has an `Intelligence` tab where users can save, replace or remove a Gemini API key and choose the transcription model. The configuration is stored through Pulse's active storage backend (`file`, MongoDB or S3) and included in local/cloud sync.
+- **Authenticated Gemini transcription APIs.** The dashboard now exposes authenticated local routes for intelligence config and audio transcription, keeping the Gemini API key server-side and enforcing audio size, MIME and timeout limits.
+
+### Fixed
+
+- **Voice recording upload size now matches the server limit.** Browser audio is resampled to 16 kHz WAV before upload, recording auto-stops at four minutes, and the client rejects oversized blobs before calling the transcription endpoint.
+- **Gemini model changes no longer require re-pasting the API key.** Updating the selected model now preserves the stored key on the server.
+
 ## [2.6.0] — 2026-04-25
 
 ### Added
@@ -951,7 +964,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v2.6.0...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v2.7.0-pre...HEAD
+[2.7.0-pre]: https://github.com/kevinzezel/pulse/releases/tag/v2.7.0-pre
 [2.6.0]: https://github.com/kevinzezel/pulse/releases/tag/v2.6.0
 [2.5.12]: https://github.com/kevinzezel/pulse/releases/tag/v2.5.12
 [2.5.11-pre]: https://github.com/kevinzezel/pulse/releases/tag/v2.5.11-pre

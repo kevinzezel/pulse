@@ -25,6 +25,7 @@ import dynamic from 'next/dynamic';
 import Sidebar from '@/components/Sidebar';
 import GroupSelector from '@/components/GroupSelector';
 import ComposeModal from '@/components/ComposeModal';
+import VoiceCommandModal from '@/components/VoiceCommandModal';
 import MobileKeyBar from '@/components/MobileKeyBar';
 import TlsAcceptModal from '@/components/TlsAcceptModal';
 const TerminalMosaic = dynamic(() => import('@/components/TerminalMosaic'), { ssr: false });
@@ -84,6 +85,7 @@ function Dashboard() {
   const [hydratedComposeDrafts, setHydratedComposeDrafts] = useState(false);
   const [composeTargetId, setComposeTargetId] = useState(null);
   const [composeLoadingId, setComposeLoadingId] = useState(null);
+  const [voiceTargetId, setVoiceTargetId] = useState(null);
 
   const selectedGroupId = hydratedViewState ? getProjectGroup(activeProjectId) : null;
   const setSelectedGroupId = useCallback((id) => {
@@ -828,6 +830,31 @@ function Dashboard() {
     return true;
   }
 
+  function handleRequestVoice(sessionId) {
+    if (!isTerminalConnected(sessionId)) {
+      toast.error(t('terminal.actions.disconnected'));
+      return;
+    }
+    setVoiceTargetId(sessionId);
+  }
+
+  async function handleVoiceSend(text, sendEnter) {
+    const sid = voiceTargetId;
+    if (!sid) { setVoiceTargetId(null); return false; }
+    if (!isTerminalConnected(sid)) {
+      toast.error(t('terminal.actions.disconnected'));
+      return false;
+    }
+    try {
+      await sendTextToSession(sid, text || '', !!sendEnter);
+    } catch (err) {
+      showError(err);
+      return false;
+    }
+    setVoiceTargetId(null);
+    return true;
+  }
+
   async function handleComposeSaveAsPrompt({ name, body }) {
     try {
       const data = await createPrompt({ name, body });
@@ -944,6 +971,7 @@ function Dashboard() {
           onToggleNotify={handleToggleNotify}
           onRequestCompose={handleRequestCompose}
           composeLoadingId={composeLoadingId}
+          onRequestVoice={handleRequestVoice}
         />
         </div>
       </div>
@@ -965,6 +993,14 @@ function Dashboard() {
           onSend={handleComposeSend}
           onSaveAsPrompt={handleComposeSaveAsPrompt}
           onClose={() => setComposeTargetId(null)}
+        />
+      )}
+
+      {voiceTargetId && (
+        <VoiceCommandModal
+          sessionName={sessions.find(s => s.id === voiceTargetId)?.name}
+          onSend={handleVoiceSend}
+          onClose={() => setVoiceTargetId(null)}
         />
       )}
 

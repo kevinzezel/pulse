@@ -120,6 +120,7 @@ export default function TerminalMosaic({
   onToggleNotify,
   onRequestCompose,
   composeLoadingId,
+  onRequestVoice,
 }) {
   const { t } = useTranslation();
   const showError = useErrorToast();
@@ -218,6 +219,7 @@ export default function TerminalMosaic({
                       onToggleNotify={onToggleNotify}
                       onRequestCompose={onRequestCompose}
                       composeLoading={composeLoadingId === id}
+                      onRequestVoice={onRequestVoice}
                     />
                   )}
                 </div>
@@ -295,6 +297,7 @@ export default function TerminalMosaic({
                   onToggleNotify={onToggleNotify}
                   onRequestCompose={onRequestCompose}
                   composeLoading={composeLoadingId === id}
+                  onRequestVoice={onRequestVoice}
                 />
               </div>
             </MosaicWindow>

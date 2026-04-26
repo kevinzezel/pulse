@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
-import { Settings, X, FileText, Sparkles, Bell, BellOff, Keyboard, Loader } from 'lucide-react';
+import { Settings, X, FileText, Sparkles, Bell, BellOff, Keyboard, Loader, Mic } from 'lucide-react';
 import { useTranslation } from '@/providers/I18nProvider';
 import { useNotifications } from '@/providers/NotificationsProvider';
 import { isTerminalConnected, subscribeTerminalConnection } from './TerminalPane';
@@ -20,6 +20,7 @@ export default function PaneActionsFab({
   onToggleNotify,
   onRequestCompose,
   composeLoading,
+  onRequestVoice,
 }) {
   const { t } = useTranslation();
   const containerRef = useRef(null);
@@ -60,7 +61,7 @@ export default function PaneActionsFab({
     };
   }, [isOpen, onToggle]);
 
-  const notifyOn = !!session.notify_on_idle;
+  const notifyOn = !!session?.notify_on_idle;
 
   function closeAnd(action) {
     return (e) => {
@@ -123,6 +124,12 @@ export default function PaneActionsFab({
       label: t('terminal.actions.composeShort'),
       onClick: closeAnd(() => onRequestCompose?.(sessionId)),
       disabled: composeLoading,
+    },
+    {
+      key: 'voice',
+      icon: <Mic size={14} />,
+      label: t('terminal.actions.voiceShort'),
+      onClick: closeAnd(() => onRequestVoice?.(sessionId)),
     },
   ];
 

@@ -297,7 +297,8 @@
       "captureShort": "Capturar",
       "promptsShort": "Prompts",
       "notifyShort": "Notificar",
-      "composeShort": "Editor"
+      "composeShort": "Editor",
+      "voiceShort": "Voz"
     }
   },
   "toast": {
@@ -362,6 +363,32 @@
       "secret_key_required": "Secret Access Key de S3 es obligatorio.",
       "connection_failed": "Conexión S3 falló: {reason}",
       "bucket_not_found": "Bucket S3 no encontrado o sin acceso."
+    },
+    "intelligence": {
+      "payload_required": "Se requiere payload del proveedor.",
+      "audio_required": "Se requiere una grabación de audio.",
+      "audio_invalid_type": "Tipo MIME de audio no soportado: {mime}",
+      "audio_empty": "La grabación de audio está vacía.",
+      "audio_too_large": "El audio supera el límite de {max_mb} MB.",
+      "gemini": {
+        "api_key_required": "La API key de Gemini es obligatoria.",
+        "api_key_too_long": "La API key debe tener como máximo {max} caracteres.",
+        "not_configured": "API key de Gemini no configurada. Añádela en Configuración → Inteligencia.",
+        "timeout": "La API de Gemini superó el tiempo de espera. Prueba con una grabación más corta.",
+        "upstream_failed": "La API de Gemini falló: {reason}",
+        "empty_transcript": "Gemini devolvió una transcripción vacía ({reason}). Intenta grabar de nuevo.",
+        "config_load_failed": "No se pudo cargar la configuración de Inteligencia."
+      },
+      "voice": {
+        "insecure_context": "La entrada por voz necesita HTTPS o localhost. Recarga el panel desde un origen seguro.",
+        "unsupported": "Este navegador no soporta captura de audio.",
+        "permission_denied": "Permiso del micrófono denegado. Habilita el acceso al micrófono en la configuración del navegador y vuelve a intentarlo.",
+        "no_device": "No se detectó ningún micrófono en este dispositivo.",
+        "device_busy": "El micrófono está siendo usado por otra app. Ciérrala y vuelve a intentarlo.",
+        "permission_failed": "No se pudo iniciar el micrófono: {reason}",
+        "empty_audio": "La grabación no capturó audio. Verifica que el micrófono no esté silenciado y vuelve a intentarlo.",
+        "encode_failed": "No se pudo codificar la grabación: {reason}"
+      }
     }
   },
   "success": {
@@ -392,6 +419,11 @@
       "sync_local_to_cloud": "Datos locales enviados a la nube ({count} archivo(s)).",
       "sync_cloud_to_local": "Datos de la nube traídos a archivos locales ({count} archivo(s)).",
       "copied": "Copiado al portapapeles."
+    },
+    "intelligence": {
+      "gemini_saved": "API key de Gemini guardada.",
+      "cleared": "Configuración de Inteligencia eliminada.",
+      "transcribed": "Audio transcrito."
     }
   },
   "time": {
@@ -417,6 +449,34 @@
     "saveAsConfirm": "Guardar",
     "promptName": "Nombre del prompt"
   },
+  "voice": {
+    "title": "Entrada por voz",
+    "checking": "Comprobando configuración...",
+    "requestingPermission": "Solicitando permiso del micrófono...",
+    "transcribing": "Transcribiendo audio...",
+    "notConfigured": {
+      "title": "Configura Gemini primero",
+      "body": "La entrada por voz transcribe tu micrófono con la API de Gemini. Añade tu clave en Configuración → Inteligencia para empezar.",
+      "openSettings": "Abrir configuración de Inteligencia"
+    },
+    "recording": {
+      "stop": "Detener y transcribir",
+      "hint": "Habla con naturalidad. La transcripción aparece para revisión antes de enviar nada al terminal.",
+      "softLimit": "Acercándose al límite de {max} de grabación"
+    },
+    "review": {
+      "placeholder": "La transcripción aparecerá aquí para edición.",
+      "send": "Enviar",
+      "sendEnter": "Enviar + ↵",
+      "recordAgain": "Grabar de nuevo",
+      "charCount": "{length}/{max} caracteres",
+      "tooLong": "Transcripción demasiado larga ({length}/{max}). Recórtala antes de enviar."
+    },
+    "error": {
+      "generic": "Falló la entrada por voz.",
+      "retry": "Reintentar"
+    }
+  },
   "settings": {
     "pageTitle": "Configuración",
     "pageSubtitle": "Ajustes generales de Pulse",
@@ -430,6 +490,7 @@
       "telegram": "Telegram",
       "notifications": "Notificaciones",
       "editor": "Editor",
+      "intelligence": "Inteligencia",
       "storage": "Almacenamiento"
     },
     "editor": {
@@ -530,6 +591,31 @@
       "channelBrowser": "Navegador",
       "channelTelegram": "Telegram",
       "telegramNotConfigured": "Configura Telegram en la pestaña correspondiente para habilitar este canal."
+    },
+    "intelligence": {
+      "title": "Inteligencia",
+      "subtitle": "Configura proveedores de IA usados por las funciones de Pulse (entrada por voz hoy; más en camino).",
+      "gemini": {
+        "title": "Google Gemini",
+        "subtitle": "Se usa para transcribir la entrada por voz de los terminales. Tu API key se queda en el servidor.",
+        "configuredBadge": "Configurado",
+        "apiKeyLabel": "API key",
+        "apiKeyHintEmpty": "Pega tu API key de Gemini.",
+        "apiKeyHintConfigured": "Ya hay una key guardada. Pega un nuevo valor para reemplazarla.",
+        "getKeyLink": "Obtener una API key de Gemini",
+        "modelLabel": "Modelo",
+        "modelHint": "gemini-2.5-flash es el predeterminado recomendado para transcripción de voz.",
+        "updatedAt": "Última actualización: {when}",
+        "saveButton": "Guardar",
+        "clearButton": "Eliminar key",
+        "show": "Mostrar",
+        "hide": "Ocultar",
+        "clearConfirm": {
+          "title": "¿Eliminar la key de Gemini?",
+          "body": "La entrada por voz dejará de funcionar hasta que guardes una nueva key. La key almacenada en el servidor se eliminará.",
+          "confirm": "Eliminar"
+        }
+      }
     },
     "storage": {
       "title": "Almacenamiento de datos",

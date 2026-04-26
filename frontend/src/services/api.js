@@ -795,6 +795,59 @@ export async function syncCloudToLocal() {
   return localRequest('/api/storage-sync/cloud-to-local', { method: 'POST' });
 }
 
+// ===== Intelligence (AI providers) =====
+
+export function getIntelligenceConfig() {
+  return localRequest('/api/intelligence-config');
+}
+
+export function setIntelligenceConfig(payload) {
+  return localRequest('/api/intelligence-config', {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
+}
+
+export function deleteIntelligenceConfig(provider = null) {
+  const qs = provider ? `?provider=${encodeURIComponent(provider)}` : '';
+  return localRequest(`/api/intelligence-config${qs}`, { method: 'DELETE' });
+}
+
+// Send a recorded audio Blob/File to the local transcription endpoint.
+// The endpoint reads the Gemini API key from intelligence-config and forwards
+// the audio to Gemini's generateContent API.
+export async function transcribeVoiceAudio(audioBlob, filename = 'voice.wav', { signal } = {}) {
+  const locale = getCurrentLocale();
+  const formData = new FormData();
+  formData.append('audio', audioBlob, filename);
+  const res = await fetch('/api/intelligence/transcribe', {
+    method: 'POST',
+    body: formData,
+    signal,
+    headers: {
+      'Accept-Language': locale,
+    },
+  });
+  if (res.status === 401 && typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
+    const next = encodeURIComponent(window.location.pathname + window.location.search);
+    window.location.href = `/login?next=${next}`;
+    const err = new Error('Unauthorized');
+    err.detail_key = 'errors.unauthorized';
+    err.status = 401;
+    throw err;
+  }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const err = new Error(data.detail || 'Transcription failed');
+    err.detail = data.detail;
+    err.detail_key = data.detail_key;
+    err.detail_params = data.detail_params;
+    err.status = res.status;
+    throw err;
+  }
+  return data;
+}
+
 // ===== Update notifier =====
 
 const SERVER_VERSION_TIMEOUT_MS = 5000;
