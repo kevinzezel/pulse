@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [2.9.1-pre] — 2026-04-26
+
+### Fixed
+
+- **Codex CLI input no longer disappears when typing the first key on Android Chrome.** xterm.js's default `scrollOnUserInput` is now disabled, so the local viewport stops jumping to the buffer bottom on every keystroke before the PTY responds. The dashboard still scrolls to the bottom on every output chunk, so normal "follow latest output" behaviour is preserved. The `visualViewport.resize` listener was also hardened: it now compares `rows`/`cols` before vs. after `fitAddon.fit()` and only sends a fresh `resize` to the PTY (and a corresponding `scrollToBottom`) when the dimensions actually change, plus the debounce was bumped from 80 ms to 200 ms to absorb Gboard suggestion-bar jitter that triggered redundant SIGWINCHes — Ink-style TUIs (Codex CLI) clear+redraw on every SIGWINCH and were repainting compactly during keyboard animation, leaving the input above the visible viewport.
+
 ## [2.9.0] — 2026-04-25
 
 ### Changed
@@ -985,6 +991,7 @@ First public release.
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
 [Unreleased]: https://github.com/kevinzezel/pulse/compare/v2.9.0...HEAD
+[2.9.1-pre]: https://github.com/kevinzezel/pulse/releases/tag/v2.9.1-pre
 [2.9.0]: https://github.com/kevinzezel/pulse/releases/tag/v2.9.0
 [2.8.0]: https://github.com/kevinzezel/pulse/releases/tag/v2.8.0
 [2.7.2-pre]: https://github.com/kevinzezel/pulse/releases/tag/v2.7.2-pre

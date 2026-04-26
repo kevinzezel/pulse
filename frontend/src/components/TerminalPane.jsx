@@ -251,6 +251,7 @@ export default function TerminalPane({ session, onSessionEnded, onReconnect, isM
         fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', Menlo, monospace",
         scrollback: 50000,
         lineHeight: 1.1,
+        scrollOnUserInput: false,
         theme: getXtermTheme(theme),
       });
 
@@ -491,8 +492,12 @@ export default function TerminalPane({ session, onSessionEnded, onReconnect, isM
   // colapsa) — o ResizeObserver não dispara, o fitAddon não recalcula e o
   // cursor (que estava perto do bottom) acaba encoberto pelo teclado.
   // Listener no visualViewport.resize força um refit + envia novo SIGWINCH
-  // ao shell + scrolla pro bottom. Debounce 80ms pra absorver o jitter de
-  // animação do teclado em iOS/Android.
+  // ao shell + scrolla pro bottom. Debounce 200ms pra absorver o jitter de
+  // animação do teclado e da barra de sugestões do Gboard em iOS/Android.
+  // Guard de mudança real (rows/cols antes vs depois do fit): evita SIGWINCH
+  // redundante quando o vv.resize disparou por flutuação que não cruza row
+  // boundary — TUIs Ink-style (Codex CLI) limpam+redesenham em SIGWINCH e
+  // ficam visivelmente quebradas se forem resized durante jitter de teclado.
   // Gate em pointer:coarse pra não disparar redundante em desktop, onde o
   // ResizeObserver já cobre todo redimensionamento real (o vv.resize aqui
   // só dispararia em zoom in/out — benigno mas evitável).
@@ -506,7 +511,17 @@ export default function TerminalPane({ session, onSessionEnded, onReconnect, isM
       const entry = terminalCache.get(session.id);
       if (!entry?.fitAddon || !entry.terminal) return;
       try {
+        const beforeRows = entry.terminal.rows;
+        const beforeCols = entry.terminal.cols;
+
         entry.fitAddon.fit();
+
+        const changed =
+          entry.terminal.rows !== beforeRows ||
+          entry.terminal.cols !== beforeCols;
+
+        if (!changed) return;
+
         if (entry.ws?.readyState === WebSocket.OPEN) {
           entry.ws.send(JSON.stringify({
             type: 'resize',
@@ -514,12 +529,13 @@ export default function TerminalPane({ session, onSessionEnded, onReconnect, isM
             rows: entry.terminal.rows,
           }));
         }
+
         entry.terminal.scrollToBottom();
       } catch {}
     };
     const onResize = () => {
       if (timer) clearTimeout(timer);
-      timer = setTimeout(refit, 80);
+      timer = setTimeout(refit, 200);
     };
     vv.addEventListener('resize', onResize);
     return () => {
