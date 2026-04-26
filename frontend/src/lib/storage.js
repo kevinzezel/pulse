@@ -288,6 +288,7 @@ export const DATA_REL_PATHS = Object.freeze([
   'data/groups.json',
   'data/notes.json',
   'data/prompts.json',
+  'data/prompt-groups.json',
   'data/servers.json',
   'data/sessions.json',
   'data/compose-drafts.json',

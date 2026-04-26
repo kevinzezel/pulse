@@ -181,6 +181,7 @@ export function insertSession(tree, newId) {
   if (!newId) return tree;
   const normalized = normalizeMosaicTree(tree);
   if (!normalized) return newId;
+  if (getVisibleSessionIds(normalized).has(newId)) return normalized;
   if (typeof normalized === 'string') {
     return makeSplit('row', normalized, newId, 50);
   }

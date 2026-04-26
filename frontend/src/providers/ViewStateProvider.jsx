@@ -8,12 +8,18 @@ const ViewStateContext = createContext(null);
 
 const VIEW_PREFIX = 'rt:view::';
 const FLOW_EMPTY_VALUE = '__pulse_empty_flow__';
+const PROMPT_EMPTY_VALUE = '__pulse_empty_prompt__';
 
 function groupKey(projectId) { return `${projectId}::group`; }
 function flowKey(projectId) { return `${projectId}::flow`; }
 function flowGroupKey(projectId) { return `${projectId}::flowGroup`; }
 function flowInGroupKey(projectId, groupId) {
   return `${projectId}::flow::${groupId ?? '__none__'}`;
+}
+function promptScopeKey(projectId) { return `${projectId}::promptScope`; }
+function promptGroupKey(projectId) { return `${projectId}::promptGroup`; }
+function promptInGroupKey(projectId, groupToken) {
+  return `${projectId}::prompt::${groupToken ?? '__all__'}`;
 }
 function fullKey(inner) { return `${VIEW_PREFIX}${inner}`; }
 
@@ -109,6 +115,49 @@ export function ViewStateProvider({ children }) {
     return viewState[flowInGroupKey(projectId, groupId)] === FLOW_EMPTY_VALUE;
   }, [viewState]);
 
+  const setProjectPromptScope = useCallback((projectId, scope) => {
+    if (!projectId) return;
+    setKey(promptScopeKey(projectId), scope || null);
+  }, [setKey]);
+
+  const getProjectPromptScope = useCallback((projectId) => {
+    if (!projectId) return null;
+    return viewState[promptScopeKey(projectId)] ?? null;
+  }, [viewState]);
+
+  const setProjectPromptGroup = useCallback((projectId, groupToken) => {
+    if (!projectId) return;
+    setKey(promptGroupKey(projectId), groupToken || null);
+  }, [setKey]);
+
+  const getProjectPromptGroup = useCallback((projectId) => {
+    if (!projectId) return null;
+    return viewState[promptGroupKey(projectId)] ?? null;
+  }, [viewState]);
+
+  const setProjectPromptForGroup = useCallback((projectId, groupToken, promptId) => {
+    if (!projectId) return;
+    setKey(promptInGroupKey(projectId, groupToken), promptId || null);
+  }, [setKey]);
+
+  const getProjectPromptForGroup = useCallback((projectId, groupToken) => {
+    if (!projectId) return null;
+    const scoped = viewState[promptInGroupKey(projectId, groupToken)];
+    if (scoped === PROMPT_EMPTY_VALUE) return null;
+    if (scoped !== undefined) return scoped ?? null;
+    return null;
+  }, [viewState]);
+
+  const setProjectPromptEmptyForGroup = useCallback((projectId, groupToken) => {
+    if (!projectId) return;
+    setKey(promptInGroupKey(projectId, groupToken), PROMPT_EMPTY_VALUE);
+  }, [setKey]);
+
+  const isProjectPromptEmptyForGroup = useCallback((projectId, groupToken) => {
+    if (!projectId) return false;
+    return viewState[promptInGroupKey(projectId, groupToken)] === PROMPT_EMPTY_VALUE;
+  }, [viewState]);
+
   const value = {
     viewState,
     hydrated,
@@ -122,6 +171,14 @@ export function ViewStateProvider({ children }) {
     getProjectFlowGroup,
     getProjectFlowForGroup,
     isProjectFlowEmptyForGroup,
+    setProjectPromptScope,
+    getProjectPromptScope,
+    setProjectPromptGroup,
+    getProjectPromptGroup,
+    setProjectPromptForGroup,
+    getProjectPromptForGroup,
+    setProjectPromptEmptyForGroup,
+    isProjectPromptEmptyForGroup,
   };
 
   return <ViewStateContext.Provider value={value}>{children}</ViewStateContext.Provider>;

@@ -10,6 +10,17 @@ const XTERM_THEMES = {
     brightYellow: '#e3b341', brightBlue: '#79c0ff', brightMagenta: '#d2a8ff',
     brightCyan: '#56d4dd', brightWhite: '#f0f6fc',
   },
+  'pulse-graphite': {
+    background: '#06080d',
+    foreground: '#dce4ef',
+    cursor: '#3d9dff',
+    selectionBackground: '#173554',
+    black: '#06080d', red: '#ea526f', green: '#2cc47d', yellow: '#f4ad31',
+    blue: '#3d9dff', magenta: '#956bff', cyan: '#1dcedd', white: '#dce4ef',
+    brightBlack: '#657083', brightRed: '#ff6b86', brightGreen: '#41d892',
+    brightYellow: '#ffc45a', brightBlue: '#6ab7ff', brightMagenta: '#ad8cff',
+    brightCyan: '#4de3ee', brightWhite: '#f5f8fc',
+  },
   light: {
     background: '#ffffff',
     foreground: '#24292f',

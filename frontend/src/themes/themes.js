@@ -1,5 +1,6 @@
 export const THEMES = [
   { id: 'dark', labelKey: 'themes.defaultDark', base: 'dark' },
+  { id: 'pulse-graphite', label: 'Pulse Graphite', base: 'dark' },
   { id: 'light', labelKey: 'themes.defaultLight', base: 'light' },
   { id: 'dracula', label: 'Dracula', base: 'dark' },
   { id: 'nord', label: 'Nord', base: 'dark' },

@@ -1,0 +1,1736 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Pulse Prompts - Protótipos</title>
+  <style>
+    :root {
+      --bg: 222 28% 6%;
+      --surface: 220 22% 9%;
+      --panel: 218 19% 12%;
+      --panel-2: 217 17% 15%;
+      --line: 218 16% 22%;
+      --line-soft: 218 14% 18%;
+      --text: 213 31% 91%;
+      --muted: 216 14% 63%;
+      --faint: 216 12% 44%;
+      --blue: 212 100% 62%;
+      --violet: 258 88% 68%;
+      --green: 154 63% 47%;
+      --amber: 38 92% 58%;
+      --rose: 350 79% 62%;
+      --cyan: 185 78% 52%;
+      --shadow: 0 20px 50px hsl(225 40% 2% / 0.45);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      margin: 0;
+      min-height: 100%;
+      background: hsl(var(--bg));
+      color: hsl(var(--text));
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      letter-spacing: 0;
+    }
+
+    body {
+      overflow: hidden;
+    }
+
+    button,
+    input,
+    textarea {
+      font: inherit;
+      letter-spacing: 0;
+    }
+
+    button {
+      cursor: pointer;
+    }
+
+    .app {
+      display: grid;
+      grid-template-rows: 54px 46px minmax(0, 1fr);
+      height: 100vh;
+      min-height: 640px;
+      background:
+        linear-gradient(180deg, hsl(220 24% 8%) 0, hsl(var(--bg)) 38%),
+        hsl(var(--bg));
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 0 18px;
+      border-bottom: 1px solid hsl(var(--line-soft));
+      background: hsl(222 24% 7% / 0.94);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      min-width: 180px;
+      font-weight: 700;
+      color: hsl(209 100% 67%);
+    }
+
+    .pulse-mark {
+      width: 24px;
+      height: 24px;
+      display: grid;
+      place-items: center;
+      color: currentColor;
+    }
+
+    .project-select {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      height: 32px;
+      min-width: 126px;
+      padding: 0 10px;
+      border: 1px solid hsl(var(--line));
+      border-radius: 6px;
+      color: hsl(var(--text));
+      background: hsl(var(--panel));
+      font-size: 13px;
+    }
+
+    .main-nav {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      min-width: 0;
+    }
+
+    .main-nav span {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      height: 34px;
+      padding: 0 11px;
+      border-radius: 6px;
+      color: hsl(var(--muted));
+      font-size: 14px;
+    }
+
+    .main-nav .active {
+      color: hsl(209 100% 67%);
+      background: hsl(213 72% 47% / 0.18);
+    }
+
+    .top-spacer {
+      flex: 1;
+      min-width: 20px;
+    }
+
+    .lang {
+      color: hsl(var(--muted));
+      font-size: 12px;
+    }
+
+    .variantbar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 18px;
+      border-bottom: 1px solid hsl(var(--line-soft));
+      background: hsl(var(--surface));
+      overflow-x: auto;
+      scrollbar-width: thin;
+    }
+
+    .variant-tab {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      height: 30px;
+      padding: 0 11px;
+      border: 1px solid transparent;
+      border-radius: 999px;
+      background: transparent;
+      color: hsl(var(--muted));
+      white-space: nowrap;
+      font-size: 13px;
+      transition: background .16s ease, color .16s ease, border-color .16s ease;
+    }
+
+    .variant-tab:hover {
+      color: hsl(var(--text));
+      background: hsl(var(--panel));
+    }
+
+    .variant-tab.active {
+      color: hsl(var(--text));
+      border-color: hsl(var(--line));
+      background: hsl(var(--panel-2));
+    }
+
+    .viewport {
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    .panel {
+      display: none;
+      height: 100%;
+      min-height: 0;
+    }
+
+    .panel.active {
+      display: block;
+    }
+
+    .icon {
+      width: 16px;
+      height: 16px;
+      display: inline-block;
+      flex: 0 0 auto;
+      color: currentColor;
+    }
+
+    .icon.sm {
+      width: 13px;
+      height: 13px;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      height: 34px;
+      padding: 0 12px;
+      border: 1px solid hsl(var(--line));
+      border-radius: 6px;
+      background: hsl(var(--panel-2));
+      color: hsl(var(--text));
+      font-size: 13px;
+      white-space: nowrap;
+    }
+
+    .btn:hover {
+      background: hsl(218 18% 18%);
+    }
+
+    .btn.primary {
+      border-color: transparent;
+      background: linear-gradient(135deg, hsl(var(--blue)), hsl(var(--violet)));
+      color: white;
+      font-weight: 650;
+    }
+
+    .btn.ghost {
+      background: transparent;
+      color: hsl(var(--muted));
+    }
+
+    .btn.icon-only {
+      width: 32px;
+      padding: 0;
+    }
+
+    .input-shell {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      height: 36px;
+      min-width: 0;
+      padding: 0 10px;
+      border: 1px solid hsl(var(--line));
+      border-radius: 7px;
+      background: hsl(217 22% 13%);
+      color: hsl(var(--muted));
+    }
+
+    .input-shell input {
+      width: 100%;
+      min-width: 0;
+      border: 0;
+      outline: 0;
+      color: hsl(var(--text));
+      background: transparent;
+      font-size: 13px;
+    }
+
+    .input-shell input::placeholder {
+      color: hsl(var(--faint));
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      height: 28px;
+      padding: 0 10px;
+      border: 1px solid hsl(var(--line));
+      border-radius: 999px;
+      color: hsl(var(--muted));
+      background: hsl(var(--panel));
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .chip.active {
+      color: hsl(var(--text));
+      border-color: hsl(var(--blue) / .55);
+      background: hsl(var(--blue) / .14);
+    }
+
+    .chip .count {
+      display: inline-grid;
+      min-width: 18px;
+      height: 18px;
+      place-items: center;
+      border-radius: 999px;
+      background: hsl(var(--line));
+      color: hsl(var(--text));
+      font-size: 10px;
+      padding: 0 5px;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      height: 20px;
+      padding: 0 7px;
+      border-radius: 999px;
+      background: hsl(var(--line-soft));
+      color: hsl(var(--muted));
+      font-size: 10px;
+      font-weight: 650;
+      white-space: nowrap;
+    }
+
+    .badge.blue {
+      color: hsl(var(--blue));
+      background: hsl(var(--blue) / .14);
+    }
+
+    .badge.green {
+      color: hsl(var(--green));
+      background: hsl(var(--green) / .14);
+    }
+
+    .badge.amber {
+      color: hsl(var(--amber));
+      background: hsl(var(--amber) / .14);
+    }
+
+    .badge.violet {
+      color: hsl(var(--violet));
+      background: hsl(var(--violet) / .14);
+    }
+
+    .split-page {
+      display: grid;
+      grid-template-columns: 248px minmax(360px, 1fr) minmax(320px, 430px);
+      height: 100%;
+      min-height: 0;
+    }
+
+    .library-left,
+    .library-center,
+    .library-right {
+      min-height: 0;
+      border-right: 1px solid hsl(var(--line-soft));
+      background: hsl(var(--surface));
+    }
+
+    .library-center {
+      background: hsl(var(--bg));
+    }
+
+    .library-right {
+      border-right: 0;
+      background: hsl(var(--surface));
+    }
+
+    .rail-header,
+    .content-header,
+    .detail-header {
+      min-height: 70px;
+      padding: 14px 16px;
+      border-bottom: 1px solid hsl(var(--line-soft));
+    }
+
+    .rail-title,
+    .content-title,
+    .detail-title {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+      font-weight: 700;
+    }
+
+    .rail-sub,
+    .content-sub,
+    .detail-sub {
+      margin-top: 4px;
+      color: hsl(var(--muted));
+      font-size: 12px;
+    }
+
+    .rail-list {
+      padding: 10px;
+      overflow: auto;
+      max-height: calc(100vh - 170px);
+    }
+
+    .rail-item {
+      display: grid;
+      grid-template-columns: 20px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 8px;
+      width: 100%;
+      height: 36px;
+      border: 0;
+      border-radius: 7px;
+      background: transparent;
+      color: hsl(var(--muted));
+      text-align: left;
+      font-size: 13px;
+      padding: 0 8px;
+    }
+
+    .rail-item:hover,
+    .rail-item.active {
+      background: hsl(var(--panel-2));
+      color: hsl(var(--text));
+    }
+
+    .rail-item .label {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .rail-item .number {
+      color: hsl(var(--faint));
+      font-size: 11px;
+    }
+
+    .content-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .prompt-list {
+      height: calc(100vh - 170px);
+      min-height: 0;
+      overflow: auto;
+      padding: 14px 16px 28px;
+    }
+
+    .prompt-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 12px;
+      padding: 13px 14px;
+      margin-bottom: 10px;
+      border: 1px solid hsl(var(--line-soft));
+      border-radius: 8px;
+      background: hsl(var(--panel));
+      transition: border-color .16s ease, background .16s ease, transform .16s ease;
+    }
+
+    .prompt-row:hover,
+    .prompt-row.active {
+      border-color: hsl(var(--blue) / .48);
+      background: hsl(217 22% 13%);
+    }
+
+    .prompt-row.active {
+      box-shadow: inset 3px 0 0 hsl(var(--blue));
+    }
+
+    .prompt-title {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+      margin-bottom: 6px;
+    }
+
+    .prompt-title strong {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 14px;
+    }
+
+    .prompt-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      align-items: center;
+      margin-bottom: 9px;
+    }
+
+    .preview-code,
+    .detail-code,
+    .command-code {
+      margin: 0;
+      border: 1px solid hsl(var(--line-soft));
+      border-radius: 7px;
+      background: hsl(220 24% 8%);
+      color: hsl(214 19% 68%);
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: 12px;
+      line-height: 1.45;
+      white-space: pre-wrap;
+      overflow: hidden;
+    }
+
+    .preview-code {
+      max-height: 70px;
+      padding: 9px 10px;
+    }
+
+    .detail-code {
+      min-height: 260px;
+      max-height: 46vh;
+      overflow: auto;
+      padding: 14px;
+    }
+
+    .row-actions {
+      display: flex;
+      gap: 6px;
+      align-items: flex-start;
+      flex-wrap: nowrap;
+    }
+
+    .detail-shell {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      min-height: 0;
+    }
+
+    .detail-body {
+      flex: 1;
+      min-height: 0;
+      overflow: auto;
+      padding: 16px;
+    }
+
+    .detail-name {
+      font-size: 18px;
+      font-weight: 750;
+      margin-bottom: 10px;
+    }
+
+    .detail-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px;
+      margin-bottom: 14px;
+    }
+
+    .detail-actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-top: 14px;
+    }
+
+    .detail-actions .btn.ghost {
+      grid-column: span 2;
+    }
+
+    .editor-fields {
+      display: grid;
+      gap: 10px;
+      margin-top: 18px;
+    }
+
+    .field {
+      display: grid;
+      gap: 5px;
+    }
+
+    .field label {
+      color: hsl(var(--muted));
+      font-size: 11px;
+      font-weight: 650;
+    }
+
+    .field input,
+    .field textarea {
+      width: 100%;
+      border: 1px solid hsl(var(--line));
+      border-radius: 7px;
+      outline: 0;
+      background: hsl(var(--panel));
+      color: hsl(var(--text));
+      padding: 9px 10px;
+      font-size: 13px;
+    }
+
+    .field textarea {
+      min-height: 150px;
+      resize: vertical;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      line-height: 1.45;
+    }
+
+    .terminal-stage {
+      height: 100%;
+      min-height: 0;
+      display: grid;
+      place-items: center;
+      padding: 28px;
+      background:
+        radial-gradient(circle at 20% 10%, hsl(var(--blue) / .08), transparent 30%),
+        hsl(var(--bg));
+    }
+
+    .terminal-frame {
+      width: min(1120px, 100%);
+      height: min(620px, calc(100vh - 150px));
+      min-height: 480px;
+      border: 1px solid hsl(var(--line));
+      border-radius: 9px;
+      overflow: hidden;
+      box-shadow: var(--shadow);
+      background: hsl(220 30% 5%);
+      position: relative;
+    }
+
+    .terminal-titlebar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      height: 36px;
+      padding: 0 12px;
+      border-bottom: 1px solid hsl(var(--line-soft));
+      background: hsl(219 22% 10%);
+      color: hsl(var(--muted));
+      font-size: 12px;
+    }
+
+    .term-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      background: hsl(var(--rose));
+    }
+
+    .term-dot:nth-child(2) {
+      background: hsl(var(--amber));
+    }
+
+    .term-dot:nth-child(3) {
+      background: hsl(var(--green));
+    }
+
+    .terminal-lines {
+      padding: 18px;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      color: hsl(146 45% 61%);
+      font-size: 13px;
+      line-height: 1.65;
+    }
+
+    .terminal-lines span {
+      color: hsl(207 82% 68%);
+    }
+
+    .mock-gear {
+      position: absolute;
+      right: 18px;
+      top: 54px;
+      width: 38px;
+      height: 38px;
+      display: grid;
+      place-items: center;
+      border: 1px solid hsl(var(--line));
+      border-radius: 999px;
+      background: hsl(var(--panel-2));
+      color: hsl(var(--text));
+    }
+
+    .quick-modal {
+      position: absolute;
+      inset: 54px 42px 36px auto;
+      width: min(740px, calc(100% - 84px));
+      max-width: 740px;
+      border: 1px solid hsl(var(--line));
+      border-radius: 10px;
+      background: hsl(var(--surface));
+      box-shadow: var(--shadow);
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      overflow: hidden;
+    }
+
+    .modal-head {
+      padding: 14px 16px 12px;
+      border-bottom: 1px solid hsl(var(--line-soft));
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 12px;
+      align-items: center;
+    }
+
+    .modal-title {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 750;
+      min-width: 0;
+    }
+
+    .modal-sub {
+      color: hsl(var(--muted));
+      font-size: 12px;
+      margin-top: 3px;
+    }
+
+    .quick-body {
+      display: grid;
+      grid-template-columns: 180px minmax(0, 1fr);
+      min-height: 0;
+    }
+
+    .quick-groups {
+      border-right: 1px solid hsl(var(--line-soft));
+      padding: 10px;
+      overflow: auto;
+    }
+
+    .quick-list {
+      min-height: 0;
+      overflow: auto;
+      padding: 12px;
+    }
+
+    .quick-card {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 10px;
+      padding: 11px;
+      margin-bottom: 9px;
+      border: 1px solid hsl(var(--line-soft));
+      border-radius: 8px;
+      background: hsl(var(--panel));
+    }
+
+    .quick-card.pinned {
+      border-color: hsl(var(--amber) / .42);
+      background: hsl(var(--amber) / .07);
+    }
+
+    .quick-card strong {
+      display: block;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 13px;
+      margin-bottom: 6px;
+    }
+
+    .quick-actions {
+      display: flex;
+      align-items: flex-start;
+      gap: 6px;
+    }
+
+    .flow-like {
+      display: grid;
+      grid-template-rows: auto 1fr;
+      height: 100%;
+      min-height: 0;
+    }
+
+    .group-strip {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      height: 45px;
+      padding: 7px 12px;
+      border-bottom: 1px solid hsl(var(--line-soft));
+      background: hsl(var(--surface));
+      overflow-x: auto;
+    }
+
+    .group-strip .add-round {
+      width: 28px;
+      height: 28px;
+      flex: 0 0 auto;
+      border: 1px dashed hsl(var(--line));
+      border-radius: 999px;
+      background: transparent;
+      color: hsl(var(--muted));
+    }
+
+    .flow-main {
+      display: grid;
+      grid-template-columns: 290px minmax(0, 1fr);
+      min-height: 0;
+    }
+
+    .flow-sidebar {
+      border-right: 1px solid hsl(var(--line-soft));
+      background: hsl(var(--surface));
+      min-height: 0;
+      overflow: auto;
+      padding: 12px;
+    }
+
+    .flow-workspace {
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      min-height: 0;
+      background: hsl(var(--bg));
+    }
+
+    .workspace-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      padding: 15px 18px;
+      border-bottom: 1px solid hsl(var(--line-soft));
+    }
+
+    .workspace-grid {
+      min-height: 0;
+      overflow: auto;
+      padding: 16px 18px 28px;
+      display: grid;
+      grid-template-columns: repeat(2, minmax(260px, 1fr));
+      align-content: start;
+      gap: 12px;
+    }
+
+    .prompt-tile {
+      min-height: 166px;
+      border: 1px solid hsl(var(--line-soft));
+      border-radius: 8px;
+      background: hsl(var(--panel));
+      padding: 13px;
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr) auto;
+      gap: 10px;
+    }
+
+    .tile-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .tile-head strong {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 14px;
+    }
+
+    .tile-actions {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      justify-content: flex-end;
+    }
+
+    .command-page {
+      height: 100%;
+      min-height: 0;
+      overflow: auto;
+      padding: 22px;
+      background: hsl(var(--bg));
+    }
+
+    .command-shell {
+      max-width: 1280px;
+      margin: 0 auto;
+      display: grid;
+      gap: 16px;
+    }
+
+    .command-header {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: end;
+      gap: 18px;
+    }
+
+    .hero-title {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 24px;
+      font-weight: 800;
+      margin-bottom: 5px;
+    }
+
+    .hero-sub {
+      color: hsl(var(--muted));
+      font-size: 13px;
+    }
+
+    .command-layout {
+      display: grid;
+      grid-template-columns: minmax(280px, 420px) minmax(0, 1fr);
+      gap: 16px;
+      min-height: 0;
+    }
+
+    .quick-command-grid {
+      display: grid;
+      gap: 10px;
+    }
+
+    .command-card {
+      border: 1px solid hsl(var(--line-soft));
+      border-radius: 8px;
+      background: hsl(var(--panel));
+      padding: 12px;
+    }
+
+    .command-card.featured {
+      border-color: hsl(var(--green) / .42);
+      background: linear-gradient(180deg, hsl(var(--green) / .10), hsl(var(--panel)));
+    }
+
+    .command-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 8px;
+      min-width: 0;
+    }
+
+    .command-title strong {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 14px;
+    }
+
+    .command-code {
+      padding: 9px 10px;
+      max-height: 82px;
+    }
+
+    .wide-list {
+      min-width: 0;
+      display: grid;
+      gap: 10px;
+      align-content: start;
+    }
+
+    .wide-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 12px;
+      align-items: center;
+      border: 1px solid hsl(var(--line-soft));
+      border-radius: 8px;
+      background: hsl(var(--panel));
+      padding: 12px;
+      min-height: 78px;
+    }
+
+    .tag-page {
+      height: 100%;
+      min-height: 0;
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      background: hsl(var(--bg));
+    }
+
+    .tag-toolbar {
+      display: grid;
+      grid-template-columns: minmax(280px, 1fr) auto;
+      gap: 14px;
+      padding: 16px 18px;
+      border-bottom: 1px solid hsl(var(--line-soft));
+      background: hsl(var(--surface));
+      align-items: center;
+    }
+
+    .tag-chips {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .tag-table-wrap {
+      min-height: 0;
+      overflow: auto;
+      padding: 18px;
+    }
+
+    .tag-table {
+      width: 100%;
+      min-width: 900px;
+      border-collapse: separate;
+      border-spacing: 0 8px;
+    }
+
+    .tag-table th {
+      padding: 0 12px 5px;
+      color: hsl(var(--faint));
+      font-size: 11px;
+      text-align: left;
+      text-transform: uppercase;
+      font-weight: 750;
+    }
+
+    .tag-table td {
+      padding: 12px;
+      background: hsl(var(--panel));
+      border-top: 1px solid hsl(var(--line-soft));
+      border-bottom: 1px solid hsl(var(--line-soft));
+      font-size: 13px;
+      vertical-align: middle;
+    }
+
+    .tag-table td:first-child {
+      border-left: 1px solid hsl(var(--line-soft));
+      border-radius: 8px 0 0 8px;
+    }
+
+    .tag-table td:last-child {
+      border-right: 1px solid hsl(var(--line-soft));
+      border-radius: 0 8px 8px 0;
+    }
+
+    .tag-name {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+      font-weight: 650;
+    }
+
+    .tag-stack {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .mini-preview {
+      max-width: 340px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: hsl(var(--muted));
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: 12px;
+    }
+
+    @media (max-width: 1100px) {
+      .split-page {
+        grid-template-columns: 220px minmax(0, 1fr);
+      }
+
+      .library-right {
+        display: none;
+      }
+
+      .workspace-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .command-layout {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 760px) {
+      body {
+        overflow: auto;
+      }
+
+      .app {
+        min-height: 100vh;
+        height: auto;
+        grid-template-rows: auto auto auto;
+      }
+
+      .topbar {
+        flex-wrap: wrap;
+        min-height: 54px;
+        padding: 10px;
+      }
+
+      .brand {
+        min-width: 0;
+      }
+
+      .main-nav {
+        order: 3;
+        width: 100%;
+        overflow-x: auto;
+      }
+
+      .viewport,
+      .panel,
+      .split-page,
+      .terminal-stage,
+      .flow-like,
+      .tag-page {
+        height: auto;
+        min-height: 620px;
+      }
+
+      .split-page {
+        grid-template-columns: 1fr;
+      }
+
+      .library-left {
+        border-right: 0;
+      }
+
+      .library-center {
+        min-height: 520px;
+      }
+
+      .rail-list,
+      .prompt-list {
+        height: auto;
+        max-height: none;
+      }
+
+      .content-header,
+      .command-header,
+      .tag-toolbar,
+      .workspace-head {
+        grid-template-columns: 1fr;
+        flex-direction: column;
+        align-items: stretch;
+      }
+
+      .quick-modal {
+        inset: 46px 12px 18px;
+        width: auto;
+      }
+
+      .quick-body,
+      .flow-main {
+        grid-template-columns: 1fr;
+      }
+
+      .quick-groups,
+      .flow-sidebar {
+        display: none;
+      }
+
+      .terminal-stage {
+        padding: 12px;
+      }
+
+      .terminal-frame {
+        min-height: 560px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand">
+        <span class="pulse-mark">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M3 12h4l2-6 4 12 2-6h6"/></svg>
+        </span>
+        Pulse
+      </div>
+      <div class="project-select">
+        <svg class="icon sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h6l2 2h10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+        Default
+      </div>
+      <nav class="main-nav">
+        <span><svg class="icon sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>Terminais</span>
+        <span><svg class="icon sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 3v6h6"/><path d="M6 9a6 6 0 0 1 6-6h3"/><path d="M18 21v-6h-6"/><path d="M18 15a6 6 0 0 1-6 6H9"/></svg>Flows</span>
+        <span class="active"><svg class="icon sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>Prompts</span>
+        <span><svg class="icon sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 15.5A3.5 3.5 0 1 0 12 8a3.5 3.5 0 0 0 0 7.5z"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 0 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6V21a2 2 0 0 1-4 0v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1A2 2 0 1 1 4.2 17l.1-.1A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.6-1H3a2 2 0 0 1 0-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1A2 2 0 1 1 7 4.2l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.6V3a2 2 0 0 1 4 0v.1a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1A2 2 0 1 1 19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9v.1a1.7 1.7 0 0 0 1.6 1H21a2 2 0 0 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>Settings</span>
+      </nav>
+      <div class="top-spacer"></div>
+      <div class="lang">PT-BR</div>
+    </header>
+
+    <nav class="variantbar" aria-label="Alternativas">
+      <button class="variant-tab active" data-panel="library"><svg class="icon sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M4 4.5A2.5 2.5 0 0 1 6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5z"/></svg>Biblioteca full-screen</button>
+      <button class="variant-tab" data-panel="quick"><svg class="icon sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2 3 14h8l-1 8 11-14h-8z"/></svg>Modal rápido</button>
+      <button class="variant-tab" data-panel="groups"><svg class="icon sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h6l2 2h10v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>Grupos estilo flows</button>
+      <button class="variant-tab" data-panel="commands"><svg class="icon sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m7 8 4 4-4 4"/><path d="M13 16h4"/></svg>Comandos fixados</button>
+      <button class="variant-tab" data-panel="tags"><svg class="icon sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>Tags e filtros</button>
+    </nav>
+
+    <main class="viewport">
+      <section class="panel active" id="panel-library">
+        <div class="split-page">
+          <aside class="library-left">
+            <div class="rail-header">
+              <div class="rail-title">
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h6l2 2h10v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+                Biblioteca
+              </div>
+              <div class="rail-sub">42 itens neste projeto</div>
+            </div>
+            <div class="rail-list">
+              <button class="rail-item active"><svg class="icon sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11.5 2.5 9 9l-6.5 2.5L9 14l2.5 6.5L14 14l6.5-2.5L14 9z"/></svg><span class="label">Fixados</span><span class="number">8</span></button>
+              <button class="rail-item"><svg class="icon sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 0 20"/><path d="M12 2a15.3 15.3 0 0 0 0 20"/></svg><span class="label">Globais</span><span class="number">11</span></button>
+              <button class="rail-item"><svg class="icon sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h6l2 2h10v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg><span class="label">Deploy</span><span class="number">6</span></button>
+              <button class="rail-item"><svg class="icon sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h6l2 2h10v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg><span class="label">Code review</span><span class="number">9</span></button>
+              <button class="rail-item"><svg class="icon sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h6l2 2h10v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg><span class="label">Git e releases</span><span class="number">5</span></button>
+              <button class="rail-item"><svg class="icon sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h6l2 2h10v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg><span class="label">Debug</span><span class="number">7</span></button>
+              <button class="rail-item"><svg class="icon sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 10h-5V5"/><path d="m13 10 6.5-6.5"/><path d="M6 20h12"/><path d="M12 15v5"/></svg><span class="label">Sem grupo</span><span class="number">4</span></button>
+            </div>
+          </aside>
+
+          <section class="library-center">
+            <div class="content-header">
+              <div>
+                <div class="content-title">
+                  <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+                  Prompts
+                </div>
+                <div class="content-sub">Busca em nome e conteúdo</div>
+              </div>
+              <div class="header-actions">
+                <div class="input-shell" style="width: min(420px, 42vw)">
+                  <svg class="icon sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                  <input class="filter-input" data-scope="library" placeholder="Buscar docker, release, review..." />
+                </div>
+                <button class="btn primary"><svg class="icon sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14"/><path d="M5 12h14"/></svg>Novo</button>
+              </div>
+            </div>
+
+            <div class="prompt-list" data-list="library">
+              <article class="prompt-row active searchable" data-text="review mongodb code review projeto fixado">
+                <div>
+                  <div class="prompt-title">
+                    <strong>Code Review - MongoDB</strong>
+                    <span class="badge amber">Fixado</span>
+                    <span class="badge blue">Projeto</span>
+                  </div>
+                  <div class="prompt-meta">
+                    <span class="badge">Code review</span>
+                    <span class="badge">Atualizado agora</span>
+                  </div>
+                  <pre class="preview-code"># MongoDB Code Review Prompt
+## Role
+You are reviewing a storage driver change...</pre>
+                </div>
+                <div class="row-actions">
+                  <button class="btn icon-only" title="Copiar"><svg class="icon sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
+                  <button class="btn icon-only" title="Enviar"><svg class="icon sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m22 2-7 20-4-9-9-4z"/><path d="M22 2 11 13"/></svg></button>
+                  <button class="btn icon-only" title="Editar"><svg class="icon sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg></button>
+                </div>
+              </article>
+
+              <article class="prompt-row searchable" data-text="docker logs tail comando rapido global terminal">
+                <div>
+                  <div class="prompt-title">
+                    <strong>Docker logs da API</strong>
+                    <span class="badge amber">Fixado</span>
+                    <span class="badge green">Comando</span>
+                    <span class="badge violet">Global</span>
+                  </div>
+                  <div class="prompt-meta">
+                    <span class="badge">Debug</span>
+                    <span class="badge">Hoje</span>
+                  </div>
+                  <pre class="preview-code">docker compose logs -f --tail=180 api</pre>
+                </div>
+                <div class="row-actions">
+                  <button class="btn icon-only" title="Copiar"><svg class="icon sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
+                  <button class="btn icon-only" title="Enviar"><svg class="icon sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m22 2-7 20-4-9-9-4z"/><path d="M22 2 11 13"/></svg></button>
+                  <button class="btn icon-only" title="Editar"><svg class="icon sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg></button>
+                </div>
+              </article>
+
+              <article class="prompt-row searchable" data-text="release checklist changelog npm version git tag">
+                <div>
+                  <div class="prompt-title">
+                    <strong>Checklist release pre</strong>
+                    <span class="badge">Git e releases</span>
+                  </div>
+                  <div class="prompt-meta">
+                    <span class="badge blue">Projeto</span>
+                    <span class="badge">Ontem</span>
+                  </div>
+                  <pre class="preview-code">npm run build
+git diff --check
+git status --short</pre>
+                </div>
+                <div class="row-actions">
+                  <button class="btn icon-only" title="Copiar"><svg class="icon sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
+                  <button class="btn icon-only" title="Enviar"><svg class="icon sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m22 2-7 20-4-9-9-4z"/><path d="M22 2 11 13"/></svg></button>
+                  <button class="btn icon-only" title="Editar"><svg class="icon sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg></button>
+                </div>
+              </article>
+
+              <article class="prompt-row searchable" data-text="terraform plan infra deploy production">
+                <div>
+                  <div class="prompt-title">
+                    <strong>Terraform plan produção</strong>
+                    <span class="badge green">Comando</span>
+                  </div>
+                  <div class="prompt-meta">
+                    <span class="badge">Deploy</span>
+                    <span class="badge violet">Global</span>
+                  </div>
+                  <pre class="preview-code">terraform fmt -check
+terraform validate
+terraform plan -out tfplan</pre>
+                </div>
+                <div class="row-actions">
+                  <button class="btn icon-only" title="Copiar"><svg class="icon sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
+                  <button class="btn icon-only" title="Enviar"><svg class="icon sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m22 2-7 20-4-9-9-4z"/><path d="M22 2 11 13"/></svg></button>
+                  <button class="btn icon-only" title="Editar"><svg class="icon sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg></button>
+                </div>
+              </article>
+            </div>
+          </section>
+
+          <aside class="library-right">
+            <div class="detail-shell">
+              <div class="detail-header">
+                <div class="detail-title">
+                  <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+                  Preview
+                </div>
+                <div class="detail-sub">Destino: terminal ativo</div>
+              </div>
+              <div class="detail-body">
+                <div class="detail-name">Code Review - MongoDB</div>
+                <div class="detail-meta">
+                  <span class="badge amber">Fixado</span>
+                  <span class="badge blue">Projeto</span>
+                  <span class="badge">Code review</span>
+                </div>
+                <pre class="detail-code"># MongoDB Code Review Prompt
+
+## Role
+You are reviewing a storage driver change.
+
+## Focus
+- Data consistency
+- Migration behavior
+- Error handling
+- UI feedback when storage is unavailable</pre>
+                <div class="detail-actions">
+                  <button class="btn"><svg class="icon sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m22 2-7 20-4-9-9-4z"/><path d="M22 2 11 13"/></svg>Enviar</button>
+                  <button class="btn primary"><svg class="icon sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2v8"/><path d="m8 6 4 4 4-4"/></svg>Enviar + Enter</button>
+                  <button class="btn ghost"><svg class="icon sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h6l2 2h10v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>Mover para grupo</button>
+                </div>
+                <div class="editor-fields">
+                  <div class="field">
+                    <label>Nome</label>
+                    <input value="Code Review - MongoDB" />
+                  </div>
+                  <div class="field">
+                    <label>Conteúdo</label>
+                    <textarea># MongoDB Code Review Prompt&#10;&#10;## Role&#10;You are reviewing a storage driver change.</textarea>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </aside>
+        </div>
+      </section>
+
+      <section class="panel" id="panel-quick">
+        <div class="terminal-stage">
+          <div class="terminal-frame">
+            <div class="terminal-titlebar">
+              <span class="term-dot"></span><span class="term-dot"></span><span class="term-dot"></span>
+              <span style="margin-left: 8px">pulse / frontend</span>
+            </div>
+            <div class="terminal-lines">
+              <div><span>kevin@dev-box</span>:~/pulse$ npm run dev</div>
+              <div>ready - started server on 0.0.0.0:3000</div>
+              <div><span>kevin@dev-box</span>:~/pulse$ git status --short</div>
+              <div>M frontend/src/components/prompts/PromptsManager.jsx</div>
+              <div><span>kevin@dev-box</span>:~/pulse$</div>
+            </div>
+            <button class="mock-gear" title="Ações"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 15.5A3.5 3.5 0 1 0 12 8a3.5 3.5 0 0 0 0 7.5z"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 0 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6V21a2 2 0 0 1-4 0v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1A2 2 0 1 1 4.2 17l.1-.1A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.6-1H3a2 2 0 0 1 0-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1A2 2 0 1 1 7 4.2l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.6V3a2 2 0 0 1 4 0v.1a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1A2 2 0 1 1 19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9v.1a1.7 1.7 0 0 0 1.6 1H21a2 2 0 0 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
+            <div class="quick-modal">
+              <div class="modal-head">
+                <div>
+                  <div class="modal-title">
+                    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11.5 2.5 9 9l-6.5 2.5L9 14l2.5 6.5L14 14l6.5-2.5L14 9z"/></svg>
+                    Enviar prompt ao terminal
+                  </div>
+                  <div class="modal-sub">frontend / pulse</div>
+                </div>
+                <div class="input-shell" style="width: 300px">
+                  <svg class="icon sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                  <input class="filter-input" data-scope="quick" placeholder="Buscar comando ou prompt..." />
+                </div>
+              </div>
+              <div class="quick-body">
+                <aside class="quick-groups">
+                  <button class="rail-item active"><svg class="icon sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11.5 2.5 9 9l-6.5 2.5L9 14l2.5 6.5L14 14l6.5-2.5L14 9z"/></svg><span class="label">Fixados</span><span class="number">8</span></button>
+                  <button class="rail-item"><svg class="icon sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h6l2 2h10v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg><span class="label">Debug</span><span class="number">7</span></button>
+                  <button class="rail-item"><svg class="icon sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h6l2 2h10v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg><span class="label">Deploy</span><span class="number">6</span></button>
+                  <button class="rail-item"><svg class="icon sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/></svg><span class="label">Globais</span><span class="number">11</span></button>
+                </aside>
+                <div class="quick-list" data-list="quick">
+                  <article class="quick-card pinned searchable" data-text="docker logs api tail debug">
+                    <div>
+                      <strong>Docker logs da API</strong>
+                      <div class="prompt-meta"><span class="badge amber">Fixado</span><span class="badge green">Comando</span><span class="badge">Debug</span></div>
+                      <pre class="preview-code">docker compose logs -f --tail=180 api</pre>
+                    </div>
+                    <div class="quick-actions">
+                      <button class="btn"><svg class="icon sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m22 2-7 20-4-9-9-4z"/></svg>Enviar</button>
+                      <button class="btn primary"><svg class="icon sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18h6"/><path d="M12 2v10"/></svg>↵</button>
+                    </div>
+                  </article>
+                  <article class="quick-card pinned searchable" data-text="git status release build">
+                    <div>
+                      <strong>Status antes de release</strong>
+                      <div class="prompt-meta"><span class="badge amber">Fixado</span><span class="badge green">Comando</span></div>
+                      <pre class="preview-code">git status --short && git diff --check</pre>
+                    </div>
+                    <div class="quick-actions">
+                      <button class="btn"><svg class="icon sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m22 2-7 20-4-9-9-4z"/></svg>Enviar</button>
+                      <button class="btn primary"><svg class="icon sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18h6"/><path d="M12 2v10"/></svg>↵</button>
+                    </div>
+                  </article>
+                  <article class="quick-card searchable" data-text="review prompt mongodb code">
+                    <div>
+                      <strong>Code Review - MongoDB</strong>
+                      <div class="prompt-meta"><span class="badge">Code review</span><span class="badge blue">Projeto</span></div>
+                      <pre class="preview-code"># MongoDB Code Review Prompt
+## Role
+You are reviewing...</pre>
+                    </div>
+                    <div class="quick-actions">
+                      <button class="btn"><svg class="icon sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m22 2-7 20-4-9-9-4z"/></svg>Enviar</button>
+                      <button class="btn primary"><svg class="icon sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18h6"/><path d="M12 2v10"/></svg>↵</button>
+                    </div>
+                  </article>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel" id="panel-groups">
+        <div class="flow-like">
+          <div class="group-strip">
+            <button class="chip active">Sem grupo <span class="count">4</span></button>
+            <button class="chip">Deploy <span class="count">6</span></button>
+            <button class="chip">Code review <span class="count">9</span></button>
+            <button class="chip">Git e releases <span class="count">5</span></button>
+            <button class="chip">Debug <span class="count">7</span></button>
+            <button class="add-round" title="Novo grupo">+</button>
+          </div>
+          <div class="flow-main">
+            <aside class="flow-sidebar">
+              <button class="btn primary" style="width: 100%; margin-bottom: 10px"><svg class="icon sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14"/><path d="M5 12h14"/></svg>Novo prompt</button>
+              <div class="input-shell" style="margin-bottom: 12px">
+                <svg class="icon sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                <input placeholder="Buscar neste grupo..." />
+              </div>
+              <div>
+                <div class="quick-card pinned">
+                  <div>
+                    <strong>Docker logs da API</strong>
+                    <div class="prompt-meta"><span class="badge amber">Fixado</span></div>
+                  </div>
+                  <div class="quick-actions"><button class="btn icon-only"><svg class="icon sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h6l2 2h10v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></button></div>
+                </div>
+                <div class="quick-card">
+                  <div>
+                    <strong>Healthcheck completo</strong>
+                    <div class="prompt-meta"><span class="badge green">Comando</span></div>
+                  </div>
+                  <div class="quick-actions"><button class="btn icon-only"><svg class="icon sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h6l2 2h10v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></button></div>
+                </div>
+              </div>
+            </aside>
+            <section class="flow-workspace">
+              <div class="workspace-head">
+                <div>
+                  <div class="content-title">Sem grupo</div>
+                  <div class="content-sub">Visual próximo da página de flows recém-lançada</div>
+                </div>
+                <div class="header-actions">
+                  <button class="btn"><svg class="icon sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h6l2 2h10v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>Mover</button>
+                  <button class="btn primary"><svg class="icon sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14"/><path d="M5 12h14"/></svg>Novo</button>
+                </div>
+              </div>
+              <div class="workspace-grid">
+                <article class="prompt-tile">
+                  <div class="tile-head">
+                    <strong>Docker logs da API</strong>
+                    <span class="badge amber">Fixado</span>
+                  </div>
+                  <pre class="preview-code">docker compose logs -f --tail=180 api</pre>
+                  <div class="tile-actions">
+                    <button class="btn"><svg class="icon sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m22 2-7 20-4-9-9-4z"/></svg>Enviar</button>
+                    <button class="btn primary">Enviar + ↵</button>
+                  </div>
+                </article>
+                <article class="prompt-tile">
+                  <div class="tile-head">
+                    <strong>Release sanity check</strong>
+                    <span class="badge green">Comando</span>
+                  </div>
+                  <pre class="preview-code">npm run build
+git diff --check
+git status --short</pre>
+                  <div class="tile-actions">
+                    <button class="btn"><svg class="icon sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m22 2-7 20-4-9-9-4z"/></svg>Enviar</button>
+                    <button class="btn primary">Enviar + ↵</button>
+                  </div>
+                </article>
+                <article class="prompt-tile">
+                  <div class="tile-head">
+                    <strong>Prompt de investigação</strong>
+                    <span class="badge blue">Projeto</span>
+                  </div>
+                  <pre class="preview-code">Analise o comportamento abaixo, liste hipóteses e proponha o menor teste...</pre>
+                  <div class="tile-actions">
+                    <button class="btn"><svg class="icon sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m22 2-7 20-4-9-9-4z"/></svg>Enviar</button>
+                    <button class="btn primary">Enviar + ↵</button>
+                  </div>
+                </article>
+                <article class="prompt-tile">
+                  <div class="tile-head">
+                    <strong>Commit message</strong>
+                    <span class="badge violet">Global</span>
+                  </div>
+                  <pre class="preview-code">Escreva uma mensagem de commit curta, imperativa, com escopo claro...</pre>
+                  <div class="tile-actions">
+                    <button class="btn"><svg class="icon sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m22 2-7 20-4-9-9-4z"/></svg>Enviar</button>
+                    <button class="btn primary">Enviar + ↵</button>
+                  </div>
+                </article>
+              </div>
+            </section>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel" id="panel-commands">
+        <div class="command-page">
+          <div class="command-shell">
+            <div class="command-header">
+              <div>
+                <div class="hero-title">
+                  <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m7 8 4 4-4 4"/><path d="M13 16h4"/></svg>
+                  Comandos fixados
+                </div>
+                <div class="hero-sub">Comandos pequenos aparecem antes dos prompts longos.</div>
+              </div>
+              <div class="header-actions">
+                <div class="input-shell" style="width: min(420px, 45vw)">
+                  <svg class="icon sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                  <input placeholder="Buscar..." />
+                </div>
+                <button class="btn primary"><svg class="icon sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14"/><path d="M5 12h14"/></svg>Novo</button>
+              </div>
+            </div>
+            <div class="command-layout">
+              <section class="quick-command-grid">
+                <article class="command-card featured">
+                  <div class="command-title">
+                    <strong>Logs API</strong>
+                    <span class="badge amber">Fixado</span>
+                  </div>
+                  <pre class="command-code">docker compose logs -f --tail=180 api</pre>
+                  <div class="tile-actions" style="margin-top: 10px">
+                    <button class="btn"><svg class="icon sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m22 2-7 20-4-9-9-4z"/></svg>Enviar</button>
+                    <button class="btn primary">Enviar + ↵</button>
+                  </div>
+                </article>
+                <article class="command-card">
+                  <div class="command-title">
+                    <strong>Build frontend</strong>
+                    <span class="badge green">Comando</span>
+                  </div>
+                  <pre class="command-code">cd frontend && npm run build</pre>
+                  <div class="tile-actions" style="margin-top: 10px">
+                    <button class="btn"><svg class="icon sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m22 2-7 20-4-9-9-4z"/></svg>Enviar</button>
+                    <button class="btn primary">Enviar + ↵</button>
+                  </div>
+                </article>
+                <article class="command-card">
+                  <div class="command-title">
+                    <strong>Status release</strong>
+                    <span class="badge green">Comando</span>
+                  </div>
+                  <pre class="command-code">git status --short && git diff --check</pre>
+                  <div class="tile-actions" style="margin-top: 10px">
+                    <button class="btn"><svg class="icon sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m22 2-7 20-4-9-9-4z"/></svg>Enviar</button>
+                    <button class="btn primary">Enviar + ↵</button>
+                  </div>
+                </article>
+              </section>
+              <section class="wide-list">
+                <article class="wide-row">
+                  <div>
+                    <div class="prompt-title"><strong>Code Review - MongoDB</strong><span class="badge">Code review</span><span class="badge blue">Projeto</span></div>
+                    <div class="mini-preview"># MongoDB Code Review Prompt ## Role You are reviewing...</div>
+                  </div>
+                  <div class="tile-actions">
+                    <button class="btn icon-only"><svg class="icon sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
+                    <button class="btn primary">Enviar</button>
+                  </div>
+                </article>
+                <article class="wide-row">
+                  <div>
+                    <div class="prompt-title"><strong>Debug race condition</strong><span class="badge">Debug</span></div>
+                    <div class="mini-preview">Trace the state transitions, list competing writes, and identify...</div>
+                  </div>
+                  <div class="tile-actions">
+                    <button class="btn icon-only"><svg class="icon sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
+                    <button class="btn primary">Enviar</button>
+                  </div>
+                </article>
+                <article class="wide-row">
+                  <div>
+                    <div class="prompt-title"><strong>Escrever changelog</strong><span class="badge">Git e releases</span><span class="badge violet">Global</span></div>
+                    <div class="mini-preview">Transforme os commits abaixo em changelog objetivo, agrupado...</div>
+                  </div>
+                  <div class="tile-actions">
+                    <button class="btn icon-only"><svg class="icon sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
+                    <button class="btn primary">Enviar</button>
+                  </div>
+                </article>
+              </section>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel" id="panel-tags">
+        <div class="tag-page">
+          <div class="tag-toolbar">
+            <div>
+              <div class="tag-chips" style="margin-bottom: 10px">
+                <button class="chip active">Todos <span class="count">42</span></button>
+                <button class="chip">#comando</button>
+                <button class="chip">#deploy</button>
+                <button class="chip">#review</button>
+                <button class="chip">#mongodb</button>
+                <button class="chip">#release</button>
+                <button class="chip">#debug</button>
+              </div>
+              <div class="input-shell" style="max-width: 620px">
+                <svg class="icon sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                <input placeholder="Buscar por nome, conteúdo, tag ou grupo..." />
+              </div>
+            </div>
+            <div class="header-actions">
+              <button class="btn"><svg class="icon sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h6l2 2h10v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>Grupo</button>
+              <button class="btn primary"><svg class="icon sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14"/><path d="M5 12h14"/></svg>Novo</button>
+            </div>
+          </div>
+          <div class="tag-table-wrap">
+            <table class="tag-table">
+              <thead>
+                <tr>
+                  <th>Prompt</th>
+                  <th>Grupo</th>
+                  <th>Tags</th>
+                  <th>Preview</th>
+                  <th>Ações</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><div class="tag-name"><svg class="icon sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11.5 2.5 9 9l-6.5 2.5L9 14l2.5 6.5L14 14l6.5-2.5L14 9z"/></svg>Docker logs da API</div></td>
+                  <td><span class="badge">Debug</span></td>
+                  <td><div class="tag-stack"><span class="badge green">comando</span><span class="badge amber">fixado</span><span class="badge">docker</span></div></td>
+                  <td><div class="mini-preview">docker compose logs -f --tail=180 api</div></td>
+                  <td><div class="tile-actions"><button class="btn">Enviar</button><button class="btn primary">↵</button></div></td>
+                </tr>
+                <tr>
+                  <td><div class="tag-name"><svg class="icon sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>Code Review - MongoDB</div></td>
+                  <td><span class="badge">Code review</span></td>
+                  <td><div class="tag-stack"><span class="badge">review</span><span class="badge">mongodb</span><span class="badge blue">projeto</span></div></td>
+                  <td><div class="mini-preview"># MongoDB Code Review Prompt ## Role...</div></td>
+                  <td><div class="tile-actions"><button class="btn">Enviar</button><button class="btn primary">↵</button></div></td>
+                </tr>
+                <tr>
+                  <td><div class="tag-name"><svg class="icon sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>Checklist release pre</div></td>
+                  <td><span class="badge">Git e releases</span></td>
+                  <td><div class="tag-stack"><span class="badge">release</span><span class="badge green">comando</span><span class="badge">build</span></div></td>
+                  <td><div class="mini-preview">npm run build && git diff --check...</div></td>
+                  <td><div class="tile-actions"><button class="btn">Enviar</button><button class="btn primary">↵</button></div></td>
+                </tr>
+                <tr>
+                  <td><div class="tag-name"><svg class="icon sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>Terraform plan produção</div></td>
+                  <td><span class="badge">Deploy</span></td>
+                  <td><div class="tag-stack"><span class="badge">deploy</span><span class="badge">infra</span><span class="badge violet">global</span></div></td>
+                  <td><div class="mini-preview">terraform fmt -check && terraform validate...</div></td>
+                  <td><div class="tile-actions"><button class="btn">Enviar</button><button class="btn primary">↵</button></div></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    const tabs = document.querySelectorAll('.variant-tab');
+    const panels = document.querySelectorAll('.panel');
+
+    tabs.forEach((tab) => {
+      tab.addEventListener('click', () => {
+        const target = tab.dataset.panel;
+        tabs.forEach((item) => item.classList.toggle('active', item === tab));
+        panels.forEach((panel) => panel.classList.toggle('active', panel.id === `panel-${target}`));
+      });
+    });
+
+    document.querySelectorAll('.filter-input').forEach((input) => {
+      input.addEventListener('input', () => {
+        const scope = input.dataset.scope;
+        const list = document.querySelector(`[data-list="${scope}"]`);
+        if (!list) return;
+        const q = input.value.trim().toLowerCase();
+        list.querySelectorAll('.searchable').forEach((row) => {
+          const text = row.dataset.text || row.textContent;
+          row.style.display = !q || text.toLowerCase().includes(q) ? '' : 'none';
+        });
+      });
+    });
+
+    document.querySelectorAll('.rail-item, .chip').forEach((item) => {
+      item.addEventListener('click', () => {
+        const parent = item.parentElement;
+        if (!parent) return;
+        parent.querySelectorAll('.rail-item, .chip').forEach((sibling) => sibling.classList.remove('active'));
+        item.classList.add('active');
+      });
+    });
+  </script>
+</body>
+</html>

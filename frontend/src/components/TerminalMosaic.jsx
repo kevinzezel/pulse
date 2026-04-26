@@ -8,7 +8,6 @@ import { openEditor, getSessionCwd, splitSessionId } from '@/services/api';
 import { normalizeMosaicTree } from '@/utils/mosaicHelpers';
 import { useTranslation, useErrorToast } from '@/providers/I18nProvider';
 import { getServerById, isServerLocal, useServers } from '@/providers/ServersProvider';
-import { useProjects } from '@/providers/ProjectsProvider';
 import { buildRemoteEditorUrl } from '@/utils/host';
 import TerminalPane from './TerminalPane';
 import TerminalCaptureModal from './TerminalCaptureModal';
@@ -124,7 +123,6 @@ export default function TerminalMosaic({
 }) {
   const { t } = useTranslation();
   const showError = useErrorToast();
-  const { activeProjectId } = useProjects();
   // Depend on localReachable so probe results re-render the isLocal decision.
   useServers();
   const [openingEditorId, setOpeningEditorId] = useState(null);
@@ -239,7 +237,6 @@ export default function TerminalMosaic({
           sessionId={promptsModalSessionId}
           open={!!promptsModalSessionId}
           onClose={() => setPromptsModalSessionId(null)}
-          currentProjectId={activeProjectId}
         />
       </>
     );
@@ -317,7 +314,6 @@ export default function TerminalMosaic({
       sessionId={promptsModalSessionId}
       open={!!promptsModalSessionId}
       onClose={() => setPromptsModalSessionId(null)}
-      currentProjectId={activeProjectId}
     />
     </>
   );

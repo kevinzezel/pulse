@@ -562,10 +562,15 @@ export async function getPrompts() {
   return localRequest('/api/prompts');
 }
 
-export async function createPrompt({ name, body, isGlobal = false }) {
+export async function createPrompt({ name, body, isGlobal = false, groupId = null, pinned = false }) {
   const clean = normalizePrompt({ name, body });
   const { prompts } = await getPrompts();
-  const draft = { ...clean, project_id: isGlobal ? null : getActiveProjectId() };
+  const draft = {
+    ...clean,
+    project_id: isGlobal ? null : getActiveProjectId(),
+    group_id: typeof groupId === 'string' && groupId ? groupId : null,
+    pinned: pinned === true,
+  };
   const res = await localRequest('/api/prompts', {
     method: 'PUT',
     body: JSON.stringify({ prompts: [...prompts, draft] }),
@@ -582,15 +587,27 @@ export async function updatePrompt(promptId, payload) {
     err.detail_key = 'errors.prompt_not_found';
     throw err;
   }
+  // isGlobal flips project_id but keeps group_id intact — groups are global to
+  // the library, not bound to any project.
   let projectId = existing.project_id ?? null;
   if ('isGlobal' in payload) {
     projectId = payload.isGlobal ? null : getActiveProjectId();
+  }
+  let groupId = existing.group_id ?? null;
+  if ('groupId' in payload) {
+    groupId = typeof payload.groupId === 'string' && payload.groupId ? payload.groupId : null;
+  }
+  let pinned = existing.pinned === true;
+  if ('pinned' in payload) {
+    pinned = payload.pinned === true;
   }
   const merged = {
     ...existing,
     ...('name' in payload ? { name: payload.name } : {}),
     ...('body' in payload ? { body: payload.body } : {}),
     project_id: projectId,
+    group_id: groupId,
+    pinned,
     updated_at: new Date().toISOString(),
   };
   const clean = normalizePrompt({
@@ -618,6 +635,102 @@ export async function deletePrompt(promptId) {
     body: JSON.stringify({ prompts: prompts.filter(p => p.id !== promptId) }),
   });
   return { detail_key: 'success.prompt_deleted' };
+}
+
+// ===== Prompt groups (global library categories — no project_id) =====
+
+export async function getPromptGroups() {
+  return localRequest('/api/prompt-groups');
+}
+
+export async function savePromptGroups(groups) {
+  return localRequest('/api/prompt-groups', {
+    method: 'PUT',
+    body: JSON.stringify({ groups }),
+  });
+}
+
+function normalizePromptGroupName(name) {
+  const stripped = String(name ?? '').trim();
+  if (!stripped) {
+    const err = new Error('Prompt group name is required');
+    err.detail_key = 'errors.prompt_group_name_required';
+    throw err;
+  }
+  if (stripped.length > NAME_MAX) {
+    const err = new Error('Prompt group name too long');
+    err.detail_key = 'errors.prompt_group_name_too_long';
+    err.detail_params = { max: NAME_MAX };
+    throw err;
+  }
+  return stripped;
+}
+
+function assertUniquePromptGroupName(groups, name, excludeId = null) {
+  const lowered = name.toLowerCase();
+  if (groups.some(g => g.id !== excludeId && g.name.toLowerCase() === lowered)) {
+    const err = new Error('Prompt group name taken');
+    err.detail_key = 'errors.prompt_group_name_taken';
+    throw err;
+  }
+}
+
+export async function createPromptGroup(name) {
+  const clean = normalizePromptGroupName(name);
+  const { groups } = await getPromptGroups();
+  assertUniquePromptGroupName(groups, clean);
+  const draft = { name: clean };
+  const res = await savePromptGroups([...groups, draft]);
+  const created = res.groups[res.groups.length - 1];
+  return { group: created, detail_key: 'success.prompt_group_created' };
+}
+
+export async function renamePromptGroup(groupId, name) {
+  const clean = normalizePromptGroupName(name);
+  const { groups } = await getPromptGroups();
+  const target = groups.find(g => g.id === groupId);
+  if (!target) {
+    const err = new Error('Prompt group not found');
+    err.detail_key = 'errors.prompt_group_not_found';
+    throw err;
+  }
+  assertUniquePromptGroupName(groups, clean, groupId);
+  const now = new Date().toISOString();
+  const next = groups.map(g => g.id === groupId ? { ...g, name: clean, updated_at: now } : g);
+  const res = await savePromptGroups(next);
+  const updated = res.groups.find(g => g.id === groupId);
+  return { group: updated, detail_key: 'success.prompt_group_renamed' };
+}
+
+export async function deletePromptGroup(groupId) {
+  const { groups } = await getPromptGroups();
+  if (!groups.some(g => g.id === groupId)) {
+    const err = new Error('Prompt group not found');
+    err.detail_key = 'errors.prompt_group_not_found';
+    throw err;
+  }
+  // Clear `group_id` from any prompts pointing at the group BEFORE removing
+  // the group itself. Same pattern as deleteFlowGroup: avoids a tiny window
+  // where the group is gone but the prompt still carries an orphan id.
+  try {
+    const { prompts } = await getPrompts();
+    const orphans = prompts.filter((p) => p.group_id === groupId);
+    if (orphans.length > 0) {
+      const nextPrompts = prompts.map((p) =>
+        p.group_id === groupId ? { ...p, group_id: null } : p
+      );
+      await localRequest('/api/prompts', {
+        method: 'PUT',
+        body: JSON.stringify({ prompts: nextPrompts }),
+      });
+    }
+  } catch (err) {
+    console.warn('deletePromptGroup: orphan cleanup failed:', err);
+  }
+
+  const nextGroups = groups.filter(g => g.id !== groupId);
+  await savePromptGroups(nextGroups);
+  return { detail_key: 'success.prompt_group_deleted' };
 }
 
 export function getSettings(serverId) {

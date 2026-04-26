@@ -6,6 +6,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [2.11.0-pre] — 2026-04-26
+
+### Added
+
+- **Prompts now have a full-screen library experience.** The prompts page was rebuilt around a dedicated library view with group navigation, pinned/ungrouped buckets, global vs project scope filters, search, preview/edit panels and mobile-first navigation.
+- **Prompt groups are now first-class storage data.** The dashboard exposes prompt-group APIs, persists `data/prompt-groups.json`, includes prompt groups in storage sync, and remembers the active prompt scope, group and prompt per project/browser tab through `sessionStorage`.
+- **Pulse Graphite theme.** Added the new dark theme palette across the theme registry, CSS tokens and xterm.js colors.
+- **Prompt library prototype is preserved in docs.** The static UX prototype used to evaluate prompt-library layouts is saved under `docs/prototypes/`.
+
+### Changed
+
+- **Prompt sending now asks for a terminal target from the library.** The library shows a single `Send` action per prompt, opens a terminal picker, and leaves `Send` vs `Send + Enter` to the destination modal. The terminal gear quick-picker keeps the direct two-action flow because the target terminal is already known.
+- **Prompt actions are cleaner on mobile.** The prompt preview now has a back action, shorter `Copy`/`Send` button labels, and a visible copied state after copying.
+
+### Fixed
+
+- **Legacy prompts are normalized when loaded.** Existing saved prompts without the new group/scope fields are normalized by the prompts API so older users keep their data.
+- **Saving prompts no longer makes them disappear from the current view.** When a saved prompt changes between global/project scope or moves groups, the library follows the prompt into a visible filter instead of selecting a sibling.
+- **Prompt sends no longer duplicate Mosaic leaves.** Sending from the prompt library no longer redirects through `/?session=...`, and Mosaic insertion is idempotent so an existing terminal id cannot be inserted twice.
+- **Prompt quick selector send buttons now show in-flight state.** The terminal gear modal disables duplicate sends and shows a spinner while a prompt is being delivered.
+
 ## [2.10.1] — 2026-04-26
 
 ### Fixed
@@ -1015,7 +1036,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v2.10.1...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v2.11.0-pre...HEAD
+[2.11.0-pre]: https://github.com/kevinzezel/pulse/releases/tag/v2.11.0-pre
 [2.10.1]: https://github.com/kevinzezel/pulse/releases/tag/v2.10.1
 [2.10.0]: https://github.com/kevinzezel/pulse/releases/tag/v2.10.0
 [2.9.2-pre]: https://github.com/kevinzezel/pulse/releases/tag/v2.9.2-pre

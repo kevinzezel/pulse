@@ -15,6 +15,7 @@ function normalize(list) {
   const now = new Date().toISOString();
   return list.map((p) => {
     const projectId = (typeof p.project_id === 'string' && p.project_id) ? p.project_id : null;
+    const groupId = (typeof p.group_id === 'string' && p.group_id) ? p.group_id : null;
     return {
       id: p.id || `pid-${randomUUID()}`,
       name: String(p.name ?? '').trim(),
@@ -22,12 +23,14 @@ function normalize(list) {
       created_at: p.created_at || now,
       updated_at: p.updated_at || now,
       project_id: projectId,
+      group_id: groupId,
+      pinned: p.pinned === true,
     };
   });
 }
 
 export const GET = withAuth(async () => {
-  const prompts = await readPrompts();
+  const prompts = normalize(await readPrompts());
   return NextResponse.json({ prompts });
 });
 

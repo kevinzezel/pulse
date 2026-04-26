@@ -86,6 +86,35 @@
   --brand-gradient-to: 262 83% 62%;
 }
 
+.theme-pulse-graphite {
+  --primary: 212 100% 62%;
+  --primary-foreground: 222 28% 6%;
+  --background: 222 28% 6%;
+  --foreground: 213 31% 91%;
+  --card: 218 19% 12%;
+  --card-foreground: 213 31% 91%;
+  --muted: 217 17% 15%;
+  --muted-foreground: 216 14% 63%;
+  --accent: 218 18% 18%;
+  --accent-foreground: 213 31% 91%;
+  --destructive: 350 79% 62%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 218 16% 22%;
+  --input: 217 22% 13%;
+  --ring: 212 100% 62%;
+
+  --terminal-bg: 220 30% 5%;
+  --terminal-header: 219 22% 10%;
+  --terminal-border: 218 16% 22%;
+  --sidebar-bg: 220 22% 9%;
+  --sidebar-border: 218 14% 18%;
+
+  --success: 154 63% 47%;
+  --overlay: 225 40% 2%;
+  --brand-gradient-from: 212 100% 62%;
+  --brand-gradient-to: 258 88% 68%;
+}
+
 .theme-dracula {
   --primary: 265 89% 78%;
   --primary-foreground: 231 15% 18%;
