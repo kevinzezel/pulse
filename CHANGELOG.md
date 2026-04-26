@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [2.9.2-pre] — 2026-04-26
+
+### Fixed
+
+- **The dashboard now keeps the active project after a page refresh.** `ProjectsProvider` initializes the tab's active project from `sessionStorage` before consumers render, tracks the tab-scoped selection with a ref to avoid stale refresh closures, and only falls back to the stored server active project when the tab's project no longer exists. This prevents `/api/projects.active_project_id` from overwriting the project selected in the current tab while preserving the existing per-project group, terminal and layout state.
+
 ## [2.9.1] — 2026-04-26
 
 ### Fixed
@@ -991,7 +997,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v2.9.1...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v2.9.2-pre...HEAD
+[2.9.2-pre]: https://github.com/kevinzezel/pulse/releases/tag/v2.9.2-pre
 [2.9.1]: https://github.com/kevinzezel/pulse/releases/tag/v2.9.1
 [2.9.0]: https://github.com/kevinzezel/pulse/releases/tag/v2.9.0
 [2.8.0]: https://github.com/kevinzezel/pulse/releases/tag/v2.8.0

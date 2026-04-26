@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useEffect, useState, useCallback, useMemo } from 'react';
+import { createContext, useContext, useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { usePathname } from 'next/navigation';
 import {
   getProjects,
@@ -17,49 +17,70 @@ const STORAGE_KEY = 'rt:activeProjectId';
 
 const ProjectsContext = createContext(null);
 
+function readStoredActiveProjectId() {
+  const stored = ssRead(STORAGE_KEY, null);
+  return (typeof stored === 'string' && stored) ? stored : null;
+}
+
 export function ProjectsProvider({ children }) {
   const pathname = usePathname();
+  const initialActiveProjectId = useMemo(() => readStoredActiveProjectId(), []);
   const [projects, setProjects] = useState([]);
-  const [activeProjectId, setActiveProjectIdState] = useState(DEFAULT_PROJECT_ID);
-  const [hasTabActive, setHasTabActive] = useState(false);
+  const [activeProjectId, setActiveProjectIdState] = useState(() => initialActiveProjectId || DEFAULT_PROJECT_ID);
+  // Ref instead of state: prevents refreshProjects from closing over a stale
+  // value (the stale-closure capture was what overwrote the tab's chosen
+  // project on F5).
+  const hasTabActiveRef = useRef(Boolean(initialActiveProjectId));
   const [loading, setLoading] = useState(true);
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    const stored = ssRead(STORAGE_KEY, null);
-    if (typeof stored === 'string' && stored) {
-      setActiveProjectIdState(stored);
-      setActiveProjectIdInModule(stored);
-      setHasTabActive(true);
-    }
-  }, []);
+    setActiveProjectIdInModule(activeProjectId);
+  }, [activeProjectId]);
 
   const persistActive = useCallback((id) => {
     setActiveProjectIdState(id);
     setActiveProjectIdInModule(id);
     ssWrite(STORAGE_KEY, id);
-    setHasTabActive(true);
+    hasTabActiveRef.current = true;
   }, []);
 
-  const applyState = useCallback((state, { adoptActive } = {}) => {
+  const applyState = useCallback((state) => {
     setProjects(state.projects || []);
-    if (adoptActive) {
-      const next = state.active_project_id || DEFAULT_PROJECT_ID;
-      persistActive(next);
-    }
-  }, [persistActive]);
+  }, []);
 
   const refreshProjects = useCallback(async () => {
     setLoading(true);
     try {
       const state = await getProjects();
-      applyState(state, { adoptActive: !hasTabActive });
+      const list = state.projects || [];
+      setProjects(list);
+
+      if (hasTabActiveRef.current) {
+        // Tab already picked a project — keep it if still valid, else fall
+        // back to the server's active id (if valid) and finally to the
+        // default. Covers the case where another tab/process deleted it.
+        const storedId = readStoredActiveProjectId() ?? DEFAULT_PROJECT_ID;
+        if (!list.some(p => p.id === storedId)) {
+          const serverActive = state.active_project_id;
+          const fallback = list.some(p => p.id === serverActive)
+            ? serverActive
+            : DEFAULT_PROJECT_ID;
+          persistActive(fallback);
+        }
+      } else {
+        const serverActive = state.active_project_id;
+        const next = list.some(p => p.id === serverActive)
+          ? serverActive
+          : DEFAULT_PROJECT_ID;
+        persistActive(next);
+      }
       setLoaded(true);
       return state;
     } finally {
       setLoading(false);
     }
-  }, [applyState, hasTabActive]);
+  }, [persistActive]);
 
   useEffect(() => {
     if (pathname === '/login') return;
@@ -77,19 +98,19 @@ export function ProjectsProvider({ children }) {
 
   const createProject = useCallback(async (name) => {
     const res = await apiCreate(name);
-    applyState(res.state, { adoptActive: false });
+    applyState(res.state);
     return res;
   }, [applyState]);
 
   const renameProject = useCallback(async (id, name) => {
     const res = await apiRename(id, name);
-    applyState(res.state, { adoptActive: false });
+    applyState(res.state);
     return res;
   }, [applyState]);
 
   const deleteProject = useCallback(async (id) => {
     const res = await apiDelete(id);
-    applyState(res.state, { adoptActive: false });
+    applyState(res.state);
     if (id === activeProjectId) {
       const next = (res.state?.projects || []).find((p) => p.id !== id);
       persistActive(next ? next.id : DEFAULT_PROJECT_ID);
@@ -102,7 +123,7 @@ export function ProjectsProvider({ children }) {
     setProjects(prev => reorderById(prev, fromId, toId));
     try {
       const res = await apiReorder(fromId, toId);
-      applyState(res.state, { adoptActive: false });
+      applyState(res.state);
     } catch (err) {
       await refreshProjects().catch(() => {});
       throw err;
