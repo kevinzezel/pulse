@@ -6,7 +6,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
-## [2.10.0-pre] — 2026-04-26
+## [2.10.1] — 2026-04-26
+
+### Fixed
+
+- **Empty flow selection is now preserved per project and group.** Toggling the selected flow off stores an explicit empty-selection marker in the tab-scoped view state, so the Flows screen stays blank after refreshes, project switches, group switches and tab navigation until another flow is selected.
+
+## [2.10.0] — 2026-04-26
 
 ### Added
 
@@ -1009,8 +1015,9 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v2.10.0-pre...HEAD
-[2.10.0-pre]: https://github.com/kevinzezel/pulse/releases/tag/v2.10.0-pre
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v2.10.1...HEAD
+[2.10.1]: https://github.com/kevinzezel/pulse/releases/tag/v2.10.1
+[2.10.0]: https://github.com/kevinzezel/pulse/releases/tag/v2.10.0
 [2.9.2-pre]: https://github.com/kevinzezel/pulse/releases/tag/v2.9.2-pre
 [2.9.1]: https://github.com/kevinzezel/pulse/releases/tag/v2.9.1
 [2.9.0]: https://github.com/kevinzezel/pulse/releases/tag/v2.9.0

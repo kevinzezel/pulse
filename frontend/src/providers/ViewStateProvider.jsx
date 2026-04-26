@@ -7,6 +7,7 @@ import { ssRead, ssWrite, ssRemove, ssListKeysWithPrefix } from '@/lib/sessionSt
 const ViewStateContext = createContext(null);
 
 const VIEW_PREFIX = 'rt:view::';
+const FLOW_EMPTY_VALUE = '__pulse_empty_flow__';
 
 function groupKey(projectId) { return `${projectId}::group`; }
 function flowKey(projectId) { return `${projectId}::flow`; }
@@ -69,6 +70,11 @@ export function ViewStateProvider({ children }) {
     setKey(flowInGroupKey(projectId, groupId), flowId || null);
   }, [setKey]);
 
+  const setProjectFlowEmptyForGroup = useCallback((projectId, groupId) => {
+    if (!projectId) return;
+    setKey(flowInGroupKey(projectId, groupId), FLOW_EMPTY_VALUE);
+  }, [setKey]);
+
   const getProjectGroup = useCallback((projectId) => {
     if (!projectId) return null;
     return viewState[groupKey(projectId)] ?? null;
@@ -90,11 +96,17 @@ export function ViewStateProvider({ children }) {
   const getProjectFlowForGroup = useCallback((projectId, groupId) => {
     if (!projectId) return null;
     const scoped = viewState[flowInGroupKey(projectId, groupId)];
+    if (scoped === FLOW_EMPTY_VALUE) return null;
     if (scoped !== undefined) return scoped ?? null;
     if (groupId === null) {
       return viewState[flowKey(projectId)] ?? null;
     }
     return null;
+  }, [viewState]);
+
+  const isProjectFlowEmptyForGroup = useCallback((projectId, groupId) => {
+    if (!projectId) return false;
+    return viewState[flowInGroupKey(projectId, groupId)] === FLOW_EMPTY_VALUE;
   }, [viewState]);
 
   const value = {
@@ -104,10 +116,12 @@ export function ViewStateProvider({ children }) {
     setProjectFlow,
     setProjectFlowGroup,
     setProjectFlowForGroup,
+    setProjectFlowEmptyForGroup,
     getProjectGroup,
     getProjectFlow,
     getProjectFlowGroup,
     getProjectFlowForGroup,
+    isProjectFlowEmptyForGroup,
   };
 
   return <ViewStateContext.Provider value={value}>{children}</ViewStateContext.Provider>;

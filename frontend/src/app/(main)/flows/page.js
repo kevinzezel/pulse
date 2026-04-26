@@ -58,8 +58,10 @@ export default function FlowsPage() {
     setProjectFlow,
     setProjectFlowGroup,
     setProjectFlowForGroup,
+    setProjectFlowEmptyForGroup,
     getProjectFlowGroup,
     getProjectFlowForGroup,
+    isProjectFlowEmptyForGroup,
     hydrated: hydratedViewState,
   } = useViewState();
 
@@ -104,6 +106,9 @@ export default function FlowsPage() {
   const selectedFlowId = hydratedViewState
     ? getProjectFlowForGroup(activeProjectId, selectedFlowGroupId)
     : null;
+  const selectedFlowEmpty = hydratedViewState
+    ? isProjectFlowEmptyForGroup(activeProjectId, selectedFlowGroupId)
+    : false;
 
   const setSelectedFlowId = useCallback((id) => {
     if (!activeProjectId) return;
@@ -117,7 +122,6 @@ export default function FlowsPage() {
   const pendingSceneRef = useRef({});
   const saveTimersRef = useRef({});
   const lastSceneRef = useRef({ id: null, elementsLen: 0, elementsVersion: 0, bgColor: null, filesCount: 0 });
-  const userDeselectedRef = useRef(false);
 
   useEffect(() => {
     const storedSidebar = (() => {
@@ -227,25 +231,19 @@ export default function FlowsPage() {
     return flowsInSelectedGroup.filter((f) => f.name.toLowerCase().includes(q));
   }, [flowsInSelectedGroup, searchQuery]);
 
-  // Reset the explicit-deselect intent whenever the user changes group, so
-  // entering a new group lands on its first flow instead of staying empty.
-  useEffect(() => {
-    userDeselectedRef.current = false;
-  }, [selectedFlowGroupId]);
-
   // Keep selection inside the current group's list (only after full hydration).
-  // Respects an explicit user deselect — stays empty until they pick again or
-  // change groups.
+  // Respects an explicit persisted deselect — stays empty until they pick
+  // another flow in this project/group.
   useEffect(() => {
     if (!dataReady || loading) return;
     if (selectedFlowId && flowsInSelectedGroup.some((f) => f.id === selectedFlowId)) return;
-    if (userDeselectedRef.current) return;
+    if (selectedFlowEmpty) return;
     if (flowsInSelectedGroup.length > 0) {
       setSelectedFlowId(flowsInSelectedGroup[0].id);
     } else {
       setSelectedFlowId(null);
     }
-  }, [flowsInSelectedGroup, selectedFlowId, dataReady, loading, setSelectedFlowId]);
+  }, [flowsInSelectedGroup, selectedFlowId, selectedFlowEmpty, dataReady, loading, setSelectedFlowId]);
 
   const selectedFlow = useMemo(
     () => flowsInSelectedGroup.find((f) => f.id === selectedFlowId) || null,
@@ -314,10 +312,9 @@ export default function FlowsPage() {
     }
     lastSceneRef.current = { id: null, elementsLen: 0, elementsVersion: 0, bgColor: null, filesCount: 0 };
     if (isToggleOff) {
-      userDeselectedRef.current = true;
-      setSelectedFlowId(null);
+      setProjectFlowEmptyForGroup(activeProjectId, selectedFlowGroupId);
+      setProjectFlow(activeProjectId, null);
     } else {
-      userDeselectedRef.current = false;
       setSelectedFlowId(id);
     }
   }
@@ -338,7 +335,6 @@ export default function FlowsPage() {
       const createdGroupId = created.group_id || null;
       if (createdGroupId !== selectedFlowGroupId) {
         setSelectedFlowGroupId(createdGroupId);
-        userDeselectedRef.current = false;
       }
       setProjectFlowForGroup(activeProjectId, createdGroupId, created.id);
       setProjectFlow(activeProjectId, created.id);
