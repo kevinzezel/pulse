@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import Link from 'next/link';
 import {
-  X, Mic, Square, Send, CornerDownLeft, Loader, AlertTriangle, RotateCcw, Settings as SettingsIcon,
+  X, Mic, Pause, Play, Wand2, Loader, AlertTriangle, RotateCcw, Settings as SettingsIcon,
 } from 'lucide-react';
 import { useTranslation } from '@/providers/I18nProvider';
 import { useIsMobile, useVisualViewportHeight } from '@/hooks/layout';
@@ -18,9 +18,6 @@ const TARGET_SAMPLE_RATE = 16000;
 const MAX_AUDIO_BYTES = 8 * 1024 * 1024;
 const MAX_RECORDING_SECONDS = 240;
 const SOFT_WARN_SECONDS = 210;
-// Mirror the client FastAPI send-text limit so we warn before the user hits it.
-const SEND_TEXT_MAX_CHARS = 10000;
-
 function encodeWavMono16(samples, sampleRate) {
   // samples: Float32Array in [-1, 1]
   const length = samples.length;
@@ -166,7 +163,7 @@ function VoiceWaveform({ analyser, active }) {
   );
 }
 
-export default function VoiceCommandModal({ sessionName, onSend, onClose }) {
+export default function VoiceCommandModal({ sessionName, onTranscript, onClose }) {
   const { t } = useTranslation();
   const isMobile = useIsMobile();
   const vvHeight = useVisualViewportHeight();
@@ -176,16 +173,14 @@ export default function VoiceCommandModal({ sessionName, onSend, onClose }) {
   //   'not-configured' → no Gemini key; show CTA
   //   'requesting' → asking for mic permission
   //   'recording' → live mic + waveform
+  //   'paused' → mic is held, captured audio is preserved, callbacks ignored
   //   'transcribing' → audio uploaded, waiting on Gemini
-  //   'review' → editable transcript, ready to send
-  //   'sending' → sending text to terminal
   //   'error' → with a localized message + retry/back actions
   const [phase, setPhase] = useState('checking');
   const [errorKey, setErrorKey] = useState(null);
   const [errorParams, setErrorParams] = useState(null);
   const [errorOrigin, setErrorOrigin] = useState(null); // 'permission' | 'transcription' | 'send' | 'config'
   const [seconds, setSeconds] = useState(0);
-  const [transcript, setTranscript] = useState('');
   const [analyser, setAnalyser] = useState(null);
 
   const streamRef = useRef(null);
@@ -197,13 +192,17 @@ export default function VoiceCommandModal({ sessionName, onSend, onClose }) {
   const totalSamplesRef = useRef(0);
   const sampleRateRef = useRef(TARGET_SAMPLE_RATE);
   const tickRef = useRef(null);
-  const startedAtRef = useRef(0);
+  const activeStartedAtRef = useRef(0);
+  const elapsedBeforePauseRef = useRef(0);
   const mountedRef = useRef(true);
-  const transcriptRef = useRef('');
-  const taRef = useRef(null);
   const phaseRef = useRef('checking');
   const finishingRef = useRef(false);
   const abortRef = useRef(null);
+
+  const setPhaseNow = useCallback((next) => {
+    phaseRef.current = next;
+    setPhase(next);
+  }, []);
 
   const stopAndCleanupAudio = useCallback(() => {
     if (tickRef.current) {
@@ -234,6 +233,12 @@ export default function VoiceCommandModal({ sessionName, onSend, onClose }) {
     phaseRef.current = phase;
   }, [phase]);
 
+  function handleClose() {
+    abortRef.current?.abort();
+    stopAndCleanupAudio();
+    onClose?.();
+  }
+
   useEffect(() => () => {
     mountedRef.current = false;
     abortRef.current?.abort();
@@ -249,7 +254,7 @@ export default function VoiceCommandModal({ sessionName, onSend, onClose }) {
         if (cancelled) return;
         const configured = !!data?.providers?.gemini?.configured;
         if (!configured) {
-          setPhase('not-configured');
+          setPhaseNow('not-configured');
           return;
         }
         await beginRecording();
@@ -258,7 +263,7 @@ export default function VoiceCommandModal({ sessionName, onSend, onClose }) {
         setErrorOrigin('config');
         setErrorKey(err?.detail_key || 'errors.intelligence.gemini.config_load_failed');
         setErrorParams(err?.detail_params || null);
-        setPhase('error');
+        setPhaseNow('error');
       }
     })();
     return () => { cancelled = true; };
@@ -272,10 +277,10 @@ export default function VoiceCommandModal({ sessionName, onSend, onClose }) {
       setErrorKey(window.isSecureContext === false
         ? 'errors.intelligence.voice.insecure_context'
         : 'errors.intelligence.voice.unsupported');
-      setPhase('error');
+      setPhaseNow('error');
       return;
     }
-    setPhase('requesting');
+    setPhaseNow('requesting');
     let stream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({
@@ -299,7 +304,7 @@ export default function VoiceCommandModal({ sessionName, onSend, onClose }) {
         setErrorKey('errors.intelligence.voice.permission_failed');
         setErrorParams({ reason: err?.message || String(err) });
       }
-      setPhase('error');
+      setPhaseNow('error');
       return;
     }
     if (!mountedRef.current) {
@@ -316,7 +321,7 @@ export default function VoiceCommandModal({ sessionName, onSend, onClose }) {
       stopAndCleanupAudio();
       setErrorOrigin('permission');
       setErrorKey('errors.intelligence.voice.unsupported');
-      setPhase('error');
+      setPhaseNow('error');
       return;
     }
     let ctx;
@@ -351,6 +356,7 @@ export default function VoiceCommandModal({ sessionName, onSend, onClose }) {
     totalSamplesRef.current = 0;
 
     processor.onaudioprocess = (e) => {
+      if (phaseRef.current !== 'recording') return;
       const input = e.inputBuffer.getChannelData(0);
       // Copy because the underlying buffer gets reused on the next callback.
       const copy = new Float32Array(input.length);
@@ -367,10 +373,14 @@ export default function VoiceCommandModal({ sessionName, onSend, onClose }) {
     processor.connect(muteNode);
     muteNode.connect(ctx.destination);
 
-    startedAtRef.current = performance.now();
+    elapsedBeforePauseRef.current = 0;
+    activeStartedAtRef.current = performance.now();
     setSeconds(0);
     tickRef.current = setInterval(() => {
-      const elapsed = (performance.now() - startedAtRef.current) / 1000;
+      const activeMs = phaseRef.current === 'recording'
+        ? performance.now() - activeStartedAtRef.current
+        : 0;
+      const elapsed = (elapsedBeforePauseRef.current + activeMs) / 1000;
       if (!mountedRef.current) return;
       setSeconds(elapsed);
       if (elapsed >= MAX_RECORDING_SECONDS) {
@@ -379,13 +389,32 @@ export default function VoiceCommandModal({ sessionName, onSend, onClose }) {
       }
     }, 200);
 
-    setPhase('recording');
+    setPhaseNow('recording');
+  }
+
+  function pauseRecording() {
+    if (phaseRef.current !== 'recording') return;
+    elapsedBeforePauseRef.current += performance.now() - activeStartedAtRef.current;
+    setSeconds(elapsedBeforePauseRef.current / 1000);
+    try { audioCtxRef.current?.suspend?.(); } catch {}
+    setPhaseNow('paused');
+  }
+
+  async function resumeRecording() {
+    if (phaseRef.current !== 'paused') return;
+    try { await audioCtxRef.current?.resume?.(); } catch {}
+    activeStartedAtRef.current = performance.now();
+    setPhaseNow('recording');
   }
 
   async function finishRecording() {
     if (!mountedRef.current) return;
-    if (phaseRef.current !== 'recording' || finishingRef.current) return;
+    if (!['recording', 'paused'].includes(phaseRef.current) || finishingRef.current) return;
     finishingRef.current = true;
+    if (phaseRef.current === 'recording') {
+      elapsedBeforePauseRef.current += performance.now() - activeStartedAtRef.current;
+      setSeconds(elapsedBeforePauseRef.current / 1000);
+    }
 
     const samples = totalSamplesRef.current;
     const sampleRate = sampleRateRef.current || TARGET_SAMPLE_RATE;
@@ -393,13 +422,13 @@ export default function VoiceCommandModal({ sessionName, onSend, onClose }) {
     chunksRef.current = [];
     totalSamplesRef.current = 0;
 
-    setPhase('transcribing');
+    setPhaseNow('transcribing');
     stopAndCleanupAudio();
 
     if (samples === 0) {
       setErrorOrigin('transcription');
       setErrorKey('errors.intelligence.voice.empty_audio');
-      setPhase('error');
+      setPhaseNow('error');
       finishingRef.current = false;
       return;
     }
@@ -413,7 +442,7 @@ export default function VoiceCommandModal({ sessionName, onSend, onClose }) {
       setErrorOrigin('transcription');
       setErrorKey('errors.intelligence.voice.encode_failed');
       setErrorParams({ reason: err?.message || String(err) });
-      setPhase('error');
+      setPhaseNow('error');
       finishingRef.current = false;
       return;
     }
@@ -422,7 +451,7 @@ export default function VoiceCommandModal({ sessionName, onSend, onClose }) {
       setErrorOrigin('transcription');
       setErrorKey('errors.intelligence.audio_too_large');
       setErrorParams({ max_mb: Math.floor(MAX_AUDIO_BYTES / (1024 * 1024)) });
-      setPhase('error');
+      setPhaseNow('error');
       finishingRef.current = false;
       return;
     }
@@ -437,21 +466,11 @@ export default function VoiceCommandModal({ sessionName, onSend, onClose }) {
         setErrorOrigin('transcription');
         setErrorKey('errors.intelligence.gemini.empty_transcript');
         setErrorParams({ reason: 'no-text' });
-        setPhase('error');
+        setPhaseNow('error');
         finishingRef.current = false;
         return;
       }
-      transcriptRef.current = text;
-      setTranscript(text);
-      setPhase('review');
-      // Defer focus so the textarea exists before we touch it.
-      requestAnimationFrame(() => {
-        const ta = taRef.current;
-        if (ta) {
-          ta.focus();
-          ta.setSelectionRange(text.length, text.length);
-        }
-      });
+      await onTranscript?.(text);
     } catch (err) {
       abortRef.current = null;
       if (!mountedRef.current) return;
@@ -459,7 +478,7 @@ export default function VoiceCommandModal({ sessionName, onSend, onClose }) {
       setErrorOrigin('transcription');
       setErrorKey(err?.detail_key || 'errors.intelligence.gemini.upstream_failed');
       setErrorParams(err?.detail_params || { reason: err?.message || String(err) });
-      setPhase('error');
+      setPhaseNow('error');
     } finally {
       finishingRef.current = false;
     }
@@ -469,24 +488,8 @@ export default function VoiceCommandModal({ sessionName, onSend, onClose }) {
     setErrorKey(null);
     setErrorParams(null);
     setErrorOrigin(null);
-    setTranscript('');
-    transcriptRef.current = '';
     setSeconds(0);
     beginRecording();
-  }
-
-  async function submit(sendEnter) {
-    if (phase === 'sending') return;
-    const text = transcript;
-    const trimmed = text.trim();
-    if (!trimmed) return;
-    setPhase('sending');
-    let sent = false;
-    try {
-      sent = (await onSend(text, sendEnter)) === true;
-    } finally {
-      if (!sent && mountedRef.current) setPhase('review');
-    }
   }
 
   // ----- Render helpers -----
@@ -494,9 +497,6 @@ export default function VoiceCommandModal({ sessionName, onSend, onClose }) {
   const titleLabel = sessionName
     ? `${t('voice.title')} — ${sessionName}`
     : t('voice.title');
-
-  const tooLong = transcript.length > SEND_TEXT_MAX_CHARS;
-  const closeDisabled = phase === 'sending';
 
   function Header() {
     return (
@@ -507,9 +507,8 @@ export default function VoiceCommandModal({ sessionName, onSend, onClose }) {
         <span className="text-sm font-medium text-foreground truncate">{titleLabel}</span>
         <button
           type="button"
-          onClick={onClose}
-          disabled={closeDisabled}
-          className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-md text-muted-foreground hover:bg-muted/40 hover:text-foreground transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          onClick={handleClose}
+          className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-md text-muted-foreground hover:bg-muted/40 hover:text-foreground transition-colors"
           title={t('common.cancel')}
           aria-label={t('common.cancel')}
         >
@@ -539,7 +538,7 @@ export default function VoiceCommandModal({ sessionName, onSend, onClose }) {
         </p>
         <Link
           href="/settings?tab=intelligence"
-          onClick={onClose}
+          onClick={handleClose}
           className="inline-flex items-center gap-1.5 px-3 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:opacity-90"
         >
           <SettingsIcon size={14} />
@@ -572,7 +571,7 @@ export default function VoiceCommandModal({ sessionName, onSend, onClose }) {
           {errorOrigin === 'config' || errorOrigin === 'permission' ? (
             <Link
               href="/settings?tab=intelligence"
-              onClick={onClose}
+              onClick={handleClose}
               className="inline-flex items-center gap-1.5 px-3 py-2 rounded-md border border-border text-foreground hover:bg-muted/40 text-sm font-medium"
             >
               <SettingsIcon size={14} />
@@ -581,7 +580,7 @@ export default function VoiceCommandModal({ sessionName, onSend, onClose }) {
           ) : null}
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleClose}
             className="inline-flex items-center gap-1.5 px-3 py-2 rounded-md border border-border text-foreground hover:bg-muted/40 text-sm font-medium"
           >
             {t('common.cancel')}
@@ -593,9 +592,10 @@ export default function VoiceCommandModal({ sessionName, onSend, onClose }) {
 
   function RecordingBody() {
     const warn = seconds >= SOFT_WARN_SECONDS;
+    const paused = phase === 'paused';
     return (
-      <div className="flex-1 min-h-0 flex flex-col gap-4 p-4">
-        <div className="flex-1 min-h-[140px] rounded border" style={{ borderColor: 'hsl(var(--border))' }}>
+      <div className="flex flex-col gap-4 p-4">
+        <div className="h-36 rounded border" style={{ borderColor: 'hsl(var(--border))' }}>
           <VoiceWaveform analyser={analyser} active={phase === 'recording'} />
         </div>
         <div className="flex items-center justify-between">
@@ -606,6 +606,9 @@ export default function VoiceCommandModal({ sessionName, onSend, onClose }) {
             </span>
             <span className="text-sm font-mono text-foreground">{fmtMmss(seconds)}</span>
             <span className="text-xs text-muted-foreground">/ {fmtMmss(MAX_RECORDING_SECONDS)}</span>
+            {paused && (
+              <span className="text-xs text-muted-foreground">{t('voice.recording.paused')}</span>
+            )}
           </div>
           {warn && (
             <span className="text-xs text-destructive">
@@ -613,14 +616,23 @@ export default function VoiceCommandModal({ sessionName, onSend, onClose }) {
             </span>
           )}
         </div>
-        <div className="flex items-center justify-center">
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={paused ? resumeRecording : pauseRecording}
+            className="inline-flex items-center justify-center gap-2 px-4 py-3 rounded-md border border-border text-foreground hover:bg-muted/40 text-sm font-semibold"
+          >
+            {paused ? <Play size={16} /> : <Pause size={16} />}
+            {paused ? t('voice.recording.resume') : t('voice.recording.pause')}
+          </button>
           <button
             type="button"
             onClick={finishRecording}
-            className="inline-flex items-center gap-2 px-5 py-3 rounded-full bg-destructive text-destructive-foreground hover:opacity-90 text-sm font-semibold shadow-md"
+            disabled={finishingRef.current}
+            className="inline-flex items-center justify-center gap-2 px-4 py-3 rounded-md bg-primary text-primary-foreground hover:opacity-90 text-sm font-semibold shadow-md disabled:opacity-60"
           >
-            <Square size={16} />
-            {t('voice.recording.stop')}
+            <Wand2 size={16} />
+            {t('voice.recording.transcribe')}
           </button>
         </div>
         <p className="text-xs text-muted-foreground text-center">
@@ -639,88 +651,6 @@ export default function VoiceCommandModal({ sessionName, onSend, onClose }) {
     );
   }
 
-  function ReviewBody() {
-    const sending = phase === 'sending';
-    return (
-      <>
-        {isMobile && (
-          <div
-            className="px-3 py-2 border-b flex-shrink-0"
-            style={{ borderColor: 'hsl(var(--border))' }}
-          >
-            <ReviewActions sending={sending} />
-          </div>
-        )}
-        <textarea
-          ref={taRef}
-          value={transcript}
-          onChange={(e) => {
-            setTranscript(e.target.value);
-            transcriptRef.current = e.target.value;
-          }}
-          className="flex-1 p-4 resize-none bg-transparent outline-none font-mono text-sm text-foreground placeholder:text-muted-foreground"
-          placeholder={t('voice.review.placeholder')}
-          disabled={sending}
-        />
-        <div
-          className="px-3 py-2 border-t flex-shrink-0 flex items-center justify-between gap-2"
-          style={{ borderColor: 'hsl(var(--border))' }}
-        >
-          <span
-            className={`text-xs ${tooLong ? 'text-destructive' : 'text-muted-foreground'}`}
-          >
-            {tooLong
-              ? t('voice.review.tooLong', { max: SEND_TEXT_MAX_CHARS, length: transcript.length })
-              : t('voice.review.charCount', { length: transcript.length, max: SEND_TEXT_MAX_CHARS })}
-          </span>
-          <button
-            type="button"
-            onClick={handleStartOver}
-            disabled={sending}
-            className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground disabled:opacity-50"
-          >
-            <RotateCcw size={12} />
-            {t('voice.review.recordAgain')}
-          </button>
-        </div>
-        {!isMobile && (
-          <div
-            className="px-3 py-2 border-t flex-shrink-0"
-            style={{ borderColor: 'hsl(var(--border))' }}
-          >
-            <ReviewActions sending={sending} />
-          </div>
-        )}
-      </>
-    );
-  }
-
-  function ReviewActions({ sending }) {
-    const blocked = sending || tooLong || !transcript.trim();
-    return (
-      <div className="flex gap-2">
-        <button
-          type="button"
-          onClick={() => submit(false)}
-          disabled={blocked}
-          className="flex-1 inline-flex items-center justify-center gap-2 py-2.5 rounded-md text-sm font-medium border border-border text-foreground hover:bg-muted/40 transition-colors disabled:opacity-60"
-        >
-          {sending ? <Loader size={14} className="animate-spin" /> : <Send size={14} />}
-          {t('voice.review.send')}
-        </button>
-        <button
-          type="button"
-          onClick={() => submit(true)}
-          disabled={blocked}
-          className="flex-1 inline-flex items-center justify-center gap-2 py-2.5 rounded-md text-sm font-medium text-white bg-brand-gradient hover:opacity-90 transition-opacity disabled:opacity-60"
-        >
-          {sending ? <Loader size={14} className="animate-spin" /> : <CornerDownLeft size={14} />}
-          {t('voice.review.sendEnter')}
-        </button>
-      </div>
-    );
-  }
-
   let bodyContent = null;
   if (phase === 'checking' || phase === 'requesting') {
     bodyContent = (
@@ -730,35 +660,21 @@ export default function VoiceCommandModal({ sessionName, onSend, onClose }) {
     );
   } else if (phase === 'not-configured') {
     bodyContent = <NotConfiguredBody />;
-  } else if (phase === 'recording') {
+  } else if (phase === 'recording' || phase === 'paused') {
     bodyContent = <RecordingBody />;
   } else if (phase === 'transcribing') {
     bodyContent = <PendingBody messageKey="voice.transcribing" />;
-  } else if (phase === 'review' || phase === 'sending') {
-    bodyContent = <ReviewBody />;
   } else if (phase === 'error') {
     bodyContent = <ErrorBody />;
   }
 
-  if (isMobile) {
-    return (
-      <div
-        className="fixed inset-x-0 top-0 z-50 flex flex-col"
-        style={{
-          height: vvHeight ? `${vvHeight}px` : '100dvh',
-          background: 'hsl(var(--background))',
-        }}
-      >
-        <Header />
-        {bodyContent}
-      </div>
-    );
-  }
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-overlay/60 px-4 py-2">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-overlay/60 px-4 py-2"
+      style={isMobile && vvHeight ? { minHeight: `${vvHeight}px` } : undefined}
+    >
       <div
-        className="bg-card border border-border rounded-lg w-full max-w-3xl flex flex-col h-[calc(100vh-1rem)] overflow-hidden"
+        className="bg-card border border-border rounded-lg w-full max-w-md flex flex-col max-h-[calc(100dvh-1rem)] overflow-hidden shadow-xl"
       >
         <Header />
         {bodyContent}

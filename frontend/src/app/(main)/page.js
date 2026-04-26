@@ -838,21 +838,20 @@ function Dashboard() {
     setVoiceTargetId(sessionId);
   }
 
-  async function handleVoiceSend(text, sendEnter) {
+  function handleVoiceTranscript(text) {
     const sid = voiceTargetId;
-    if (!sid) { setVoiceTargetId(null); return false; }
+    if (!sid) { setVoiceTargetId(null); return; }
     if (!isTerminalConnected(sid)) {
       toast.error(t('terminal.actions.disconnected'));
-      return false;
+      return;
     }
-    try {
-      await sendTextToSession(sid, text || '', !!sendEnter);
-    } catch (err) {
-      showError(err);
-      return false;
-    }
+    const currentDraft = composeDrafts[sid]?.text || '';
+    const nextText = currentDraft.trim()
+      ? `${currentDraft}\n${text || ''}`
+      : (text || '');
+    handleDraftPersist(sid, nextText);
     setVoiceTargetId(null);
-    return true;
+    setComposeTargetId(sid);
   }
 
   async function handleComposeSaveAsPrompt({ name, body }) {
@@ -999,7 +998,7 @@ function Dashboard() {
       {voiceTargetId && (
         <VoiceCommandModal
           sessionName={sessions.find(s => s.id === voiceTargetId)?.name}
-          onSend={handleVoiceSend}
+          onTranscript={handleVoiceTranscript}
           onClose={() => setVoiceTargetId(null)}
         />
       )}

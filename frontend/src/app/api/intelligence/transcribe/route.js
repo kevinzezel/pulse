@@ -5,7 +5,7 @@ import { withAuth } from '@/lib/auth';
 const REL = 'data/intelligence-config.json';
 const EMPTY = { providers: {}, updated_at: null };
 
-const DEFAULT_GEMINI_MODEL = 'gemini-2.5-flash';
+const DEFAULT_GEMINI_MODEL = 'gemini-3-flash-preview';
 // Hard ceiling on inline base64 audio for the Gemini API (we keep margin under
 // the 20 MB request budget — base64 inflates ~4/3, so 8 MB raw ≈ 11 MB encoded).
 const MAX_AUDIO_BYTES = 8 * 1024 * 1024;

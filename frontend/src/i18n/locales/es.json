@@ -460,8 +460,12 @@
       "openSettings": "Abrir configuración de Inteligencia"
     },
     "recording": {
-      "stop": "Detener y transcribir",
-      "hint": "Habla con naturalidad. La transcripción aparece para revisión antes de enviar nada al terminal.",
+      "pause": "Pausar",
+      "resume": "Reanudar",
+      "paused": "Pausado",
+      "transcribe": "Transcribir",
+      "stop": "Transcribir",
+      "hint": "Habla con naturalidad. Después de transcribir, el texto se abre en el editor de envío para revisión.",
       "softLimit": "Acercándose al límite de {max} de grabación"
     },
     "review": {
@@ -604,7 +608,7 @@
         "apiKeyHintConfigured": "Ya hay una key guardada. Pega un nuevo valor para reemplazarla.",
         "getKeyLink": "Obtener una API key de Gemini",
         "modelLabel": "Modelo",
-        "modelHint": "gemini-2.5-flash es el predeterminado recomendado para transcripción de voz.",
+        "modelHint": "Gemini 3 Flash Preview es el predeterminado recomendado. Los modelos Flash y Flash-Lite están disponibles para transcripción.",
         "updatedAt": "Última actualización: {when}",
         "saveButton": "Guardar",
         "clearButton": "Eliminar key",

@@ -10,14 +10,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ### Added
 
-- **Voice input for terminal panes.** The pane action menu now includes a microphone action that opens a large mobile-friendly recording modal, captures browser microphone audio with a themed waveform, transcribes it through the configured Gemini API, lets the user edit the transcript, and sends the confirmed text to the target PTY with optional Enter.
-- **Intelligence settings for Gemini transcription.** Settings now has an `Intelligence` tab where users can save, replace or remove a Gemini API key and choose the transcription model. The configuration is stored through Pulse's active storage backend (`file`, MongoDB or S3) and included in local/cloud sync.
+- **Voice input for terminal panes.** The pane action menu now includes a microphone action that opens a compact recorder with a themed waveform, pause/resume controls and a separate transcribe button. Once Gemini returns text, Pulse opens the existing compose modal with the transcript ready for review and send.
+- **Intelligence settings for Gemini transcription.** Settings now has an `Intelligence` tab where users can save, replace or remove a Gemini API key and choose between active Gemini Flash / Flash-Lite models, including Gemini 3 preview options. The configuration is stored through Pulse's active storage backend (`file`, MongoDB or S3) and included in local/cloud sync.
 - **Authenticated Gemini transcription APIs.** The dashboard now exposes authenticated local routes for intelligence config and audio transcription, keeping the Gemini API key server-side and enforcing audio size, MIME and timeout limits.
 
 ### Fixed
 
 - **Voice recording upload size now matches the server limit.** Browser audio is resampled to 16 kHz WAV before upload, recording auto-stops at four minutes, and the client rejects oversized blobs before calling the transcription endpoint.
 - **Gemini model changes no longer require re-pasting the API key.** Updating the selected model now preserves the stored key on the server.
+- **Voice modal actions are more reliable.** Closing a recording aborts any in-flight transcription and cleans up microphone resources immediately, while pausing preserves captured audio without continuing to append samples.
 
 ## [2.6.0] — 2026-04-25
 

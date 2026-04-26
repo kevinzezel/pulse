@@ -5,8 +5,13 @@ import { withAuth } from '@/lib/auth';
 const REL = 'data/intelligence-config.json';
 const EMPTY = { providers: {}, updated_at: null };
 
-const GEMINI_MODELS = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
-const DEFAULT_GEMINI_MODEL = 'gemini-2.5-flash';
+const GEMINI_MODELS = [
+  'gemini-3-flash-preview',
+  'gemini-3.1-flash-lite-preview',
+  'gemini-2.5-flash',
+  'gemini-2.5-flash-lite',
+];
+const DEFAULT_GEMINI_MODEL = 'gemini-3-flash-preview';
 const API_KEY_MAX = 256;
 
 function bad(detailKey, detail, status = 400, params) {

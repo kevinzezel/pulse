@@ -460,8 +460,12 @@
       "openSettings": "Open Intelligence settings"
     },
     "recording": {
-      "stop": "Stop and transcribe",
-      "hint": "Speak naturally. The transcript appears for review before anything is sent to the terminal.",
+      "pause": "Pause",
+      "resume": "Resume",
+      "paused": "Paused",
+      "transcribe": "Transcribe",
+      "stop": "Transcribe",
+      "hint": "Speak naturally. After transcription, the text opens in the compose editor for review.",
       "softLimit": "Approaching the {max} recording limit"
     },
     "review": {
@@ -604,7 +608,7 @@
         "apiKeyHintConfigured": "A key is already saved. Paste a new value to replace it.",
         "getKeyLink": "Get a Gemini API key",
         "modelLabel": "Model",
-        "modelHint": "gemini-2.5-flash is the recommended default for speech transcription.",
+        "modelHint": "Gemini 3 Flash Preview is the recommended default. Flash and Flash-Lite models are listed for transcription.",
         "updatedAt": "Last updated: {when}",
         "saveButton": "Save",
         "clearButton": "Remove key",
