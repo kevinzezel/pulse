@@ -6,6 +6,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [2.8.0-pre] — 2026-04-25
+
+### Fixed
+
+- **Visible terminal panes survive client restarts without being deleted from the session snapshot.** The client now marks shutdown WebSocket closes as a service restart (`1012`) instead of the normal `"Session ended"` terminal contract, and the dashboard treats that path as reconnectable. Servers in the restart/restore window are excluded from snapshot, draft and mosaic cleanup until `/sessions/restore` has rebuilt the PTYs and the panes have remounted against the new client process.
+- **Session snapshots now preserve restored labels.** The local `/api/sessions` store keeps `group_name` and `project_name`, so restored terminals continue to carry readable notification labels after a client restart.
+
 ## [2.7.2-pre] — 2026-04-25
 
 ### Added
@@ -966,7 +973,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v2.7.2-pre...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v2.8.0-pre...HEAD
+[2.8.0-pre]: https://github.com/kevinzezel/pulse/releases/tag/v2.8.0-pre
 [2.7.2-pre]: https://github.com/kevinzezel/pulse/releases/tag/v2.7.2-pre
 [2.7.1-pre]: https://github.com/kevinzezel/pulse/releases/tag/v2.7.1-pre
 [2.6.0]: https://github.com/kevinzezel/pulse/releases/tag/v2.6.0

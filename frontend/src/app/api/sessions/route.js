@@ -13,10 +13,12 @@ function normalizeSession(raw) {
   const out = { id };
   if (typeof raw.name === 'string') out.name = raw.name;
   out.group_id = (typeof raw.group_id === 'string' && raw.group_id) ? raw.group_id : null;
+  if (typeof raw.group_name === 'string') out.group_name = raw.group_name;
   out.notify_on_idle = Boolean(raw.notify_on_idle);
   out.cwd = (typeof raw.cwd === 'string' && raw.cwd) ? raw.cwd : null;
   if (typeof raw.created_at === 'string') out.created_at = raw.created_at;
   out.project_id = (typeof raw.project_id === 'string' && raw.project_id) ? raw.project_id : DEFAULT_PROJECT_ID;
+  if (typeof raw.project_name === 'string') out.project_name = raw.project_name;
   return out;
 }
 

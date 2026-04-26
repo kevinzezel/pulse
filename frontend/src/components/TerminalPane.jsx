@@ -9,6 +9,9 @@ import { splitSessionId } from '@/services/api';
 import { getXtermTheme } from '@/themes/xterm';
 
 const terminalCache = new Map();
+const CLIENT_RESTART_CLOSE_CODE = 1012;
+const SESSION_NOT_FOUND_CLOSE_CODE = 4004;
+const SESSION_NOT_FOUND_CLOSE_REASON = 'Session not found';
 
 // Subscribers por sessionId pra reagir a mudanças de conectividade do WS sem
 // precisar pollar terminalCache. Usado pelo FAB de ações (engrenagem) pra
@@ -318,6 +321,12 @@ export default function TerminalPane({ session, onSessionEnded, onReconnect, isM
           terminal.write(`\r\n\x1b[33m[${tr('terminal.connectionReplaced')}]\x1b[0m\r\n`);
         } else {
           terminal.write(`\r\n\x1b[31m[${tr('terminal.connectionLost')}]\x1b[0m\r\n`);
+          if (
+            event.code === CLIENT_RESTART_CLOSE_CODE ||
+            (event.code === SESSION_NOT_FOUND_CLOSE_CODE && event.reason === SESSION_NOT_FOUND_CLOSE_REASON)
+          ) {
+            onReconnectRef.current?.(session.id, { reason: 'client_restart' });
+          }
         }
       };
 

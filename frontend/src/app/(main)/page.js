@@ -15,7 +15,7 @@ import { ssRead, ssWrite, ssRemove, ssListKeysWithPrefix } from '@/lib/sessionSt
 import { cleanupLegacyKeys } from '@/lib/legacyCleanup';
 import { reorderById } from '@/utils/reorder';
 import { replaceInTree, removeFromTree, getVisibleSessionIds, validateTree, insertSession, normalizeMosaicTree } from '@/utils/mosaicHelpers';
-import { destroyTerminal, destroyAllTerminals, hasDeadConnections, probeAllTerminals, isTerminalConnected } from '@/components/TerminalPane';
+import { destroyTerminal, destroyAllTerminals, destroyTerminalsByServerId, hasDeadConnections, probeAllTerminals, isTerminalConnected } from '@/components/TerminalPane';
 import { useTranslation, useErrorToast } from '@/providers/I18nProvider';
 import { useServers } from '@/providers/ServersProvider';
 import { useProjects } from '@/providers/ProjectsProvider';
@@ -75,9 +75,12 @@ function Dashboard() {
   const latestLayoutsRef = useRef({});
   const previousLayoutsRef = useRef({});
   const restoreAttemptedRef = useRef(false);
+  const restoreRetryTimerRef = useRef(null);
   const [busySessionIds, setBusySessionIds] = useState(new Set());
   const [draggingId, setDraggingId] = useState(null);
   const [reconnectKey, setReconnectKey] = useState(0);
+  const [restoreRetryKey, setRestoreRetryKey] = useState(0);
+  const [serversNeedingRestore, setServersNeedingRestore] = useState(new Set());
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [activeTerminalId, setActiveTerminalId] = useState(() => loadFromStorage('rt:activeTerminalId', null));
   const [hydrated, setHydrated] = useState(false);
@@ -92,6 +95,27 @@ function Dashboard() {
     if (!activeProjectId) return;
     setProjectGroup(activeProjectId, id);
   }, [activeProjectId, setProjectGroup]);
+
+  const scheduleRestoreRetry = useCallback(() => {
+    if (restoreRetryTimerRef.current) return;
+    restoreRetryTimerRef.current = setTimeout(() => {
+      restoreRetryTimerRef.current = null;
+      setRestoreRetryKey(k => k + 1);
+    }, 3000);
+  }, []);
+
+  const markServerForRestore = useCallback((serverId) => {
+    if (!serverId) return;
+    restoreAttemptedRef.current = false;
+    setServersNeedingRestore(prev => {
+      if (prev.has(serverId)) return prev;
+      const next = new Set(prev);
+      next.add(serverId);
+      return next;
+    });
+    setOfflineServerIds(prev => prev.includes(serverId) ? prev : [...prev, serverId]);
+    setRestoreRetryKey(k => k + 1);
+  }, []);
 
   const isMobile = useIsMobile();
   const isMaximized = savedLayout !== null;
@@ -232,6 +256,7 @@ function Dashboard() {
 
   useEffect(() => {
     if (!projectDataReady) return;
+    if (offlineServerIds.length > 0 || serversNeedingRestore.size > 0) return;
     const validGroupIds = new Set(groups.map(g => g.id));
     const sessionGroupMap = new Map();
     for (const s of sessions) {
@@ -259,7 +284,7 @@ function Dashboard() {
       }
       return changed ? next : prev;
     });
-  }, [sessions, groups, projectDataReady, activeProjectId]);
+  }, [sessions, groups, projectDataReady, activeProjectId, offlineServerIds, serversNeedingRestore]);
 
   useEffect(() => {
     if (!projectDataReady) return;
@@ -401,8 +426,9 @@ function Dashboard() {
           }
 
           const offlineSet = new Set(offlineServerIds);
+          const restoreSet = serversNeedingRestore;
           for (const srv of servers) {
-            if (offlineSet.has(srv.id)) continue;
+            if (offlineSet.has(srv.id) || restoreSet.has(srv.id)) continue;
             const existing = Array.isArray(mergedServers[srv.id]) ? mergedServers[srv.id] : [];
             const otherProjects = existing.filter((s) => s && s.project_id && s.project_id !== activeProjectId);
             mergedServers[srv.id] = [...otherProjects, ...(liveByServer[srv.id] || [])];
@@ -412,7 +438,7 @@ function Dashboard() {
         })
         .catch(err => console.warn('[sessionsSnapshot] persist failed', err));
     }, 500);
-  }, [sessions, offlineServerIds, hydratedSessions, servers, activeProjectId, activeProject, sessionsProjectId]);
+  }, [sessions, offlineServerIds, hydratedSessions, servers, activeProjectId, activeProject, sessionsProjectId, serversNeedingRestore]);
 
   useEffect(() => {
     if (!hydratedSessions) return;
@@ -426,6 +452,7 @@ function Dashboard() {
       (liveByServer[serverId] ||= new Set()).add(sessionId);
     }
     const offlineSet = new Set(offlineServerIds);
+    const restoreSet = serversNeedingRestore;
     const knownServerIds = new Set(servers.map(s => s.id));
 
     let changed = false;
@@ -434,7 +461,7 @@ function Dashboard() {
       const { serverId, sessionId } = splitSessionId(compositeId);
       if (!serverId || !sessionId) { changed = true; continue; }
       if (!knownServerIds.has(serverId)) { changed = true; continue; }
-      if (offlineSet.has(serverId)) {
+      if (offlineSet.has(serverId) || restoreSet.has(serverId)) {
         next[compositeId] = draft;
         continue;
       }
@@ -452,11 +479,12 @@ function Dashboard() {
       .catch(() => {})
       .then(() => putComposeDrafts({ drafts: next }))
       .catch(err => console.warn('[setComposeDrafts] cleanup failed', err));
-  }, [sessions, offlineServerIds, servers, composeDrafts, hydratedSessions, hydratedComposeDrafts]);
+  }, [sessions, offlineServerIds, servers, composeDrafts, hydratedSessions, hydratedComposeDrafts, serversNeedingRestore]);
 
   useEffect(() => {
     return () => {
       if (snapshotDebounceRef.current) clearTimeout(snapshotDebounceRef.current);
+      if (restoreRetryTimerRef.current) clearTimeout(restoreRetryTimerRef.current);
     };
   }, []);
 
@@ -491,13 +519,15 @@ function Dashboard() {
       const restorePromises = [];
       for (const [serverId, snapList] of Object.entries(snapshot.servers)) {
         if (!servers.some(srv => srv.id === serverId)) continue;
-        const liveSet = liveByServer[serverId] || new Set();
+        if (!Array.isArray(snapList)) continue;
+        const forceRestore = serversNeedingRestore.has(serverId);
+        const liveSet = forceRestore ? new Set() : (liveByServer[serverId] || new Set());
         const missing = snapList.filter(s => !liveSet.has(s.id));
         if (missing.length === 0) continue;
         restorePromises.push(
           restoreSessions(serverId, missing)
-            .then(res => ({ serverId, res }))
-            .catch(err => ({ serverId, err }))
+            .then(res => ({ serverId, res, forceRestore, requested: missing.length }))
+            .catch(err => ({ serverId, err, forceRestore, requested: missing.length }))
         );
       }
       if (restorePromises.length === 0) {
@@ -516,15 +546,36 @@ function Dashboard() {
       // include `offlineServerIds`, so the next successful fetchSessions will
       // retrigger this and the restore eventually goes through.
       const anyFailed = results.some(r => r.err);
-      if (!anyFailed) {
+      const skippedDuringForcedRestore = results.some((r) => {
+        if (r.err || !r.forceRestore) return false;
+        const restored = r.res?.restored?.length || 0;
+        const skipped = r.res?.skipped?.length || 0;
+        return restored === 0 && skipped > 0 && skipped >= r.requested;
+      });
+      if (!anyFailed && !skippedDuringForcedRestore) {
         restoreAttemptedRef.current = true;
+        await fetchSessions();
+        const succeededServerIds = results.map(r => r.serverId);
+        for (const serverId of succeededServerIds) {
+          destroyTerminalsByServerId(serverId);
+        }
+        setReconnectKey(prev => prev + 1);
+        setServersNeedingRestore(prev => {
+          let changed = false;
+          const next = new Set(prev);
+          for (const serverId of succeededServerIds) {
+            if (next.delete(serverId)) changed = true;
+          }
+          return changed ? next : prev;
+        });
+      } else {
+        scheduleRestoreRetry();
       }
       if (totalRestored > 0) {
         toast.success(t('toast.sessions_auto_restored', { count: totalRestored }));
-        fetchSessions();
       }
     })();
-  }, [servers, serversLoading, hydratedSessions, sessions, offlineServerIds, fetchSessions, t]);
+  }, [servers, serversLoading, hydratedSessions, sessions, offlineServerIds, fetchSessions, t, serversNeedingRestore, restoreRetryKey, scheduleRestoreRetry]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -695,10 +746,16 @@ function Dashboard() {
     }
   }
 
-  function handleReconnect() {
+  function handleReconnect(sessionId = null, options = {}) {
+    if (options.reason === 'client_restart') {
+      const { serverId } = splitSessionId(sessionId);
+      markServerForRestore(serverId);
+    }
     destroyAllTerminals();
     setReconnectKey(prev => prev + 1);
-    toast.success(t('toast.reconnecting'));
+    if (options.reason !== 'client_restart') {
+      toast.success(t('toast.reconnecting'));
+    }
   }
 
   const handleReconnectRef = useRef(handleReconnect);

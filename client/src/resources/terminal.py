@@ -24,12 +24,42 @@ from system.log import AppException
 logger = logging.getLogger(__name__)
 
 SESSION_PREFIX = "term"
+SESSION_ENDED_CLOSE_CODE = 1000
+SESSION_ENDED_CLOSE_REASON = "Session ended"
+CLIENT_RESTART_CLOSE_CODE = 1012
+CLIENT_RESTART_CLOSE_REASON = "Client restarting"
 
 sessions = {}
 _active_ws = {}
 _counter = 0
 _sessions_lock = threading.Lock()
 _ws_locks: dict[str, asyncio.Lock] = {}
+_client_shutting_down = threading.Event()
+
+
+def mark_client_shutting_down():
+    _client_shutting_down.set()
+
+
+def is_client_shutting_down():
+    return _client_shutting_down.is_set()
+
+
+def _terminal_close_details():
+    if is_client_shutting_down():
+        return CLIENT_RESTART_CLOSE_CODE, CLIENT_RESTART_CLOSE_REASON
+    return SESSION_ENDED_CLOSE_CODE, SESSION_ENDED_CLOSE_REASON
+
+
+async def close_active_websockets_for_shutdown():
+    mark_client_shutting_down()
+    active = list(_active_ws.items())
+    for sid, ws in active:
+        try:
+            await ws.close(code=CLIENT_RESTART_CLOSE_CODE, reason=CLIENT_RESTART_CLOSE_REASON)
+        except Exception:
+            pass
+        logger.info("Closed WebSocket during client shutdown: %s", sid)
 
 
 def _ws_lock(session_id):
@@ -378,10 +408,12 @@ async def reap_dead_ptys():
                 ws = _active_ws.get(sid)
                 if ws is not None:
                     try:
-                        await ws.close(code=1000, reason="Session ended")
+                        code, reason = _terminal_close_details()
+                        await ws.close(code=code, reason=reason)
                     except Exception:
                         pass
-                _drop_session(sid)
+                if not is_client_shutting_down():
+                    _drop_session(sid)
         except asyncio.CancelledError:
             logger.info("PTY reaper cancelled")
             break
@@ -452,10 +484,12 @@ async def websocket_terminal(websocket: WebSocket, session_id: str):
                         # Shell morreu (EOF no PTY). WS fecha 1000 e a sessão
                         # é removida — frontend já trata "Session ended".
                         try:
-                            await websocket.close(code=1000, reason="Session ended")
+                            code, reason = _terminal_close_details()
+                            await websocket.close(code=code, reason=reason)
                         except Exception:
                             pass
-                        _drop_session(session_id)
+                        if not is_client_shutting_down():
+                            _drop_session(session_id)
                         break
                     await websocket.send_json({
                         "type": "output",

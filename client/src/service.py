@@ -50,7 +50,7 @@ def health():
 
 
 from routes import terminal, settings as settings_route, version as version_route, fs as fs_route
-from resources.terminal import recover_sessions, reap_dead_ptys
+from resources.terminal import close_active_websockets_for_shutdown, recover_sessions, reap_dead_ptys
 from resources.settings import load_settings
 from resources.notifications import notification_watcher
 from tools.pty import set_main_loop
@@ -80,3 +80,8 @@ async def _start_background_tasks():
     recover_sessions()
     asyncio.create_task(notification_watcher())
     asyncio.create_task(reap_dead_ptys())
+
+
+@app.on_event("shutdown")
+async def _close_terminal_websockets():
+    await close_active_websockets_for_shutdown()
