@@ -465,7 +465,7 @@
       "paused": "Paused",
       "transcribe": "Transcribe",
       "stop": "Transcribe",
-      "hint": "Speak naturally. After transcription, the text opens in the compose editor for review.",
+      "hint": "Speak naturally. When you tap Transcribe, the text is sent straight to the terminal — just press Enter when you're ready.",
       "softLimit": "Approaching the {max} recording limit"
     },
     "review": {

@@ -465,7 +465,7 @@
       "paused": "Pausado",
       "transcribe": "Transcribir",
       "stop": "Transcribir",
-      "hint": "Habla con naturalidad. Después de transcribir, el texto se abre en el editor de envío para revisión.",
+      "hint": "Habla con naturalidad. Al tocar Transcribir, el texto va directo al terminal — solo pulsa Enter cuando estés listo.",
       "softLimit": "Acercándose al límite de {max} de grabación"
     },
     "review": {

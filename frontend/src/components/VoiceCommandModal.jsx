@@ -423,20 +423,33 @@ export default function VoiceCommandModal({ sessionName, onTranscript, onClose }
     setPhaseNow('recording');
   }
 
-  function pauseRecording() {
+  const pauseRecording = useCallback(() => {
     if (phaseRef.current !== 'recording') return;
     elapsedBeforePauseRef.current += performance.now() - activeStartedAtRef.current;
     setSeconds(elapsedBeforePauseRef.current / 1000);
-    try { audioCtxRef.current?.suspend?.(); } catch {}
     setPhaseNow('paused');
-  }
+    // suspend() returns a Promise; fire-and-forget but log if it rejects
+    // so a silent failure doesn't make the UI look frozen-but-still-recording.
+    const ctx = audioCtxRef.current;
+    if (ctx && typeof ctx.suspend === 'function') {
+      Promise.resolve(ctx.suspend()).catch((err) => {
+        console.warn('[voice] AudioContext.suspend failed:', err);
+      });
+    }
+  }, [setPhaseNow]);
 
-  async function resumeRecording() {
+  const resumeRecording = useCallback(async () => {
     if (phaseRef.current !== 'paused') return;
-    try { await audioCtxRef.current?.resume?.(); } catch {}
+    const ctx = audioCtxRef.current;
+    if (ctx && typeof ctx.resume === 'function') {
+      try { await ctx.resume(); } catch (err) {
+        console.warn('[voice] AudioContext.resume failed:', err);
+      }
+    }
+    if (phaseRef.current !== 'paused') return;
     activeStartedAtRef.current = performance.now();
     setPhaseNow('recording');
-  }
+  }, [setPhaseNow]);
 
   async function finishRecording() {
     if (!mountedRef.current) return;
@@ -533,7 +546,7 @@ export default function VoiceCommandModal({ sessionName, onTranscript, onClose }
     ? `${t('voice.title')} — ${sessionName}`
     : t('voice.title');
 
-  function Header() {
+  function renderHeader() {
     return (
       <header
         className="relative flex items-center justify-center px-3 py-2 border-b flex-shrink-0"
@@ -553,7 +566,7 @@ export default function VoiceCommandModal({ sessionName, onTranscript, onClose }
     );
   }
 
-  function MicHeroBadge() {
+  function renderMicHeroBadge() {
     return (
       <div className="w-12 h-12 rounded-full bg-primary/10 inline-flex items-center justify-center">
         <Mic size={22} className="text-primary" />
@@ -561,10 +574,10 @@ export default function VoiceCommandModal({ sessionName, onTranscript, onClose }
     );
   }
 
-  function NotConfiguredBody() {
+  function renderNotConfiguredBody() {
     return (
       <div className="flex flex-col items-center justify-center gap-4 px-6 py-10 text-center">
-        <MicHeroBadge />
+        {renderMicHeroBadge()}
         <h3 className="text-base font-semibold text-foreground">
           {t('voice.notConfigured.title')}
         </h3>
@@ -583,7 +596,7 @@ export default function VoiceCommandModal({ sessionName, onTranscript, onClose }
     );
   }
 
-  function ErrorBody() {
+  function renderErrorBody() {
     const message = errorKey ? t(errorKey, errorParams || undefined) : t('voice.error.generic');
     const allowRetry = errorOrigin === 'permission' || errorOrigin === 'transcription' || errorOrigin === 'config';
     return (
@@ -625,7 +638,7 @@ export default function VoiceCommandModal({ sessionName, onTranscript, onClose }
     );
   }
 
-  function RecordingBody() {
+  function renderRecordingBody() {
     const warn = seconds >= SOFT_WARN_SECONDS;
     const paused = phase === 'paused';
     return (
@@ -636,8 +649,12 @@ export default function VoiceCommandModal({ sessionName, onTranscript, onClose }
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className="relative inline-flex items-center justify-center w-3 h-3">
-              <span className="absolute inline-flex h-full w-full rounded-full bg-destructive opacity-75 animate-ping" />
-              <span className="relative inline-flex rounded-full h-3 w-3 bg-destructive" />
+              {!paused && (
+                <span className="absolute inline-flex h-full w-full rounded-full bg-destructive opacity-75 animate-ping" />
+              )}
+              <span
+                className={`relative inline-flex rounded-full h-3 w-3 ${paused ? 'bg-muted-foreground' : 'bg-destructive'}`}
+              />
             </span>
             <span className="text-sm font-mono text-foreground">{fmtMmss(seconds)}</span>
             <span className="text-xs text-muted-foreground">/ {fmtMmss(MAX_RECORDING_SECONDS)}</span>
@@ -677,7 +694,7 @@ export default function VoiceCommandModal({ sessionName, onTranscript, onClose }
     );
   }
 
-  function PendingBody({ messageKey }) {
+  function renderPendingBody(messageKey) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center gap-3 px-6 py-10">
         <Loader size={28} className="animate-spin text-primary" />
@@ -688,19 +705,15 @@ export default function VoiceCommandModal({ sessionName, onTranscript, onClose }
 
   let bodyContent = null;
   if (phase === 'checking' || phase === 'requesting') {
-    bodyContent = (
-      <PendingBody
-        messageKey={phase === 'checking' ? 'voice.checking' : 'voice.requestingPermission'}
-      />
-    );
+    bodyContent = renderPendingBody(phase === 'checking' ? 'voice.checking' : 'voice.requestingPermission');
   } else if (phase === 'not-configured') {
-    bodyContent = <NotConfiguredBody />;
+    bodyContent = renderNotConfiguredBody();
   } else if (phase === 'recording' || phase === 'paused') {
-    bodyContent = <RecordingBody />;
+    bodyContent = renderRecordingBody();
   } else if (phase === 'transcribing') {
-    bodyContent = <PendingBody messageKey="voice.transcribing" />;
+    bodyContent = renderPendingBody('voice.transcribing');
   } else if (phase === 'error') {
-    bodyContent = <ErrorBody />;
+    bodyContent = renderErrorBody();
   }
 
   return (
@@ -711,7 +724,7 @@ export default function VoiceCommandModal({ sessionName, onTranscript, onClose }
       <div
         className="bg-card border border-border rounded-lg w-full max-w-md flex flex-col max-h-[calc(100dvh-1rem)] overflow-hidden shadow-xl"
       >
-        <Header />
+        {renderHeader()}
         {bodyContent}
       </div>
     </div>

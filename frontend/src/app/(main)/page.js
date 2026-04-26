@@ -895,20 +895,21 @@ function Dashboard() {
     setVoiceTargetId(sessionId);
   }
 
-  function handleVoiceTranscript(text) {
+  async function handleVoiceTranscript(text) {
     const sid = voiceTargetId;
     if (!sid) { setVoiceTargetId(null); return; }
     if (!isTerminalConnected(sid)) {
       toast.error(t('terminal.actions.disconnected'));
+      setVoiceTargetId(null);
       return;
     }
-    const currentDraft = composeDrafts[sid]?.text || '';
-    const nextText = currentDraft.trim()
-      ? `${currentDraft}\n${text || ''}`
-      : (text || '');
-    handleDraftPersist(sid, nextText);
+    try {
+      await sendTextToSession(sid, text || '', false);
+    } catch (err) {
+      showError(err);
+      return;
+    }
     setVoiceTargetId(null);
-    setComposeTargetId(sid);
   }
 
   async function handleComposeSaveAsPrompt({ name, body }) {

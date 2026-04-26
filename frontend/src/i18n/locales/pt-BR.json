@@ -465,7 +465,7 @@
       "paused": "Pausado",
       "transcribe": "Transcrever",
       "stop": "Transcrever",
-      "hint": "Fale naturalmente. Depois da transcrição, o texto abre no editor de envio para revisão.",
+      "hint": "Fale naturalmente. Ao tocar em Transcrever, o texto vai direto para o terminal — basta apertar Enter quando estiver pronto.",
       "softLimit": "Aproximando do limite de {max} de gravação"
     },
     "review": {

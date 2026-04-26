@@ -6,6 +6,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [2.9.0-pre] — 2026-04-25
+
+### Changed
+
+- **Voice transcription now sends straight to the terminal.** Tapping `Transcribe` in the voice modal posts the recognized text to the active session via the existing `send-text` endpoint without `Enter`, so the user can review the line at the prompt and press Enter themselves. The intermediate compose editor is no longer opened from the voice flow — that path was duplicating the keyboard action and adding an extra confirmation step. The voice hint copy was rewritten in pt-BR / en / es to reflect the new direct-send behaviour.
+
+### Fixed
+
+- **Voice modal pause/resume now updates reliably.** The recording sub-views were declared as functions inside `VoiceCommandModal` and rendered as `<RecordingBody />`, which made React see a fresh component type on every render and unmount/remount the pause button on every state change. They are now rendered as plain JSX-returning helpers, so the pause click handler stays attached and the audio context suspend/resume promises are awaited and logged on failure instead of being fire-and-forget.
+- **Voice modal recording indicator goes static when paused.** The pulsing red dot now stops animating and dims to the muted token while the recording is paused, matching the `Pausado` label so the state is visible at a glance.
+
 ## [2.8.0] — 2026-04-25
 
 ### Fixed
@@ -974,6 +985,7 @@ First public release.
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
 [Unreleased]: https://github.com/kevinzezel/pulse/compare/v2.8.0...HEAD
+[2.9.0-pre]: https://github.com/kevinzezel/pulse/releases/tag/v2.9.0-pre
 [2.8.0]: https://github.com/kevinzezel/pulse/releases/tag/v2.8.0
 [2.7.2-pre]: https://github.com/kevinzezel/pulse/releases/tag/v2.7.2-pre
 [2.7.1-pre]: https://github.com/kevinzezel/pulse/releases/tag/v2.7.1-pre
