@@ -380,7 +380,7 @@
         "config_load_failed": "Não foi possível carregar as configurações de Inteligência."
       },
       "voice": {
-        "insecure_context": "Entrada por voz precisa de HTTPS ou localhost. Recarregue o painel a partir de uma origem segura.",
+        "insecure_context": "Entrada por voz precisa de HTTPS ou localhost. Se você abriu o Pulse por um IP da rede, rode `pulse config tls on`, aceite o certificado no navegador e reabra o painel com https://.",
         "unsupported": "Este navegador não suporta captura de áudio.",
         "permission_denied": "Permissão do microfone negada. Libere o acesso ao microfone nas configurações do navegador e tente novamente.",
         "no_device": "Nenhum microfone detectado neste dispositivo.",

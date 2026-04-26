@@ -19,6 +19,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 - **Voice recording upload size now matches the server limit.** Browser audio is resampled to 16 kHz WAV before upload, recording auto-stops at four minutes, and the client rejects oversized blobs before calling the transcription endpoint.
 - **Gemini model changes no longer require re-pasting the API key.** Updating the selected model now preserves the stored key on the server.
 - **Voice modal actions are more reliable.** Closing a recording aborts any in-flight transcription and cleans up microphone resources immediately, while pausing preserves captured audio without continuing to append samples.
+- **Voice modal no longer gets stuck while checking configuration.** Loading the Intelligence settings now has an explicit timeout and retry path, so a stalled local config request leaves the loading state instead of spinning forever.
 
 ## [2.6.0] — 2026-04-25
 

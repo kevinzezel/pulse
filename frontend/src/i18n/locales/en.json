@@ -380,7 +380,7 @@
         "config_load_failed": "Could not load Intelligence settings."
       },
       "voice": {
-        "insecure_context": "Voice input needs HTTPS or localhost. Reload the dashboard from a secure origin.",
+        "insecure_context": "Voice input needs HTTPS or localhost. If you are opening Pulse from a network IP, run `pulse config tls on`, accept the certificate in the browser, and reopen the dashboard with https://.",
         "unsupported": "This browser does not support audio capture.",
         "permission_denied": "Microphone permission denied. Allow microphone access in your browser settings and try again.",
         "no_device": "No microphone detected on this device.",

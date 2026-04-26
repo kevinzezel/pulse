@@ -18,6 +18,7 @@ const TARGET_SAMPLE_RATE = 16000;
 const MAX_AUDIO_BYTES = 8 * 1024 * 1024;
 const MAX_RECORDING_SECONDS = 240;
 const SOFT_WARN_SECONDS = 210;
+const CONFIG_TIMEOUT_MS = 8000;
 function encodeWavMono16(samples, sampleRate) {
   // samples: Float32Array in [-1, 1]
   const length = samples.length;
@@ -84,6 +85,20 @@ function fmtMmss(totalSeconds) {
   const m = Math.floor(s / 60);
   const r = s % 60;
   return `${m}:${r < 10 ? '0' : ''}${r}`;
+}
+
+function withTimeout(promise, ms, detailKey) {
+  let timer = null;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      const err = new Error('Request timed out');
+      err.detail_key = detailKey;
+      reject(err);
+    }, ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
 }
 
 function VoiceWaveform({ analyser, active }) {
@@ -198,6 +213,7 @@ export default function VoiceCommandModal({ sessionName, onTranscript, onClose }
   const phaseRef = useRef('checking');
   const finishingRef = useRef(false);
   const abortRef = useRef(null);
+  const configRequestRef = useRef(0);
 
   const setPhaseNow = useCallback((next) => {
     phaseRef.current = next;
@@ -241,42 +257,57 @@ export default function VoiceCommandModal({ sessionName, onTranscript, onClose }
 
   useEffect(() => () => {
     mountedRef.current = false;
+    configRequestRef.current += 1;
     abortRef.current?.abort();
     stopAndCleanupAudio();
   }, [stopAndCleanupAudio]);
 
-  useEffect(() => {
-    if (!mountedRef.current) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const data = await getIntelligenceConfig();
-        if (cancelled) return;
-        const configured = !!data?.providers?.gemini?.configured;
-        if (!configured) {
-          setPhaseNow('not-configured');
-          return;
-        }
-        await beginRecording();
-      } catch (err) {
-        if (cancelled) return;
-        setErrorOrigin('config');
-        setErrorKey(err?.detail_key || 'errors.intelligence.gemini.config_load_failed');
-        setErrorParams(err?.detail_params || null);
-        setPhaseNow('error');
+  async function checkConfigAndBeginRecording() {
+    const requestId = configRequestRef.current + 1;
+    configRequestRef.current = requestId;
+    setErrorKey(null);
+    setErrorParams(null);
+    setErrorOrigin(null);
+    setPhaseNow('checking');
+    try {
+      const data = await withTimeout(
+        getIntelligenceConfig(),
+        CONFIG_TIMEOUT_MS,
+        'errors.intelligence.gemini.config_load_failed',
+      );
+      if (!mountedRef.current || configRequestRef.current !== requestId) return;
+      const configured = !!data?.providers?.gemini?.configured;
+      if (!configured) {
+        setPhaseNow('not-configured');
+        return;
       }
-    })();
-    return () => { cancelled = true; };
+      await beginRecording();
+    } catch (err) {
+      if (!mountedRef.current || configRequestRef.current !== requestId) return;
+      setErrorOrigin('config');
+      setErrorKey(err?.detail_key || 'errors.intelligence.gemini.config_load_failed');
+      setErrorParams(err?.detail_params || null);
+      setPhaseNow('error');
+    }
+  }
+
+  useEffect(() => {
+    checkConfigAndBeginRecording();
+    return () => { configRequestRef.current += 1; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function beginRecording() {
     if (typeof window === 'undefined') return;
+    if (window.isSecureContext === false) {
+      setErrorOrigin('permission');
+      setErrorKey('errors.intelligence.voice.insecure_context');
+      setPhaseNow('error');
+      return;
+    }
     if (!navigator?.mediaDevices?.getUserMedia) {
       setErrorOrigin('permission');
-      setErrorKey(window.isSecureContext === false
-        ? 'errors.intelligence.voice.insecure_context'
-        : 'errors.intelligence.voice.unsupported');
+      setErrorKey('errors.intelligence.voice.unsupported');
       setPhaseNow('error');
       return;
     }
@@ -489,7 +520,11 @@ export default function VoiceCommandModal({ sessionName, onTranscript, onClose }
     setErrorParams(null);
     setErrorOrigin(null);
     setSeconds(0);
-    beginRecording();
+    if (errorOrigin === 'config') {
+      checkConfigAndBeginRecording();
+    } else {
+      beginRecording();
+    }
   }
 
   // ----- Render helpers -----
@@ -550,7 +585,7 @@ export default function VoiceCommandModal({ sessionName, onTranscript, onClose }
 
   function ErrorBody() {
     const message = errorKey ? t(errorKey, errorParams || undefined) : t('voice.error.generic');
-    const allowRetry = errorOrigin === 'permission' || errorOrigin === 'transcription';
+    const allowRetry = errorOrigin === 'permission' || errorOrigin === 'transcription' || errorOrigin === 'config';
     return (
       <div className="flex flex-col items-center justify-center gap-4 px-6 py-10 text-center">
         <div className="w-12 h-12 rounded-full bg-destructive/10 inline-flex items-center justify-center">
