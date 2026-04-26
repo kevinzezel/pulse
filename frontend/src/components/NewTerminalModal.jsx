@@ -314,17 +314,17 @@ export default function NewTerminalModal({ onClose, onSubmit, loading, groups = 
               <label className="block text-sm text-muted-foreground mb-1">
                 {t('modal.newTerminal.recentLabel')}
               </label>
-              <div className="mb-4 border border-border rounded-md max-h-40 overflow-y-auto bg-input">
+              <div className="mb-4 border border-border rounded-md max-h-48 overflow-y-auto bg-input">
                 {recents.map((p) => (
                   <div
                     key={p}
-                    className="flex items-center hover:bg-muted/40 transition-colors border-b border-border last:border-b-0"
+                    className="flex items-start hover:bg-muted/40 transition-colors border-b border-border last:border-b-0"
                   >
                     <button
                       type="button"
                       onClick={() => { setCwd(p); setBrowserOpen(true); }}
                       title={p}
-                      className="flex-1 min-w-0 text-left px-3 py-1.5 text-sm text-foreground truncate"
+                      className="flex-1 min-w-0 text-left px-3 py-1.5 text-sm text-foreground break-all"
                     >
                       {p}
                     </button>
