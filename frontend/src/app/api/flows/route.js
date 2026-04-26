@@ -53,6 +53,7 @@ export const POST = withAuth(async (req) => {
 
   const scene = isObject(body?.scene) ? body.scene : { elements: [], appState: {}, files: {} };
   const projectId = (typeof body?.project_id === 'string' && body.project_id) ? body.project_id : DEFAULT_PROJECT_ID;
+  const groupId = (typeof body?.group_id === 'string' && body.group_id) ? body.group_id : null;
 
   const flow = await withStoreLock(REL, async () => {
     const now = new Date().toISOString();
@@ -65,6 +66,7 @@ export const POST = withAuth(async (req) => {
       created_at: now,
       updated_at: now,
       project_id: projectId,
+      group_id: groupId,
     };
     flows.push(created);
     await writeStore(REL, { flows, updated_at: now });

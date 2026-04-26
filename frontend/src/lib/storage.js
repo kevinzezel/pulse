@@ -284,6 +284,7 @@ export function getActiveConfig() {
 export const DATA_REL_PATHS = Object.freeze([
   'data/projects.json',
   'data/flows.json',
+  'data/flow-groups.json',
   'data/groups.json',
   'data/notes.json',
   'data/prompts.json',

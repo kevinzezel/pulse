@@ -10,6 +10,10 @@ const VIEW_PREFIX = 'rt:view::';
 
 function groupKey(projectId) { return `${projectId}::group`; }
 function flowKey(projectId) { return `${projectId}::flow`; }
+function flowGroupKey(projectId) { return `${projectId}::flowGroup`; }
+function flowInGroupKey(projectId, groupId) {
+  return `${projectId}::flow::${groupId ?? '__none__'}`;
+}
 function fullKey(inner) { return `${VIEW_PREFIX}${inner}`; }
 
 export function ViewStateProvider({ children }) {
@@ -55,6 +59,16 @@ export function ViewStateProvider({ children }) {
     setKey(flowKey(projectId), flowId || null);
   }, [setKey]);
 
+  const setProjectFlowGroup = useCallback((projectId, groupId) => {
+    if (!projectId) return;
+    setKey(flowGroupKey(projectId), groupId || null);
+  }, [setKey]);
+
+  const setProjectFlowForGroup = useCallback((projectId, groupId, flowId) => {
+    if (!projectId) return;
+    setKey(flowInGroupKey(projectId, groupId), flowId || null);
+  }, [setKey]);
+
   const getProjectGroup = useCallback((projectId) => {
     if (!projectId) return null;
     return viewState[groupKey(projectId)] ?? null;
@@ -65,13 +79,35 @@ export function ViewStateProvider({ children }) {
     return viewState[flowKey(projectId)] ?? null;
   }, [viewState]);
 
+  const getProjectFlowGroup = useCallback((projectId) => {
+    if (!projectId) return null;
+    return viewState[flowGroupKey(projectId)] ?? null;
+  }, [viewState]);
+
+  // Fallback chain: flow-per-group key first; if absent and the caller is
+  // asking about "Sem grupo" (groupId=null), fall back to the legacy flat
+  // flow key so existing users keep their last flow selected on first load.
+  const getProjectFlowForGroup = useCallback((projectId, groupId) => {
+    if (!projectId) return null;
+    const scoped = viewState[flowInGroupKey(projectId, groupId)];
+    if (scoped !== undefined) return scoped ?? null;
+    if (groupId === null) {
+      return viewState[flowKey(projectId)] ?? null;
+    }
+    return null;
+  }, [viewState]);
+
   const value = {
     viewState,
     hydrated,
     setProjectGroup,
     setProjectFlow,
+    setProjectFlowGroup,
+    setProjectFlowForGroup,
     getProjectGroup,
     getProjectFlow,
+    getProjectFlowGroup,
+    getProjectFlowForGroup,
   };
 
   return <ViewStateContext.Provider value={value}>{children}</ViewStateContext.Provider>;

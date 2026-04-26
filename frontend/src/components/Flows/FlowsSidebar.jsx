@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import {
-  Plus, Search, X, Pencil, Trash2, Loader2, Copy, Workflow,
+  Plus, Search, X, Pencil, Trash2, Loader2, Loader, Copy, Workflow, Folder, Check,
 } from 'lucide-react';
 import { useTranslation } from '@/providers/I18nProvider';
 import SidebarShell from '../SidebarShell';
@@ -11,6 +11,8 @@ import RenameFlowModal from './RenameFlowModal';
 
 export default function FlowsSidebar({
   flows,
+  groups = [],
+  getFlowGroupId = (flow) => (flow && flow.group_id) || null,
   selectedFlowId,
   savingIds,
   creating,
@@ -24,10 +26,16 @@ export default function FlowsSidebar({
   onRename,
   onDelete,
   onDuplicate,
+  onAssignGroup,
+  onCreateGroupInline,
 }) {
   const { t } = useTranslation();
   const [renameFlowId, setRenameFlowId] = useState(null);
   const [renaming, setRenaming] = useState(false);
+  const [assignPopoverFlowId, setAssignPopoverFlowId] = useState(null);
+  const [assigningGroup, setAssigningGroup] = useState(false);
+  const [creatingInlineFor, setCreatingInlineFor] = useState(null);
+  const [inlineGroupName, setInlineGroupName] = useState('');
 
   async function handleRenameSubmit(newName) {
     if (!renameFlowId) return;
@@ -39,6 +47,47 @@ export default function FlowsSidebar({
       // keep modal open so the user doesn't lose their input
     } finally {
       setRenaming(false);
+    }
+  }
+
+  function openAssignPopover(e, flowId) {
+    e.stopPropagation();
+    setAssignPopoverFlowId((prev) => (prev === flowId ? null : flowId));
+    setCreatingInlineFor(null);
+    setInlineGroupName('');
+  }
+
+  function closeAssignPopover() {
+    setAssignPopoverFlowId(null);
+    setCreatingInlineFor(null);
+    setInlineGroupName('');
+  }
+
+  async function handlePickGroup(flowId, groupId) {
+    if (!onAssignGroup) return;
+    setAssigningGroup(true);
+    try {
+      await onAssignGroup(flowId, groupId);
+      closeAssignPopover();
+    } finally {
+      setAssigningGroup(false);
+    }
+  }
+
+  async function handleCreateGroupInlineSubmit(e, flowId) {
+    e.preventDefault();
+    if (!onCreateGroupInline || !onAssignGroup) return;
+    const name = inlineGroupName.trim();
+    if (!name) return;
+    setAssigningGroup(true);
+    try {
+      const group = await onCreateGroupInline(name);
+      await onAssignGroup(flowId, group.id);
+      closeAssignPopover();
+    } catch {
+      // showError já foi chamado pelo handler do parent
+    } finally {
+      setAssigningGroup(false);
     }
   }
 
@@ -96,6 +145,10 @@ export default function FlowsSidebar({
                     {flows.map((f) => {
                       const isSelected = f.id === selectedFlowId;
                       const isSaving = savingIds.has(f.id);
+                      const popoverOpen = assignPopoverFlowId === f.id;
+                      const visibleGroups = groups.filter((g) => !g.hidden);
+                      const canAssign = !!onAssignGroup;
+                      const effectiveGroupId = getFlowGroupId(f);
 
                       const title = (
                         <>
@@ -120,6 +173,16 @@ export default function FlowsSidebar({
                           >
                             <Pencil size={12} />
                           </button>
+                          {canAssign && (
+                            <button
+                              type="button"
+                              onClick={(e) => openAssignPopover(e, f.id)}
+                              className={`p-1 transition-colors ${popoverOpen ? 'text-primary' : 'text-muted-foreground hover:text-primary'}`}
+                              title={t('flows.assignGroup')}
+                            >
+                              <Folder size={12} />
+                            </button>
+                          )}
                           <button
                             type="button"
                             onClick={(e) => { e.stopPropagation(); onDuplicate(f); }}
@@ -149,6 +212,86 @@ export default function FlowsSidebar({
                             actions={actions}
                             alwaysExpanded={isSelected}
                           />
+                          {popoverOpen && (
+                            <>
+                              <div className="fixed inset-0 z-40" onClick={closeAssignPopover} />
+                              <div
+                                className="absolute z-50 right-2 top-full mt-1 w-52 rounded-md border shadow-lg p-1"
+                                style={{ background: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <button
+                                  type="button"
+                                  onClick={() => handlePickGroup(f.id, null)}
+                                  disabled={assigningGroup}
+                                  className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-muted/40 transition-colors ${
+                                    !effectiveGroupId ? 'text-primary' : 'text-foreground'
+                                  }`}
+                                >
+                                  <span className={`w-2 h-2 rounded-full border ${
+                                    !effectiveGroupId ? 'bg-primary border-primary' : 'border-muted-foreground/60'
+                                  }`} />
+                                  {t('flows.noGroup')}
+                                </button>
+                                {visibleGroups.map((g) => (
+                                  <button
+                                    key={g.id}
+                                    type="button"
+                                    onClick={() => handlePickGroup(f.id, g.id)}
+                                    disabled={assigningGroup}
+                                    className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-muted/40 transition-colors ${
+                                      effectiveGroupId === g.id ? 'text-primary' : 'text-foreground'
+                                    }`}
+                                  >
+                                    <span className={`w-2 h-2 rounded-full border ${
+                                      effectiveGroupId === g.id ? 'bg-primary border-primary' : 'border-muted-foreground/60'
+                                    }`} />
+                                    <span className="truncate">{g.name}</span>
+                                  </button>
+                                ))}
+
+                                {onCreateGroupInline && (
+                                  creatingInlineFor === f.id ? (
+                                    <form
+                                      onSubmit={(e) => handleCreateGroupInlineSubmit(e, f.id)}
+                                      className="flex items-center gap-1 px-1 pt-2 mt-1 border-t"
+                                      style={{ borderColor: 'hsl(var(--border))' }}
+                                    >
+                                      <input
+                                        type="text"
+                                        value={inlineGroupName}
+                                        onChange={(e) => setInlineGroupName(e.target.value)}
+                                        placeholder={t('sidebar.newGroupPlaceholder')}
+                                        maxLength={50}
+                                        autoFocus
+                                        disabled={assigningGroup}
+                                        className="flex-1 min-w-0 px-2 py-1 rounded bg-input border border-border text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                                      />
+                                      <button
+                                        type="submit"
+                                        disabled={assigningGroup || !inlineGroupName.trim()}
+                                        className="p-1 text-success disabled:opacity-50"
+                                        title={t('sidebar.createAndAssign')}
+                                      >
+                                        {assigningGroup ? <Loader size={13} className="animate-spin" /> : <Check size={13} />}
+                                      </button>
+                                    </form>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() => { setCreatingInlineFor(f.id); setInlineGroupName(''); }}
+                                      disabled={assigningGroup}
+                                      className="w-full flex items-center gap-2 px-2 py-1.5 mt-1 pt-2 border-t rounded text-xs text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
+                                      style={{ borderColor: 'hsl(var(--border))' }}
+                                    >
+                                      <Plus size={12} />
+                                      {t('sidebar.newGroupInline')}
+                                    </button>
+                                  )
+                                )}
+                              </div>
+                            </>
+                          )}
                         </div>
                       );
                     })}

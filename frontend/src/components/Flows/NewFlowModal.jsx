@@ -4,13 +4,21 @@ import { useState } from 'react';
 import { X } from 'lucide-react';
 import { useTranslation } from '@/providers/I18nProvider';
 
-export default function NewFlowModal({ onClose, onSubmit, loading, fallbackName = 'Flow' }) {
+export default function NewFlowModal({
+  onClose,
+  onSubmit,
+  loading,
+  fallbackName = 'Flow',
+  groups = [],
+  defaultGroupId = null,
+}) {
   const { t } = useTranslation();
   const [name, setName] = useState('');
+  const [groupId, setGroupId] = useState(defaultGroupId);
 
   function handleSubmit(e) {
     e.preventDefault();
-    onSubmit(name.trim() || fallbackName);
+    onSubmit(name.trim() || fallbackName, groupId || null);
   }
 
   return (
@@ -37,6 +45,21 @@ export default function NewFlowModal({ onClose, onSubmit, loading, fallbackName 
             disabled={loading}
             className="w-full px-3 py-2 bg-input border border-border rounded-md text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring mb-4"
           />
+
+          <label className="block text-sm text-muted-foreground mb-1">
+            {t('modal.newFlow.groupLabel')}
+          </label>
+          <select
+            value={groupId || ''}
+            onChange={(e) => setGroupId(e.target.value || null)}
+            disabled={loading}
+            className="w-full px-3 py-2 bg-input border border-border rounded-md text-foreground text-sm focus:outline-none focus:ring-1 focus:ring-ring mb-4"
+          >
+            <option value="">{t('modal.newFlow.noGroup')}</option>
+            {groups.map((g) => (
+              <option key={g.id} value={g.id}>{g.name}</option>
+            ))}
+          </select>
 
           <div className="flex gap-2">
             <button

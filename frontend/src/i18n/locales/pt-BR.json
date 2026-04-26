@@ -88,7 +88,13 @@
     "deleteConfirm": "Excluir",
     "saving": "Salvando...",
     "saved": "Salvo",
-    "loading": "Carregando..."
+    "loading": "Carregando...",
+    "assignGroup": "Mover para grupo",
+    "noGroup": "Sem grupo"
+  },
+  "flowGroups": {
+    "deleteConfirmMessage": "{n} fluxos ficarão sem grupo.",
+    "deleteConfirmMessageZero": "Nenhum fluxo será afetado."
   },
   "projectSelector": {
     "switch": "Trocar projeto",
@@ -240,6 +246,8 @@
       "title": "Novo Fluxo",
       "nameLabel": "Nome (opcional)",
       "placeholder": "ex: arquitetura do serviço",
+      "groupLabel": "Grupo (opcional)",
+      "noGroup": "Sem grupo",
       "create": "Criar Fluxo",
       "creating": "Criando..."
     }
@@ -324,6 +332,7 @@
     "group_name_required": "Nome do grupo é obrigatório",
     "group_name_too_long": "Nome do grupo deve ter no máximo {max} caracteres",
     "group_name_taken": "Já existe um grupo com esse nome",
+    "flow_group_not_found": "Grupo de fluxos não encontrado",
     "prompt_not_found": "Prompt não encontrado",
     "prompt_name_required": "Nome do prompt é obrigatório",
     "prompt_name_too_long": "Nome do prompt deve ter no máximo {max} caracteres",
@@ -397,6 +406,11 @@
     "group_deleted": "Grupo excluído",
     "group_hidden": "Grupo ocultado da página de terminais",
     "group_shown": "Grupo visível novamente",
+    "flow_group_created": "Grupo de fluxos criado",
+    "flow_group_renamed": "Grupo de fluxos renomeado",
+    "flow_group_deleted": "Grupo de fluxos excluído",
+    "flow_group_hidden": "Grupo de fluxos ocultado",
+    "flow_group_shown": "Grupo de fluxos visível novamente",
     "prompt_created": "Prompt criado",
     "prompt_updated": "Prompt atualizado",
     "prompt_deleted": "Prompt excluído",

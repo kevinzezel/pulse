@@ -98,6 +98,13 @@ function PortalPopover({ anchor, align = 'left', onClose, children }) {
   );
 }
 
+const DEFAULT_SUCCESS_KEYS = Object.freeze({
+  created: 'success.group_created',
+  renamed: 'success.group_renamed',
+  deleted: 'success.group_deleted',
+  shown: 'success.group_shown',
+});
+
 export default function GroupSelector({
   groups = [],
   sessions = [],
@@ -108,7 +115,20 @@ export default function GroupSelector({
   onGroupsChanged,
   isMobile = false,
   showOpenAll = true,
+  // Generic items for non-terminal callers (e.g. flows). Defaults to `sessions`
+  // so the existing terminal usage stays unchanged. `getItemGroupId` extracts
+  // the grouping field; callers can override it for items shaped differently.
+  items = null,
+  getItemGroupId = (item) => (item && item.group_id) || null,
+  createGroupAction = createGroup,
+  renameGroupAction = renameGroup,
+  deleteGroupAction = deleteGroup,
+  setGroupHiddenAction = setGroupHidden,
+  deleteConfirmMessageKey = 'groups.deleteConfirmMessage',
+  deleteConfirmMessageZeroKey = 'groups.deleteConfirmMessageZero',
+  successKeys = DEFAULT_SUCCESS_KEYS,
 }) {
+  const effectiveItems = items ?? sessions;
   const visibleGroups = useMemo(() => groups.filter((g) => !g.hidden), [groups]);
   const hiddenGroups = useMemo(() => groups.filter((g) => g.hidden), [groups]);
   const { t } = useTranslation();
@@ -180,12 +200,13 @@ export default function GroupSelector({
     const counts = new Map();
     counts.set('__none__', 0);
     for (const g of visibleGroups) counts.set(g.id, 0);
-    for (const s of sessions) {
-      const gid = s.group_id && validGroupIds.has(s.group_id) ? s.group_id : '__none__';
+    for (const it of effectiveItems) {
+      const raw = getItemGroupId(it);
+      const gid = raw && validGroupIds.has(raw) ? raw : '__none__';
       counts.set(gid, (counts.get(gid) || 0) + 1);
     }
     return counts;
-  }, [sessions, visibleGroups]);
+  }, [effectiveItems, visibleGroups, getItemGroupId]);
 
   // Per-group "all sessions are local to this browser". Usado pra decidir o
   // ícone do botão "abrir todos editors": FolderOpen se tudo é local, senão
@@ -373,11 +394,11 @@ export default function GroupSelector({
     if (!name) return;
     setSubmitting(true);
     try {
-      await createGroup(name);
+      await createGroupAction(name);
       setNewName('');
       setCreatingOpen(false);
       onGroupsChanged?.();
-      toast.success(t('success.group_created'));
+      toast.success(t(successKeys.created));
     } catch (err) {
       showError(err);
     } finally {
@@ -391,11 +412,11 @@ export default function GroupSelector({
     if (!name) return;
     setSubmitting(true);
     try {
-      await renameGroup(id, name);
+      await renameGroupAction(id, name);
       setEditName('');
       setEditingId(null);
       onGroupsChanged?.();
-      toast.success(t('success.group_renamed'));
+      toast.success(t(successKeys.renamed));
     } catch (err) {
       showError(err);
     } finally {
@@ -407,11 +428,11 @@ export default function GroupSelector({
     if (submitting) return;
     setSubmitting(true);
     try {
-      await deleteGroup(id);
+      await deleteGroupAction(id);
       if (selectedGroupId === id) onSelect?.(null);
       setConfirmDeleteId(null);
       onGroupsChanged?.();
-      toast.success(t('success.group_deleted'));
+      toast.success(t(successKeys.deleted));
     } catch (err) {
       showError(err);
     } finally {
@@ -423,10 +444,10 @@ export default function GroupSelector({
     if (submitting) return;
     setSubmitting(true);
     try {
-      await setGroupHidden(id, false);
+      await setGroupHiddenAction(id, false);
       onGroupsChanged?.();
       if (hiddenGroups.length === 1) closePopover();
-      toast.success(t('success.group_shown'));
+      toast.success(t(successKeys.shown));
     } catch (err) {
       showError(err);
     } finally {
@@ -759,8 +780,8 @@ export default function GroupSelector({
               <span className="text-foreground font-medium">{deleteTarget.name}</span>
               {' — '}
               {deleteCount === 0
-                ? t('groups.deleteConfirmMessageZero')
-                : t('groups.deleteConfirmMessage', { n: deleteCount })}
+                ? t(deleteConfirmMessageZeroKey)
+                : t(deleteConfirmMessageKey, { n: deleteCount })}
             </p>
             <div className="flex justify-end gap-2">
               <button

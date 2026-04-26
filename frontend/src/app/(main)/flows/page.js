@@ -7,6 +7,8 @@ import toast from 'react-hot-toast';
 import { Workflow, Loader2 } from 'lucide-react';
 import {
   listFlows, createFlow, patchFlow, deleteFlow,
+  getFlowGroups, reorderFlowGroups,
+  createFlowGroup, renameFlowGroup, deleteFlowGroup, setFlowGroupHidden,
 } from '@/services/api';
 import { useTheme } from '@/providers/ThemeProvider';
 import { useTranslation, useErrorToast } from '@/providers/I18nProvider';
@@ -16,6 +18,14 @@ import { useIsMobile } from '@/hooks/layout';
 import { SAVE_DEBOUNCE_MS } from '@/lib/flowsConfig';
 import FlowsSidebar from '@/components/Flows/FlowsSidebar';
 import NewFlowModal from '@/components/Flows/NewFlowModal';
+import GroupSelector from '@/components/GroupSelector';
+
+const FLOW_GROUP_SUCCESS_KEYS = Object.freeze({
+  created: 'success.flow_group_created',
+  renamed: 'success.flow_group_renamed',
+  deleted: 'success.flow_group_deleted',
+  shown: 'success.flow_group_shown',
+});
 
 const Excalidraw = dynamic(
   () => import('@excalidraw/excalidraw').then((m) => ({ default: m.Excalidraw })),
@@ -44,9 +54,19 @@ export default function FlowsPage() {
   const showError = useErrorToast();
   const isMobile = useIsMobile();
   const { activeProjectId } = useProjects();
-  const { getProjectFlow, setProjectFlow, hydrated: hydratedViewState } = useViewState();
+  const {
+    setProjectFlow,
+    setProjectFlowGroup,
+    setProjectFlowForGroup,
+    getProjectFlowGroup,
+    getProjectFlowForGroup,
+    hydrated: hydratedViewState,
+  } = useViewState();
 
   const [flows, setFlows] = useState([]);
+  const [flowGroups, setFlowGroups] = useState([]);
+  const [flowsProjectId, setFlowsProjectId] = useState(null);
+  const [flowGroupsProjectId, setFlowGroupsProjectId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -57,12 +77,42 @@ export default function FlowsPage() {
   const [showModal, setShowModal] = useState(false);
   const [sidebarHydrated, setSidebarHydrated] = useState(false);
   const storageHydrated = sidebarHydrated && hydratedViewState;
+  const dataReady = storageHydrated
+    && flowsProjectId === activeProjectId
+    && flowGroupsProjectId === activeProjectId;
 
-  const selectedFlowId = hydratedViewState ? getProjectFlow(activeProjectId) : null;
+  const allFlowGroupIds = useMemo(
+    () => new Set(flowGroups.map((g) => g.id)),
+    [flowGroups],
+  );
+
+  const visibleFlowGroupIds = useMemo(
+    () => new Set(flowGroups.filter((g) => !g.hidden).map((g) => g.id)),
+    [flowGroups],
+  );
+
+  const rawSelectedFlowGroupId = hydratedViewState ? getProjectFlowGroup(activeProjectId) : null;
+  const selectedFlowGroupId = (rawSelectedFlowGroupId && visibleFlowGroupIds.has(rawSelectedFlowGroupId))
+    ? rawSelectedFlowGroupId
+    : null;
+
+  const setSelectedFlowGroupId = useCallback((id) => {
+    if (!activeProjectId) return;
+    setProjectFlowGroup(activeProjectId, id);
+  }, [activeProjectId, setProjectFlowGroup]);
+
+  const selectedFlowId = hydratedViewState
+    ? getProjectFlowForGroup(activeProjectId, selectedFlowGroupId)
+    : null;
+
   const setSelectedFlowId = useCallback((id) => {
     if (!activeProjectId) return;
+    setProjectFlowForGroup(activeProjectId, selectedFlowGroupId, id);
+    // Keep the legacy flat key in sync with the user's most recent pick so a
+    // future downgrade or migration that reads only `rt:view::<p>::flow` still
+    // sees a sensible value.
     setProjectFlow(activeProjectId, id);
-  }, [activeProjectId, setProjectFlow]);
+  }, [activeProjectId, selectedFlowGroupId, setProjectFlowForGroup, setProjectFlow]);
 
   const pendingSceneRef = useRef({});
   const saveTimersRef = useRef({});
@@ -86,6 +136,18 @@ export default function FlowsPage() {
     try { localStorage.setItem(SIDEBAR_OPEN_KEY, JSON.stringify(sidebarOpen)); } catch {}
   }, [sidebarOpen, sidebarHydrated]);
 
+  const fetchFlowGroups = useCallback(async () => {
+    try {
+      const data = await getFlowGroups();
+      const list = (data?.groups || []).filter((g) => g.project_id === activeProjectId);
+      setFlowGroups(list);
+    } catch (err) {
+      showError(err);
+    } finally {
+      setFlowGroupsProjectId(activeProjectId);
+    }
+  }, [activeProjectId, showError]);
+
   // Fetch data after storage has been hydrated. Re-fetch on project switch.
   useEffect(() => {
     if (!storageHydrated) return;
@@ -93,10 +155,17 @@ export default function FlowsPage() {
     setLoading(true);
     (async () => {
       try {
-        const flowsRes = await listFlows();
+        const [flowsRes, groupsRes] = await Promise.all([
+          listFlows(),
+          getFlowGroups(),
+        ]);
         if (!alive) return;
         const all = Array.isArray(flowsRes?.flows) ? flowsRes.flows : [];
         setFlows(all.filter((f) => f.project_id === activeProjectId));
+        setFlowsProjectId(activeProjectId);
+        const groupsList = Array.isArray(groupsRes?.groups) ? groupsRes.groups : [];
+        setFlowGroups(groupsList.filter((g) => g.project_id === activeProjectId));
+        setFlowGroupsProjectId(activeProjectId);
       } catch (err) {
         showError(err);
       } finally {
@@ -121,28 +190,66 @@ export default function FlowsPage() {
     };
   }, [storageHydrated, showError, activeProjectId]);
 
+  // Effective group_id of a flow: ignore stale ids that don't match any
+  // current group. Treat them as ungrouped so the UI never shows a flow under
+  // a group that's been deleted (or that came from a previous schema where
+  // group_id pointed at a terminal group).
+  const effectiveGroupOf = useCallback((flow) => {
+    if (!flow) return null;
+    const gid = flow.group_id;
+    if (gid && allFlowGroupIds.has(gid)) return gid;
+    return null;
+  }, [allFlowGroupIds]);
+
+  useEffect(() => {
+    if (!dataReady) return;
+    if (!rawSelectedFlowGroupId) return;
+    if (visibleFlowGroupIds.has(rawSelectedFlowGroupId)) return;
+    setSelectedFlowGroupId(null);
+  }, [dataReady, rawSelectedFlowGroupId, visibleFlowGroupIds, setSelectedFlowGroupId]);
+
+  const flowsInSelectedGroup = useMemo(
+    () => flows.filter((f) => effectiveGroupOf(f) === selectedFlowGroupId),
+    [flows, selectedFlowGroupId, effectiveGroupOf],
+  );
+
+  const groupSelectorItems = useMemo(
+    () => flows.filter((f) => {
+      const gid = effectiveGroupOf(f);
+      return gid === null || visibleFlowGroupIds.has(gid);
+    }),
+    [flows, effectiveGroupOf, visibleFlowGroupIds],
+  );
+
   const filteredFlows = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    if (!q) return flows;
-    return flows.filter((f) => f.name.toLowerCase().includes(q));
-  }, [flows, searchQuery]);
+    if (!q) return flowsInSelectedGroup;
+    return flowsInSelectedGroup.filter((f) => f.name.toLowerCase().includes(q));
+  }, [flowsInSelectedGroup, searchQuery]);
 
-  // Keep selection inside the visible list (only after full hydration).
-  // Respects an explicit user deselect — stays empty.
+  // Reset the explicit-deselect intent whenever the user changes group, so
+  // entering a new group lands on its first flow instead of staying empty.
   useEffect(() => {
-    if (!storageHydrated || loading) return;
-    if (selectedFlowId && flows.some((f) => f.id === selectedFlowId)) return;
+    userDeselectedRef.current = false;
+  }, [selectedFlowGroupId]);
+
+  // Keep selection inside the current group's list (only after full hydration).
+  // Respects an explicit user deselect — stays empty until they pick again or
+  // change groups.
+  useEffect(() => {
+    if (!dataReady || loading) return;
+    if (selectedFlowId && flowsInSelectedGroup.some((f) => f.id === selectedFlowId)) return;
     if (userDeselectedRef.current) return;
-    if (flows.length > 0) {
-      setSelectedFlowId(flows[0].id);
+    if (flowsInSelectedGroup.length > 0) {
+      setSelectedFlowId(flowsInSelectedGroup[0].id);
     } else {
       setSelectedFlowId(null);
     }
-  }, [flows, selectedFlowId, storageHydrated, loading]);
+  }, [flowsInSelectedGroup, selectedFlowId, dataReady, loading, setSelectedFlowId]);
 
   const selectedFlow = useMemo(
-    () => flows.find((f) => f.id === selectedFlowId) || null,
-    [flows, selectedFlowId]
+    () => flowsInSelectedGroup.find((f) => f.id === selectedFlowId) || null,
+    [flowsInSelectedGroup, selectedFlowId]
   );
 
   const markSaving = useCallback((id, isSaving) => {
@@ -215,13 +322,26 @@ export default function FlowsPage() {
     }
   }
 
-  async function handleModalSubmit(name) {
+  async function handleModalSubmit(name, groupId) {
     if (creating) return;
     setCreating(true);
     try {
-      const created = await createFlow({ name, scene: emptyScene() });
+      const targetGroupId = groupId !== undefined ? groupId : selectedFlowGroupId;
+      const created = await createFlow({
+        name,
+        scene: emptyScene(),
+        group_id: targetGroupId,
+      });
       setFlows((prev) => [...prev, created]);
-      setSelectedFlowId(created.id);
+      // If user picked a different group than the current one, switch the bar
+      // so the freshly created flow is visible.
+      const createdGroupId = created.group_id || null;
+      if (createdGroupId !== selectedFlowGroupId) {
+        setSelectedFlowGroupId(createdGroupId);
+        userDeselectedRef.current = false;
+      }
+      setProjectFlowForGroup(activeProjectId, createdGroupId, created.id);
+      setProjectFlow(activeProjectId, created.id);
       lastSceneRef.current = { id: null, elementsLen: 0, elementsVersion: 0, bgColor: null, filesCount: 0 };
       setShowModal(false);
       toast.success(t('success.flow_created'));
@@ -249,18 +369,85 @@ export default function FlowsPage() {
     markSaving(source.id, true);
     try {
       const name = `${source.name} ${t('flows.copySuffix')}`;
+      // Inherit the source's effective group; if the source's stored group id
+      // is stale (group deleted), the duplicate lands in "No group" — same
+      // bucket the user already saw the source in.
+      const inheritedGroupId = effectiveGroupOf(source);
       const created = await createFlow({
         name,
         scene: source.scene || emptyScene(),
+        group_id: inheritedGroupId,
       });
       setFlows((prev) => [...prev, created]);
-      setSelectedFlowId(created.id);
+      setProjectFlowForGroup(activeProjectId, created.group_id || null, created.id);
+      setProjectFlow(activeProjectId, created.id);
       lastSceneRef.current = { id: null, elementsLen: 0, elementsVersion: 0, bgColor: null, filesCount: 0 };
       toast.success(t('success.flow_duplicated'));
     } catch (err) {
       showError(err);
     } finally {
       markSaving(source.id, false);
+    }
+  }
+
+  async function handleAssignFlowGroup(flowId, groupId) {
+    const prev = flows;
+    const target = prev.find((f) => f.id === flowId);
+    if (!target) return;
+    const nextGroupId = groupId || null;
+    setFlows((cur) => cur.map((f) => (f.id === flowId ? { ...f, group_id: nextGroupId } : f)));
+    try {
+      const updated = await patchFlow(flowId, { group_id: nextGroupId });
+      setFlows((cur) => cur.map((f) => (f.id === flowId ? updated : f)));
+      setProjectFlowForGroup(activeProjectId, nextGroupId, flowId);
+    } catch (err) {
+      setFlows(prev);
+      showError(err);
+    }
+  }
+
+  async function handleCreateFlowGroupInline(name) {
+    try {
+      const data = await createFlowGroup(name);
+      setFlowGroups((prev) => [...prev, data.group]);
+      return data.group;
+    } catch (err) {
+      showError(err);
+      throw err;
+    }
+  }
+
+  async function handleReorderFlowGroups(fromId, toId) {
+    const prev = flowGroups;
+    const from = flowGroups.find((g) => g.id === fromId);
+    const to = flowGroups.find((g) => g.id === toId);
+    if (!from || !to) return;
+    const fromIndex = flowGroups.findIndex((g) => g.id === fromId);
+    const toIndex = flowGroups.findIndex((g) => g.id === toId);
+    if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) return;
+    const optimistic = [...flowGroups];
+    const [moved] = optimistic.splice(fromIndex, 1);
+    optimistic.splice(toIndex, 0, moved);
+    setFlowGroups(optimistic);
+    try {
+      const res = await reorderFlowGroups(fromId, toId);
+      const list = (res.groups || []).filter((g) => g.project_id === activeProjectId);
+      setFlowGroups(list);
+    } catch (err) {
+      setFlowGroups(prev);
+      showError(err);
+    }
+  }
+
+  async function handleHideFlowGroup(groupId) {
+    const prev = flowGroups;
+    setFlowGroups((cur) => cur.map((g) => (g.id === groupId ? { ...g, hidden: true } : g)));
+    try {
+      await setFlowGroupHidden(groupId, true);
+      toast.success(t('success.flow_group_hidden'));
+    } catch (err) {
+      setFlowGroups(prev);
+      showError(err);
     }
   }
 
@@ -312,6 +499,8 @@ export default function FlowsPage() {
 
         <FlowsSidebar
           flows={filteredFlows}
+          groups={flowGroups}
+          getFlowGroupId={effectiveGroupOf}
           selectedFlowId={selectedFlowId}
           savingIds={savingIds}
           creating={creating}
@@ -325,16 +514,37 @@ export default function FlowsPage() {
           onRename={handleRename}
           onDelete={(flow) => setToDelete(flow)}
           onDuplicate={handleDuplicate}
+          onAssignGroup={handleAssignFlowGroup}
+          onCreateGroupInline={handleCreateFlowGroupInline}
         />
 
         <div className="flex-1 flex flex-col min-h-0 min-w-0">
+          <GroupSelector
+            groups={flowGroups}
+            items={groupSelectorItems}
+            getItemGroupId={effectiveGroupOf}
+            selectedGroupId={selectedFlowGroupId}
+            onSelect={setSelectedFlowGroupId}
+            onHideGroup={handleHideFlowGroup}
+            onReorder={handleReorderFlowGroups}
+            onGroupsChanged={fetchFlowGroups}
+            isMobile={isMobile}
+            showOpenAll={false}
+            createGroupAction={createFlowGroup}
+            renameGroupAction={renameFlowGroup}
+            deleteGroupAction={deleteFlowGroup}
+            setGroupHiddenAction={setFlowGroupHidden}
+            deleteConfirmMessageKey="flowGroups.deleteConfirmMessage"
+            deleteConfirmMessageZeroKey="flowGroups.deleteConfirmMessageZero"
+            successKeys={FLOW_GROUP_SUCCESS_KEYS}
+          />
           <div className="flex-1 min-h-0 relative" style={{ background: 'hsl(var(--background))' }}>
             {loading ? (
               <div className="flex h-full items-center justify-center text-muted-foreground text-sm">
                 {t('flows.loading')}
               </div>
             ) : !selectedFlow ? (
-              <EmptyCanvas t={t} hasAny={flows.length > 0} />
+              <EmptyCanvas t={t} hasAny={flowsInSelectedGroup.length > 0} />
             ) : hydrated ? (
               <Excalidraw
                 key={selectedFlow.id}
@@ -360,6 +570,8 @@ export default function FlowsPage() {
           onSubmit={handleModalSubmit}
           loading={creating}
           fallbackName={defaultNewName}
+          groups={flowGroups.filter((g) => !g.hidden)}
+          defaultGroupId={selectedFlowGroupId}
         />
       )}
 

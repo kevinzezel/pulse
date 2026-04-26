@@ -6,6 +6,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [2.10.0-pre] — 2026-04-26
+
+### Added
+
+- **Flows now have independent groups.** The Flows page uses the same horizontal group bar layout as terminals while storing its groups separately in `data/flow-groups.json`. Existing flows without a valid flow-group id appear under `No group`, new flows can be created directly in the active group, flows can be moved between groups from the sidebar, and the active flow/group view is preserved per project and per browser tab through `sessionStorage`.
+- **Flow groups are included in project accounting and storage sync.** Project stats now count terminal groups plus flow groups, and the storage sync file list includes `data/flow-groups.json` so MongoDB/S3/local sync keeps flow group state with the rest of the workspace.
+
+### Fixed
+
+- **Flow-group reordering preserves groups from other projects.** Reordering a flow group now rewrites the complete flow-groups store while only changing the active project's group order.
+- **Hidden flow groups no longer leak their flows into `No group`.** Hidden groups remain valid ownership buckets, so hiding a group removes its flows from the visible list instead of reclassifying them as ungrouped. If the hidden group was selected, the persisted flow-group selection is cleared back to `No group`.
+
 ## [2.9.2-pre] — 2026-04-26
 
 ### Fixed
@@ -997,7 +1009,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v2.9.2-pre...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v2.10.0-pre...HEAD
+[2.10.0-pre]: https://github.com/kevinzezel/pulse/releases/tag/v2.10.0-pre
 [2.9.2-pre]: https://github.com/kevinzezel/pulse/releases/tag/v2.9.2-pre
 [2.9.1]: https://github.com/kevinzezel/pulse/releases/tag/v2.9.1
 [2.9.0]: https://github.com/kevinzezel/pulse/releases/tag/v2.9.0

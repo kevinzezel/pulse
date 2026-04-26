@@ -381,6 +381,124 @@ export async function setGroupHidden(groupId, hidden) {
   return { group: updated, detail_key: hidden ? 'success.group_hidden' : 'success.group_shown' };
 }
 
+// ===== Flow Groups (independent from terminal groups) =====
+
+export async function getFlowGroups() {
+  return localRequest('/api/flow-groups');
+}
+
+export async function saveFlowGroups(groups) {
+  return localRequest('/api/flow-groups', {
+    method: 'PUT',
+    body: JSON.stringify({ groups }),
+  });
+}
+
+export async function reorderFlowGroups(fromId, toId) {
+  const { groups } = await getFlowGroups();
+  const from = groups.find(g => g.id === fromId);
+  const to = groups.find(g => g.id === toId);
+  if (!from || !to || from.project_id !== to.project_id) {
+    const err = new Error('Flow group not found');
+    err.detail_key = 'errors.flow_group_not_found';
+    throw err;
+  }
+  const scoped = groups.filter(g => g.project_id === from.project_id);
+  const reordered = reorderById(scoped, fromId, toId);
+  if (reordered === scoped) return { groups };
+  let idx = 0;
+  const next = groups.map(g => (
+    g.project_id === from.project_id ? reordered[idx++] : g
+  ));
+  const res = await saveFlowGroups(next);
+  return { groups: res.groups };
+}
+
+export async function createFlowGroup(name) {
+  const clean = normalizeGroupName(name);
+  const { groups } = await getFlowGroups();
+  const pid = getActiveProjectId();
+  const scoped = groups.filter((g) => g.project_id === pid);
+  assertUniqueName(scoped, clean);
+  const draft = { name: clean, project_id: pid };
+  const res = await localRequest('/api/flow-groups', {
+    method: 'PUT',
+    body: JSON.stringify({ groups: [...groups, draft] }),
+  });
+  const created = res.groups[res.groups.length - 1];
+  return { group: created, detail_key: 'success.flow_group_created' };
+}
+
+export async function renameFlowGroup(groupId, name) {
+  const clean = normalizeGroupName(name);
+  const { groups } = await getFlowGroups();
+  const target = groups.find(g => g.id === groupId);
+  if (!target) {
+    const err = new Error('Flow group not found');
+    err.detail_key = 'errors.flow_group_not_found';
+    throw err;
+  }
+  const scoped = groups.filter(g => g.project_id === target.project_id);
+  assertUniqueName(scoped, clean, groupId);
+  const next = groups.map(g => g.id === groupId ? { ...g, name: clean } : g);
+  const res = await localRequest('/api/flow-groups', {
+    method: 'PUT',
+    body: JSON.stringify({ groups: next }),
+  });
+  const updated = res.groups.find(g => g.id === groupId);
+  return { group: updated, detail_key: 'success.flow_group_renamed' };
+}
+
+export async function setFlowGroupHidden(groupId, hidden) {
+  const { groups } = await getFlowGroups();
+  if (!groups.some(g => g.id === groupId)) {
+    const err = new Error('Flow group not found');
+    err.detail_key = 'errors.flow_group_not_found';
+    throw err;
+  }
+  const next = groups.map(g => g.id === groupId ? { ...g, hidden: !!hidden } : g);
+  const res = await localRequest('/api/flow-groups', {
+    method: 'PUT',
+    body: JSON.stringify({ groups: next }),
+  });
+  const updated = res.groups.find(g => g.id === groupId);
+  return { group: updated, detail_key: hidden ? 'success.flow_group_hidden' : 'success.flow_group_shown' };
+}
+
+export async function deleteFlowGroup(groupId) {
+  const { groups } = await getFlowGroups();
+  if (!groups.some(g => g.id === groupId)) {
+    const err = new Error('Flow group not found');
+    err.detail_key = 'errors.flow_group_not_found';
+    throw err;
+  }
+  // Antes de remover o grupo, limpa group_id dos fluxos que apontavam pra ele.
+  // Sem isso, o flow ficaria com group_id "fantasma" — a UI cai pra "Sem grupo"
+  // por validação, mas o JSON ficaria sujo e poderia ressuscitar se um grupo
+  // novo fosse criado com o mesmo id (improvável dado UUID, mas o cleanup
+  // mantém o store coerente). Falha no cleanup é fire-and-forget mas vai pro
+  // console.warn pra ficar visível em dev.
+  try {
+    const data = await listFlows();
+    const orphans = (data?.flows || []).filter((f) => f.group_id === groupId);
+    const results = await Promise.allSettled(orphans.map((f) => patchFlow(f.id, { group_id: null })));
+    for (let i = 0; i < results.length; i++) {
+      if (results[i].status === 'rejected') {
+        console.warn('deleteFlowGroup: failed to clear group_id on flow', orphans[i]?.id, results[i].reason);
+      }
+    }
+  } catch (err) {
+    console.warn('deleteFlowGroup: orphan cleanup failed:', err);
+  }
+
+  const nextGroups = groups.filter(g => g.id !== groupId);
+  await localRequest('/api/flow-groups', {
+    method: 'PUT',
+    body: JSON.stringify({ groups: nextGroups }),
+  });
+  return { detail_key: 'success.flow_group_deleted' };
+}
+
 export async function deleteGroup(groupId) {
   const { groups } = await getGroups();
   if (!groups.some(g => g.id === groupId)) {

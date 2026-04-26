@@ -88,7 +88,13 @@
     "deleteConfirm": "Eliminar",
     "saving": "Guardando...",
     "saved": "Guardado",
-    "loading": "Cargando..."
+    "loading": "Cargando...",
+    "assignGroup": "Mover a grupo",
+    "noGroup": "Sin grupo"
+  },
+  "flowGroups": {
+    "deleteConfirmMessage": "{n} flujos quedarán sin grupo.",
+    "deleteConfirmMessageZero": "Ningún flujo se verá afectado."
   },
   "projectSelector": {
     "switch": "Cambiar proyecto",
@@ -240,6 +246,8 @@
       "title": "Nuevo Flujo",
       "nameLabel": "Nombre (opcional)",
       "placeholder": "ej: arquitectura del servicio",
+      "groupLabel": "Grupo (opcional)",
+      "noGroup": "Sin grupo",
       "create": "Crear Flujo",
       "creating": "Creando..."
     }
@@ -324,6 +332,7 @@
     "group_name_required": "El nombre del grupo es obligatorio",
     "group_name_too_long": "El nombre del grupo debe tener como máximo {max} caracteres",
     "group_name_taken": "Ya existe un grupo con ese nombre",
+    "flow_group_not_found": "Grupo de flujos no encontrado",
     "prompt_not_found": "Prompt no encontrado",
     "prompt_name_required": "El nombre del prompt es obligatorio",
     "prompt_name_too_long": "El nombre del prompt debe tener como máximo {max} caracteres",
@@ -397,6 +406,11 @@
     "group_deleted": "Grupo eliminado",
     "group_hidden": "Grupo ocultado de la página de terminales",
     "group_shown": "Grupo visible de nuevo",
+    "flow_group_created": "Grupo de flujos creado",
+    "flow_group_renamed": "Grupo de flujos renombrado",
+    "flow_group_deleted": "Grupo de flujos eliminado",
+    "flow_group_hidden": "Grupo de flujos ocultado",
+    "flow_group_shown": "Grupo de flujos visible de nuevo",
     "prompt_created": "Prompt creado",
     "prompt_updated": "Prompt actualizado",
     "prompt_deleted": "Prompt eliminado",

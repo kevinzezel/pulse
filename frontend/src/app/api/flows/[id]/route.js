@@ -41,6 +41,15 @@ async function applyPatch(flow, patch) {
     }
     out.scene = patch.scene;
   }
+  if (patch.group_id !== undefined) {
+    if (patch.group_id === null || patch.group_id === '') {
+      out.group_id = null;
+    } else if (typeof patch.group_id === 'string') {
+      out.group_id = patch.group_id;
+    } else {
+      throw Object.assign(new Error('Invalid group_id'), { key: 'errors.invalid_body' });
+    }
+  }
   out.updated_at = new Date().toISOString();
   return out;
 }
