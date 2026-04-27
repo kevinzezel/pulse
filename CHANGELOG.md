@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [3.2.1] — 2026-04-27
+
+### Fixed
+
+- **Dashboard no longer waits for the slowest server before showing terminals.** Previously a single offline/VPN server stalled the initial render for the full 3-second remote timeout because the page batched every server's `getSessions` response with `Promise.allSettled` before painting. Sessions are now merged into the dashboard incrementally per server: online servers render their terminals as soon as they reply, while a server still in flight or in timeout keeps its saved layout metadata, snapshot data and compose drafts intact via a new `pendingSessionServerIds` gate. A run-id epoch counter discards obsolete responses when the active project changes mid-fetch, and the auto-restore flow continues to wait for every server to settle so it does not race the partial picture.
+
 ## [3.2.0] — 2026-04-27
 
 ### Added
@@ -1104,7 +1110,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v3.2.0...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v3.2.1...HEAD
+[3.2.1]: https://github.com/kevinzezel/pulse/releases/tag/v3.2.1
 [3.2.0]: https://github.com/kevinzezel/pulse/releases/tag/v3.2.0
 [2.11.1-pre]: https://github.com/kevinzezel/pulse/releases/tag/v2.11.1-pre
 [2.11.0-pre]: https://github.com/kevinzezel/pulse/releases/tag/v2.11.0-pre
