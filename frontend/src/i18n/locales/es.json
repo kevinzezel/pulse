@@ -235,6 +235,27 @@
     "unhide": "Reactivar",
     "noHidden": "Sin grupos ocultos"
   },
+  "serverFilter": {
+    "title": "Servidores",
+    "all": "Todos",
+    "online": "Online",
+    "offline": "Offline",
+    "checking": "Verificando",
+    "unknown": "Desconocido",
+    "retry": "Reintentar",
+    "clear": "Limpiar filtro de servidor",
+    "sessionCount": "{count} sesiones",
+    "empty": "Sin sesiones de este servidor en el grupo actual",
+    "lastSeen": "Visto por última vez {time}",
+    "reason": {
+      "unreachable": "Inalcanzable",
+      "timeout": "Tiempo agotado",
+      "bad_key": "API key inválida",
+      "mixed_content": "Bloqueado por contenido mixto",
+      "health_fail": "Health check falló",
+      "unknown": "Error inesperado"
+    }
+  },
   "groups": {
     "newGroup": "Nuevo grupo",
     "namePlaceholder": "Nombre del grupo",
@@ -356,6 +377,9 @@
     "connectionLost": "Conexión perdida",
     "connectionError": "Error de conexión",
     "serverNotConfigured": "Servidor no configurado",
+    "serverPaused": "Servidor offline",
+    "serverPausedBody": "Esta terminal está en pausa porque {server} está offline.",
+    "retryServer": "Reintentar servidor",
     "actions": {
       "menu": "Acciones del terminal",
       "disconnected": "Sesión desconectada — reconéctala antes de ejecutar acciones",

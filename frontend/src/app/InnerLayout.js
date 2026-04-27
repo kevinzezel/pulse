@@ -7,6 +7,7 @@ import { I18nProvider } from '@/providers/I18nProvider';
 import { ProjectsProvider } from '@/providers/ProjectsProvider';
 import { ViewStateProvider } from '@/providers/ViewStateProvider';
 import { ServersProvider } from '@/providers/ServersProvider';
+import { ServerHealthProvider } from '@/providers/ServerHealthProvider';
 import { UpdateNotifierProvider } from '@/providers/UpdateNotifierProvider';
 import { NotificationsProvider } from '@/providers/NotificationsProvider';
 import { NotesProvider } from '@/providers/NotesProvider';
@@ -32,25 +33,27 @@ export default function InnerLayout({ children }) {
         <ProjectsProvider>
           <ViewStateProvider>
             <ServersProvider>
-              <UpdateNotifierProvider>
-                <NotificationsProvider>
-                  <NotesProvider>
-                    {children}
-                    <NotesUI />
-                    <Toaster
-                      position="bottom-right"
-                      toastOptions={{
-                        duration: 4000,
-                        style: {
-                          background: 'hsl(var(--card))',
-                          color: 'hsl(var(--card-foreground))',
-                          border: '1px solid hsl(var(--border))',
-                        },
-                      }}
-                    />
-                  </NotesProvider>
-                </NotificationsProvider>
-              </UpdateNotifierProvider>
+              <ServerHealthProvider>
+                <UpdateNotifierProvider>
+                  <NotificationsProvider>
+                    <NotesProvider>
+                      {children}
+                      <NotesUI />
+                      <Toaster
+                        position="bottom-right"
+                        toastOptions={{
+                          duration: 4000,
+                          style: {
+                            background: 'hsl(var(--card))',
+                            color: 'hsl(var(--card-foreground))',
+                            border: '1px solid hsl(var(--border))',
+                          },
+                        }}
+                      />
+                    </NotesProvider>
+                  </NotificationsProvider>
+                </UpdateNotifierProvider>
+              </ServerHealthProvider>
             </ServersProvider>
           </ViewStateProvider>
         </ProjectsProvider>

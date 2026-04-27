@@ -120,6 +120,9 @@ export default function TerminalMosaic({
   onRequestCompose,
   composeLoadingId,
   onRequestVoice,
+  serverReconnectKeys = {},
+  serverHealth = {},
+  onRetryServer,
 }) {
   const { t } = useTranslation();
   const showError = useErrorToast();
@@ -194,6 +197,8 @@ export default function TerminalMosaic({
             {mobileOpenIds.map(id => {
               const session = findSession(id);
               if (!session) return null;
+              const reconnectVer = serverReconnectKeys[session.server_id] || 0;
+              const paneHealth = serverHealth[session.server_id];
               return (
                 <div
                   key={id}
@@ -201,10 +206,13 @@ export default function TerminalMosaic({
                   style={{ display: id === activeTerminalId ? 'block' : 'none' }}
                 >
                   <TerminalPane
+                    key={`${session.id}:${reconnectVer}`}
                     session={session}
                     onSessionEnded={() => onSessionEnded(id)}
                     onReconnect={onReconnect}
                     isMobile={true}
+                    serverHealth={paneHealth}
+                    onRetryServer={onRetryServer}
                   />
                   {id === activeTerminalId && (
                     <PaneActionsFab
@@ -280,9 +288,12 @@ export default function TerminalMosaic({
             >
               <div className="relative h-full min-h-0">
                 <TerminalPane
+                  key={`${session.id}:${serverReconnectKeys[session.server_id] || 0}`}
                   session={session}
                   onSessionEnded={() => onSessionEnded(id)}
                   onReconnect={onReconnect}
+                  serverHealth={serverHealth[session.server_id]}
+                  onRetryServer={onRetryServer}
                 />
                 <PaneActionsFab
                   sessionId={id}

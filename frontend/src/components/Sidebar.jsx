@@ -1,11 +1,10 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import Link from 'next/link';
 import toast from 'react-hot-toast';
 import {
   Plus, Check,
-  Pencil, Trash2, FolderOpen, ExternalLink, Loader, Wifi, WifiOff, RefreshCw, Search, X, Folder,
+  Pencil, Trash2, FolderOpen, ExternalLink, Loader, Wifi, RefreshCw, Search, X, Folder,
   Bell, BellOff, Keyboard,
 } from 'lucide-react';
 import { openEditor, getSessionCwd, splitSessionId } from '@/services/api';
@@ -18,7 +17,6 @@ import RenameSessionModal from './RenameSessionModal';
 import ClipboardGallery from './ClipboardGallery';
 import AttachFileButton from './AttachFileButton';
 import ServerTag from './ServerTag';
-import SidebarCard from './SidebarCard';
 import SidebarShell from './SidebarShell';
 import { isTerminalConnected, subscribeTerminalConnection } from './TerminalPane';
 
@@ -27,7 +25,6 @@ export default function Sidebar({
   allSessions = sessions,
   groups = [],
   servers = [],
-  offlineServerIds = [],
   onCreateSession,
   onKillSession,
   onRenameSession,
@@ -44,13 +41,14 @@ export default function Sidebar({
   onRequestCompose,
   composeLoadingId = null,
   defaultCreateGroupId = null,
+  serverHealth = {},
 }) {
   const showServerTag = servers.length > 1;
   const { t } = useTranslation();
   const showError = useErrorToast();
   // `localReachable` vem desestruturado só pra forçar re-render quando probes
   // completam — o valor em si é lido via isServerLocal() abaixo.
-  const { save: saveServers, localReachable: _localReachable } = useServers();
+  const { localReachable: _localReachable } = useServers();
   const { supported: notifySupported, permission: notifyPermission, permissionReason: notifyPermissionReason, requestBrowserPermission } = useNotifications();
   const [showModal, setShowModal] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -60,10 +58,6 @@ export default function Sidebar({
   const [openingEditorId, setOpeningEditorId] = useState(null);
   const [openingRemoteId, setOpeningRemoteId] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedServerIds, setSelectedServerIds] = useState([]);
-  const [hydratedSelected, setHydratedSelected] = useState(false);
-  const [confirmDeleteServerId, setConfirmDeleteServerId] = useState(null);
-  const [deletingServerId, setDeletingServerId] = useState(null);
   const [activeTerminalConnected, setActiveTerminalConnected] = useState(false);
 
   const [assignPopoverSessionId, setAssignPopoverSessionId] = useState(null);
@@ -80,59 +74,11 @@ export default function Sidebar({
     return subscribeTerminalConnection(activeTerminalId, setActiveTerminalConnected);
   }, [activeTerminalId]);
 
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem('rt:selectedServerIds');
-      setSelectedServerIds(raw ? JSON.parse(raw) : []);
-    } catch {
-      setSelectedServerIds([]);
-    }
-    setHydratedSelected(true);
-  }, []);
-
-  useEffect(() => {
-    if (hydratedSelected) {
-      localStorage.setItem('rt:selectedServerIds', JSON.stringify(selectedServerIds));
-    }
-  }, [selectedServerIds, hydratedSelected]);
-
-  useEffect(() => {
-    if (!hydratedSelected) return;
-    const currentIds = new Set(servers.map(s => s.id));
-    setSelectedServerIds(prev => {
-      const filtered = prev.filter(id => currentIds.has(id));
-      return filtered.length === prev.length ? prev : filtered;
-    });
-  }, [servers, hydratedSelected]);
-
   const filteredSessions = useMemo(() => {
-    const serverFilter = selectedServerIds.length > 0 ? new Set(selectedServerIds) : null;
     const query = searchQuery.trim().toLowerCase();
-    return sessions.filter(s => {
-      if (serverFilter && !serverFilter.has(s.server_id)) return false;
-      if (query && !s.name.toLowerCase().includes(query)) return false;
-      return true;
-    });
-  }, [sessions, selectedServerIds, searchQuery]);
-
-  function toggleServerSelected(serverId) {
-    setSelectedServerIds(prev => prev.includes(serverId)
-      ? prev.filter(id => id !== serverId)
-      : [...prev, serverId]);
-  }
-
-  async function handleDeleteServer(id) {
-    setDeletingServerId(id);
-    try {
-      await saveServers(servers.filter(s => s.id !== id));
-      setConfirmDeleteServerId(null);
-      toast.success(t('settings.servers.deleted'));
-    } catch (err) {
-      showError(err);
-    } finally {
-      setDeletingServerId(null);
-    }
-  }
+    if (!query) return sessions;
+    return sessions.filter(s => s.name.toLowerCase().includes(query));
+  }, [sessions, searchQuery]);
 
   async function handleOpenEditor(e, sessionId) {
     e.stopPropagation();
@@ -246,6 +192,7 @@ export default function Sidebar({
     const showActions = isVisible;
     const popoverOpen = assignPopoverSessionId === session.id;
     const sessionLocal = isServerLocal(getServerById(splitSessionId(session.id).serverId));
+    const sessionServerStatus = serverHealth[session.server_id]?.status || 'unknown';
     return (
       <div
         key={session.id}
@@ -278,7 +225,7 @@ export default function Sidebar({
           </div>
           {showServerTag && (
             <div className="flex-shrink-0 ml-1">
-              <ServerTag name={session.server_name} color={session.server_color} />
+              <ServerTag name={session.server_name} status={sessionServerStatus} />
             </div>
           )}
         </div>
@@ -444,7 +391,7 @@ export default function Sidebar({
               </button>
               <div className="flex items-center gap-2">
                 <button
-                  onClick={onReconnect}
+                  onClick={() => onReconnect?.()}
                   className="flex-1 flex items-center justify-center py-1.5 rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
                   title={t('sidebar.reconnect')}
                   aria-label={t('sidebar.reconnect')}
@@ -485,82 +432,6 @@ export default function Sidebar({
             </div>
 
             <div className="flex-1 min-h-0 flex flex-col">
-              {servers.length > 0 && (
-                <div className="border-t flex-shrink-0 flex flex-col min-h-0" style={{ borderColor: 'hsl(var(--sidebar-border))' }}>
-                  <div className="flex items-center justify-between px-3 py-1 flex-shrink-0">
-                    <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                      {t('sidebar.serversSection')}
-                    </p>
-                    {selectedServerIds.length > 0 && (
-                      <button
-                        onClick={() => setSelectedServerIds([])}
-                        className="text-muted-foreground hover:text-foreground transition-colors"
-                        title={t('sidebar.clearServerFilter')}
-                      >
-                        <X size={10} />
-                      </button>
-                    )}
-                  </div>
-                  <div className="px-2 pb-1 overflow-y-auto max-h-48">
-                    {servers.map(srv => {
-                      const isOffline = offlineServerIds.includes(srv.id);
-                      const isSelected = selectedServerIds.includes(srv.id);
-                      const scheme = srv.protocol || 'http';
-                      const isDeleting = deletingServerId === srv.id;
-                      return (
-                        <SidebarCard
-                          key={srv.id}
-                          active={isSelected}
-                          activeColor={srv.color}
-                          onClick={() => toggleServerSelected(srv.id)}
-                          onClickTitle={t('sidebar.filterByServer')}
-                          title={
-                            <>
-                              {isOffline ? (
-                                <WifiOff
-                                  size={12}
-                                  className="text-destructive flex-shrink-0"
-                                />
-                              ) : (
-                                <Wifi
-                                  size={12}
-                                  className="text-success flex-shrink-0"
-                                />
-                              )}
-                              <span className="truncate">{srv.name || `${srv.host}:${srv.port}`}</span>
-                            </>
-                          }
-                          subtitle={
-                            <span className="font-mono">{scheme}://{srv.host}:{srv.port}</span>
-                          }
-                          actions={
-                            <>
-                              <Link
-                                href={`/settings?tab=servers&edit=${encodeURIComponent(srv.id)}`}
-                                className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
-                                title={t('sidebar.editServer')}
-                                aria-label={t('sidebar.editServer')}
-                              >
-                                <Pencil size={12} />
-                              </Link>
-                              <button
-                                onClick={() => setConfirmDeleteServerId(srv.id)}
-                                disabled={isDeleting}
-                                className="p-1 rounded text-muted-foreground hover:text-destructive hover:bg-muted/60 transition-colors disabled:opacity-50"
-                                title={t('sidebar.deleteServer')}
-                                aria-label={t('sidebar.deleteServer')}
-                              >
-                                {isDeleting ? <Loader size={12} className="animate-spin" /> : <Trash2 size={12} />}
-                              </button>
-                            </>
-                          }
-                        />
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-
               <div className="border-t flex-1 min-h-0 flex flex-col" style={{ borderColor: 'hsl(var(--sidebar-border))' }}>
                 <div className="flex items-center justify-between px-3 py-1 flex-shrink-0">
                   <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
@@ -621,7 +492,7 @@ export default function Sidebar({
                 <Plus size={16} />
               </button>
               <button
-                onClick={onReconnect}
+                onClick={() => onReconnect?.()}
                 className="p-2 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
                 title={t('sidebar.reconnect')}
               >
@@ -712,39 +583,6 @@ export default function Sidebar({
         </div>
       )}
 
-      {confirmDeleteServerId && (() => {
-        const srv = servers.find(s => s.id === confirmDeleteServerId);
-        if (!srv) return null;
-        const name = srv.name || `${srv.host}:${srv.port}`;
-        const isDeleting = deletingServerId === srv.id;
-        return (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-overlay/60">
-            <div className="bg-card border border-border rounded-lg p-6 w-80">
-              <h3 className="text-foreground font-semibold mb-2">{t('serverDelete.title')}</h3>
-              <p className="text-sm text-muted-foreground mb-4">
-                {t('serverDelete.message', { name })}
-              </p>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => setConfirmDeleteServerId(null)}
-                  disabled={isDeleting}
-                  className="flex-1 py-2 rounded-md text-sm font-medium border border-border text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors disabled:opacity-50"
-                >
-                  {t('serverDelete.cancel')}
-                </button>
-                <button
-                  onClick={() => handleDeleteServer(srv.id)}
-                  disabled={isDeleting}
-                  className="flex-1 py-2 rounded-md text-sm font-medium text-white bg-destructive hover:bg-destructive/80 transition-colors disabled:opacity-50 inline-flex items-center justify-center gap-1.5"
-                >
-                  {isDeleting && <Loader size={13} className="animate-spin" />}
-                  {t('serverDelete.confirm')}
-                </button>
-              </div>
-            </div>
-          </div>
-        );
-      })()}
     </>
   );
 }

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useCallback } from 'react';
+import { RefreshCw, WifiOff } from 'lucide-react';
 import { useTheme } from '@/providers/ThemeProvider';
 import { useTranslation } from '@/providers/I18nProvider';
 import { useNotifications } from '@/providers/NotificationsProvider';
@@ -127,6 +128,18 @@ export function hasDeadConnections() {
   return false;
 }
 
+export function getDeadConnectionServerIds() {
+  const serverIds = new Set();
+  for (const [id, entry] of terminalCache.entries()) {
+    const rs = entry.ws?.readyState;
+    if (rs !== WebSocket.OPEN && rs !== WebSocket.CONNECTING) {
+      const { serverId } = splitSessionId(id);
+      if (serverId) serverIds.add(serverId);
+    }
+  }
+  return [...serverIds];
+}
+
 // Probe ativo de saúde do WS: envia ping e espera pong em `timeoutMs`.
 // Resolve true se vivo, false se zumbi/sem entry/sem WS aberto.
 // Necessário porque `WebSocket.readyState` mente "OPEN" quando o TCP morre
@@ -177,7 +190,30 @@ export async function probeAllTerminals(timeoutMs = 2000) {
   return results.some((alive) => !alive);
 }
 
-export default function TerminalPane({ session, onSessionEnded, onReconnect, isMobile = false }) {
+export async function probeDeadConnectionServerIds(timeoutMs = 2000) {
+  if (terminalCache.size === 0) return [];
+  const ids = [...terminalCache.keys()];
+  const results = await Promise.all(ids.map(async (id) => ({
+    id,
+    alive: await probeTerminal(id, timeoutMs),
+  })));
+  const serverIds = new Set();
+  for (const result of results) {
+    if (result.alive) continue;
+    const { serverId } = splitSessionId(result.id);
+    if (serverId) serverIds.add(serverId);
+  }
+  return [...serverIds];
+}
+
+export default function TerminalPane({
+  session,
+  onSessionEnded,
+  onReconnect,
+  isMobile = false,
+  serverHealth = null,
+  onRetryServer,
+}) {
   const { theme } = useTheme();
   const { t } = useTranslation();
   const { sendViewing, canSendViewingHeartbeat } = useNotifications();
@@ -190,6 +226,14 @@ export default function TerminalPane({ session, onSessionEnded, onReconnect, isM
   onReconnectRef.current = onReconnect;
   tRef.current = t;
   isMobileRef.current = isMobile;
+
+  // Server health offline = não criamos WS aqui. Usuário com VPN trocada
+  // raramente precisa que o pane "tente até dar timeout"; melhor mostrar
+  // placeholder com botão Retry. Quando o health volta pra online, o parent
+  // bumpa serverReconnectKeys (Phase 8), forçando remount do pane com a
+  // nova key — daí o effect roda e cria a WS de novo.
+  const isServerOffline = serverHealth?.status === 'offline';
+  const offlineReason = serverHealth?.reason || null;
 
   useEffect(() => {
     applyXtermThemeToAll(theme);
@@ -215,6 +259,7 @@ export default function TerminalPane({ session, onSessionEnded, onReconnect, isM
   }, []);
 
   useEffect(() => {
+    if (isServerOffline) return;
     const cached = terminalCache.get(session.id);
 
     if (cached) {
@@ -326,7 +371,9 @@ export default function TerminalPane({ session, onSessionEnded, onReconnect, isM
             event.code === CLIENT_RESTART_CLOSE_CODE ||
             (event.code === SESSION_NOT_FOUND_CLOSE_CODE && event.reason === SESSION_NOT_FOUND_CLOSE_REASON)
           ) {
-            onReconnectRef.current?.(session.id, { reason: 'client_restart' });
+            // session.id passado pra que o parent escope a reconexão pro
+            // server desse pane (não destruir terminais de outros servers).
+            onReconnectRef.current?.(session.id, { reason: 'client_restart', silent: true });
           }
         }
       };
@@ -483,7 +530,12 @@ export default function TerminalPane({ session, onSessionEnded, onReconnect, isM
         }
       }
     };
-  }, [session.id, setupResizeObserver]);
+  }, [session.id, setupResizeObserver, isServerOffline]);
+
+  useEffect(() => {
+    if (!isServerOffline) return;
+    destroyTerminal(session.id);
+  }, [isServerOffline, session.id]);
 
   // Refit quando o teclado virtual abre/fecha no mobile. O viewport meta
   // (`interactiveWidget: 'resizes-content'` em app/layout.js) pede ao browser
@@ -627,7 +679,10 @@ export default function TerminalPane({ session, onSessionEnded, onReconnect, isM
         const cur = terminalCache.get(session.id);
         if (!cur) return;
         if ((cur.lastPongTs || 0) < pingTs) {
-          onReconnectRef.current?.();
+          // session.id permite ao parent escopar a reconexão pro server
+          // desse pane — sem isso, qualquer heartbeat falho destruiria
+          // terminais de servers que estão rodando normalmente.
+          onReconnectRef.current?.(session.id, { reason: 'heartbeat_timeout', silent: true });
         }
       }, PONG_TIMEOUT_MS);
     };
@@ -640,8 +695,59 @@ export default function TerminalPane({ session, onSessionEnded, onReconnect, isM
   }, [session.id]);
 
   return (
-    <div className="flex flex-col overflow-hidden" style={{ height: '100%', background: 'hsl(var(--terminal-bg))' }}>
+    <div className="flex flex-col overflow-hidden relative" style={{ height: '100%', background: 'hsl(var(--terminal-bg))' }}>
       <div ref={slotRef} className="flex-1 min-h-0 min-w-0" />
+      {isServerOffline && (
+        <OfflineOverlay
+          t={t}
+          sessionName={session.name}
+          serverName={session.server_name}
+          serverId={session.server_id}
+          reason={offlineReason}
+          onRetry={onRetryServer}
+        />
+      )}
+    </div>
+  );
+}
+
+function OfflineOverlay({ t, sessionName, serverName, serverId, reason, onRetry }) {
+  const reasonKey = reason ? `serverFilter.reason.${reason}` : null;
+  return (
+    <div
+      className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-6 text-center"
+      style={{ background: 'hsl(var(--terminal-bg))' }}
+    >
+      <div
+        className="flex items-center justify-center w-12 h-12 rounded-full"
+        style={{ background: 'hsl(var(--muted) / 0.4)' }}
+      >
+        <WifiOff size={20} className="text-destructive" />
+      </div>
+      <div className="flex flex-col gap-1">
+        <p className="text-sm font-medium text-foreground">{t('terminal.serverPaused')}</p>
+        <p className="text-xs text-muted-foreground">
+          {t('terminal.serverPausedBody', { server: serverName || t('serverFilter.unknown') })}
+        </p>
+        {sessionName && (
+          <p className="text-xs text-muted-foreground/80 mt-1 font-mono truncate max-w-[280px] mx-auto">
+            {sessionName}
+          </p>
+        )}
+        {reasonKey && (
+          <p className="text-[11px] text-muted-foreground/80 mt-1">{t(reasonKey)}</p>
+        )}
+      </div>
+      {onRetry && serverId && (
+        <button
+          type="button"
+          onClick={() => onRetry(serverId)}
+          className="mt-1 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border bg-card text-xs text-foreground hover:bg-muted/40 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <RefreshCw size={12} />
+          {t('terminal.retryServer')}
+        </button>
+      )}
     </div>
   );
 }

@@ -15,15 +15,19 @@ import { ssRead, ssWrite, ssRemove, ssListKeysWithPrefix } from '@/lib/sessionSt
 import { cleanupLegacyKeys } from '@/lib/legacyCleanup';
 import { reorderById } from '@/utils/reorder';
 import { replaceInTree, removeFromTree, getVisibleSessionIds, validateTree, insertSession, normalizeMosaicTree } from '@/utils/mosaicHelpers';
-import { destroyTerminal, destroyAllTerminals, destroyTerminalsByServerId, hasDeadConnections, probeAllTerminals, isTerminalConnected } from '@/components/TerminalPane';
+import {
+  destroyTerminal, destroyAllTerminals, destroyTerminalsByServerId,
+  getDeadConnectionServerIds, probeDeadConnectionServerIds, isTerminalConnected,
+} from '@/components/TerminalPane';
 import { useTranslation, useErrorToast } from '@/providers/I18nProvider';
 import { useServers } from '@/providers/ServersProvider';
+import { useServerHealth, SERVER_HEALTH_STATUS } from '@/providers/ServerHealthProvider';
 import { useProjects } from '@/providers/ProjectsProvider';
 import { useViewState } from '@/providers/ViewStateProvider';
 import { useIsMobile } from '@/hooks/layout';
 import dynamic from 'next/dynamic';
 import Sidebar from '@/components/Sidebar';
-import GroupSelector from '@/components/GroupSelector';
+import WorkspaceContextBar from '@/components/WorkspaceContextBar';
 import ComposeModal from '@/components/ComposeModal';
 import VoiceCommandModal from '@/components/VoiceCommandModal';
 import MobileKeyBar from '@/components/MobileKeyBar';
@@ -53,6 +57,12 @@ function Dashboard() {
   const { t } = useTranslation();
   const showError = useErrorToast();
   const { servers, loading: serversLoading, loaded: serversLoaded } = useServers();
+  const {
+    health: serverHealth,
+    markServerOnline,
+    markServerOffline,
+    retryServer,
+  } = useServerHealth();
   const { activeProjectId, activeProject } = useProjects();
   const { getProjectGroup, setProjectGroup, hydrated: hydratedViewState } = useViewState();
   const router = useRouter();
@@ -79,6 +89,10 @@ function Dashboard() {
   const [busySessionIds, setBusySessionIds] = useState(new Set());
   const [draggingId, setDraggingId] = useState(null);
   const [reconnectKey, setReconnectKey] = useState(0);
+  // serverId -> contador incremental. Usado como sufixo na key do TerminalPane
+  // pra forçar remount somente dos panes do server que precisa reconectar
+  // (em vez de remontar todo o TerminalMosaic via reconnectKey global).
+  const [serverReconnectKeys, setServerReconnectKeys] = useState({});
   const [restoreRetryKey, setRestoreRetryKey] = useState(0);
   const [serversNeedingRestore, setServersNeedingRestore] = useState(new Set());
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -234,6 +248,23 @@ function Dashboard() {
     });
   }, [sessions, groups, selectedGroupId]);
 
+  // Filtro de servidor escopado ao projeto/grupo ativo — null = "All". Não
+  // alimenta layout cleanup (`validateTree` segue usando sessionsInSelectedGroup
+  // pra preservar tiles ocultos por filtro), só recorta o que o sidebar e o
+  // mosaic exibem.
+  const [selectedServerFilterId, setSelectedServerFilterId] = useState(null);
+
+  // Reset do filtro quando o usuário troca de projeto. Servers de outro
+  // projeto raramente fazem sentido e o filtro guarda só um id.
+  useEffect(() => {
+    setSelectedServerFilterId(null);
+  }, [activeProjectId]);
+
+  const sessionsVisibleInWorkspace = useMemo(() => {
+    if (!selectedServerFilterId) return sessionsInSelectedGroup;
+    return sessionsInSelectedGroup.filter(s => s.server_id === selectedServerFilterId);
+  }, [sessionsInSelectedGroup, selectedServerFilterId]);
+
   const groupKey = `${activeProjectId}::${selectedGroupId ?? '__none__'}`;
   const mosaicLayout = projectDataReady ? (mosaicLayouts[groupKey] ?? null) : null;
 
@@ -252,7 +283,13 @@ function Dashboard() {
     });
   }, [selectedGroupId, activeProjectId]);
 
-  const mobileOpenIds = useMemo(() => Array.from(getVisibleSessionIds(mosaicLayout)), [mosaicLayout]);
+  const mosaicRenderLayout = useMemo(() => {
+    if (!selectedServerFilterId || !mosaicLayout) return mosaicLayout;
+    const validIds = new Set(sessionsVisibleInWorkspace.map(s => s.id));
+    return validateTree(mosaicLayout, validIds);
+  }, [mosaicLayout, selectedServerFilterId, sessionsVisibleInWorkspace]);
+
+  const mobileOpenIds = useMemo(() => Array.from(getVisibleSessionIds(mosaicRenderLayout)), [mosaicRenderLayout]);
 
   useEffect(() => {
     if (!projectDataReady) return;
@@ -353,12 +390,20 @@ function Dashboard() {
     const merged = [];
     const offline = [];
     results.forEach((r, i) => {
+      const srv = servers[i];
       if (r.status === 'fulfilled') {
         merged.push(...r.value);
+        // Sucesso silencioso: o background fetch também é o canal canônico
+        // de "este server voltou", então propagamos pro health provider —
+        // sem toast, só o status muda no header chip.
+        markServerOnline(srv.id);
       } else {
-        const srv = servers[i];
         offline.push(srv.id);
         const reason = r.reason?.reason || 'unreachable';
+        // Falha background: nunca mostra toast (offline-por-VPN é estado
+        // esperado), só registra no health provider, que agenda backoff
+        // pra re-checar o server depois.
+        markServerOffline(srv.id, reason);
         console.warn('[fetchSessions] server offline', srv.name, reason, r.reason);
       }
     });
@@ -366,7 +411,7 @@ function Dashboard() {
     setOfflineServerIds(offline);
     setSessionsProjectId(activeProjectId);
     setHydratedSessions(true);
-  }, [servers, activeProjectId]);
+  }, [servers, activeProjectId, markServerOnline, markServerOffline]);
 
   const fetchGroups = useCallback(async () => {
     if (servers.length === 0) {
@@ -673,6 +718,7 @@ function Dashboard() {
       // otherwise skip this server and sessions.json would never record the
       // new session (it skips every srv in offlineServerIds).
       setOfflineServerIds(prev => prev.filter(id => id !== serverId));
+      markServerOnline(serverId);
       setMosaicLayout(prev => insertSession(prev, session.id));
       if (isMobile) setActiveTerminalId(session.id);
       // Fire-and-forget: persist this cwd as a recent for the dropdown next
@@ -684,6 +730,9 @@ function Dashboard() {
         });
       }
     } catch (err) {
+      if (err?.serverId && (err.reason === 'unreachable' || err.reason === 'timeout')) {
+        markServerOffline(err.serverId, err.reason);
+      }
       showError(err);
     }
   }
@@ -717,6 +766,7 @@ function Dashboard() {
       setSessions(prev => [...prev, session]);
       // Successful clone = server is online (see handleCreate for rationale).
       setOfflineServerIds(prev => prev.filter(id => id !== serverId));
+      markServerOnline(serverId);
       setMosaicLayout(prev =>
         replaceInTree(prev, sourceSessionId, {
           direction,
@@ -727,6 +777,9 @@ function Dashboard() {
       );
       if (isMobile) setActiveTerminalId(session.id);
     } catch (err) {
+      if (err?.serverId && (err.reason === 'unreachable' || err.reason === 'timeout')) {
+        markServerOffline(err.serverId, err.reason);
+      }
       showError(err);
     } finally {
       setBusySessionIds(prev => { const next = new Set(prev); next.delete(sourceSessionId); return next; });
@@ -746,33 +799,140 @@ function Dashboard() {
     }
   }
 
+  const bumpServerReconnectKey = useCallback((serverId) => {
+    if (!serverId) return;
+    setServerReconnectKeys(prev => ({
+      ...prev,
+      [serverId]: (prev[serverId] || 0) + 1,
+    }));
+  }, []);
+
+  // Reconexão global explícita (botão "Wifi" na sidebar, listener de
+  // visibilitychange/pageshow). Destroi e remonta todos os panes — preço
+  // alto, mas é o que o usuário pediu.
+  const handleReconnectAll = useCallback((options = {}) => {
+    destroyAllTerminals();
+    setReconnectKey(prev => prev + 1);
+    if (!options.silent) toast.success(t('toast.reconnecting'));
+  }, [t]);
+
+  // Reconexão escopada por server: destrói os panes desse server e força
+  // remount via key sufixada com serverReconnectKeys[serverId]. Não toca
+  // panes de outros servers — usuário com múltiplos servers e VPNs não
+  // perde estado em servidores que estão funcionando.
+  const handleReconnectServer = useCallback((serverId, options = {}) => {
+    if (!serverId) return;
+    destroyTerminalsByServerId(serverId);
+    bumpServerReconnectKey(serverId);
+    if (!options.silent) toast.success(t('toast.reconnecting'));
+  }, [bumpServerReconnectKey, t]);
+
+  // Adapter para a API antiga `onReconnect(sessionId?, options?)` usada por
+  // TerminalPane/Sidebar. Roteia entre handleReconnectAll/Server conforme
+  // o motivo: WS automatic failures (client_restart, heartbeat_timeout)
+  // sempre são server-scoped silenciosos; clique no Wifi (sessionId=null,
+  // sem reason) cai no global toast.
   function handleReconnect(sessionId = null, options = {}) {
     if (options.reason === 'client_restart') {
       const { serverId } = splitSessionId(sessionId);
-      markServerForRestore(serverId);
+      if (serverId) {
+        markServerForRestore(serverId);
+        handleReconnectServer(serverId, { silent: true });
+      } else {
+        handleReconnectAll({ silent: true });
+      }
+      return;
     }
-    destroyAllTerminals();
-    setReconnectKey(prev => prev + 1);
-    if (options.reason !== 'client_restart') {
-      toast.success(t('toast.reconnecting'));
+    if (options.reason === 'heartbeat_timeout' && sessionId) {
+      const { serverId } = splitSessionId(sessionId);
+      if (serverId) {
+        handleReconnectServer(serverId, { silent: true });
+        return;
+      }
     }
+    handleReconnectAll(options);
   }
 
-  const handleReconnectRef = useRef(handleReconnect);
-  handleReconnectRef.current = handleReconnect;
+  const handleReconnectServerRef = useRef(handleReconnectServer);
+  handleReconnectServerRef.current = handleReconnectServer;
+
+  // Versão "manual" do retry exposta no chip do header e no placeholder
+  // offline. Diferente do auto-recovery, o caso manual aceita toasts:
+  // sucesso → toast.serverReconnected, falha → erro mapeado pra i18n.
+  const handleManualRetry = useCallback(async (serverId) => {
+    const server = servers.find(s => s.id === serverId);
+    const name = server?.name || (server ? `${server.host}:${server.port}` : serverId);
+    try {
+      const result = await retryServer(serverId);
+      if (!result) return;
+      if (result.ok) {
+        toast.success(t('toast.serverReconnected', { name }));
+      } else {
+        const reasonKey = `serverFilter.reason.${result.reason || 'unknown'}`;
+        const err = new Error(`${name}: ${t(reasonKey)}`);
+        err.detail_key = reasonKey;
+        err.detail_params = { name };
+        showError(err);
+      }
+    } catch (err) {
+      showError(err);
+    }
+  }, [retryServer, servers, t, showError]);
+
+  // Auto-recovery: quando o health flipa offline → online (via backoff
+  // automático ou via mutação bem-sucedida), reconectamos os panes desse
+  // server especificamente — silenciosamente, sem toast — e refazemos o
+  // fetchSessions pra pegar sessões que possam ter sido recriadas no
+  // backend enquanto o server estava inacessível.
+  const previousHealthRef = useRef({});
+  // Guarda contra rajada: fetchSessions internamente chama markServerOnline
+  // que muda serverHealth e re-dispara este effect. Sem o gate, um server
+  // que flapeia online↔offline durante a fetch pode encadear N fetchSessions
+  // overlapping. O ref deixa só uma fetch em voo por vez — se outra recovery
+  // acontecer enquanto a primeira ainda está rodando, o próximo fetch é
+  // implícito (a transição de status que ela vai produzir já dispara este
+  // mesmo effect de novo).
+  const recoveryFetchInFlightRef = useRef(false);
+  useEffect(() => {
+    const prev = previousHealthRef.current;
+    let recoveredAny = false;
+    for (const [serverId, entry] of Object.entries(serverHealth)) {
+      const wasOffline = prev[serverId]?.status === SERVER_HEALTH_STATUS.OFFLINE;
+      const isOnline = entry?.status === SERVER_HEALTH_STATUS.ONLINE;
+      if (wasOffline && isOnline) {
+        handleReconnectServer(serverId, { silent: true });
+        recoveredAny = true;
+      }
+    }
+    previousHealthRef.current = serverHealth;
+    if (recoveredAny && !recoveryFetchInFlightRef.current) {
+      recoveryFetchInFlightRef.current = true;
+      Promise.resolve(fetchSessions())
+        .finally(() => { recoveryFetchInFlightRef.current = false; });
+    }
+  }, [serverHealth, handleReconnectServer, fetchSessions]);
 
   useEffect(() => {
     const BACKOFF = [2000, 5000, 15000, 30000, 60000];
     let scheduled = false;
     let attempt = 0;
+    const reconnectServers = (serverIds) => {
+      const unique = [...new Set((serverIds || []).filter(Boolean))];
+      if (unique.length === 0) return false;
+      for (const serverId of unique) {
+        handleReconnectServerRef.current?.(serverId, { silent: true });
+      }
+      return true;
+    };
     const trigger = () => {
       if (scheduled) return;
-      if (!hasDeadConnections()) { attempt = 0; return; }
+      const serverIds = getDeadConnectionServerIds();
+      if (serverIds.length === 0) { attempt = 0; return; }
       scheduled = true;
       const delay = BACKOFF[Math.min(attempt, BACKOFF.length - 1)];
       setTimeout(() => { scheduled = false; }, delay);
       attempt += 1;
-      handleReconnectRef.current?.();
+      reconnectServers(serverIds);
     };
     const onVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
@@ -783,8 +943,8 @@ function Dashboard() {
         // Comum em mobile após tab freeze e em desktop após suspend/Wi-Fi flap.
         // hasDeadConnections() sozinho não detecta isso e o trigger acima sai
         // sem reconectar.
-        probeAllTerminals(2000).then((anyDead) => {
-          if (anyDead) handleReconnectRef.current?.();
+        probeDeadConnectionServerIds(2000).then((serverIds) => {
+          reconnectServers(serverIds);
         });
       }
     };
@@ -970,11 +1130,10 @@ function Dashboard() {
         )}
 
         <Sidebar
-          sessions={sessionsInSelectedGroup}
+          sessions={sessionsVisibleInWorkspace}
           allSessions={sessions}
           groups={groups}
           servers={servers}
-          offlineServerIds={offlineServerIds}
           onCreateSession={handleCreate}
           onKillSession={handleKill}
           onRenameSession={handleRename}
@@ -992,29 +1151,36 @@ function Dashboard() {
           composeLoadingId={composeLoadingId}
           selectedGroupId={selectedGroupId}
           defaultCreateGroupId={selectedGroupId}
+          serverHealth={serverHealth}
         />
 
         <div className="flex-1 flex flex-col min-h-0 min-w-0">
-          <GroupSelector
+          <WorkspaceContextBar
             groups={groups}
             sessions={sessions}
+            groupSessions={sessionsInSelectedGroup}
             selectedGroupId={selectedGroupId}
-            onSelect={setSelectedGroupId}
+            onSelectGroup={setSelectedGroupId}
             onHideGroup={handleHideGroup}
-            onReorder={handleReorderGroups}
+            onReorderGroups={handleReorderGroups}
             onGroupsChanged={fetchGroups}
+            servers={servers}
+            selectedServerFilterId={selectedServerFilterId}
+            onSelectServerFilter={setSelectedServerFilterId}
+            serverHealth={serverHealth}
+            onRetryServer={handleManualRetry}
             isMobile={isMobile}
           />
           <TerminalMosaic
           key={reconnectKey}
-          sessions={sessionsInSelectedGroup}
-          layout={mosaicLayout}
-          onLayoutChange={setMosaicLayout}
+          sessions={sessionsVisibleInWorkspace}
+          layout={mosaicRenderLayout}
+          onLayoutChange={selectedServerFilterId ? () => {} : setMosaicLayout}
           onSplitH={handleSplitH}
           onSplitV={handleSplitV}
           onClose={handleCloseTile}
-          onMaximize={handleMaximize}
-          isMaximized={isMaximized}
+          onMaximize={selectedServerFilterId ? () => {} : handleMaximize}
+          isMaximized={!selectedServerFilterId && isMaximized}
           onSessionEnded={handleSessionEnded}
           onReconnect={handleReconnect}
           busySessionIds={busySessionIds}
@@ -1029,6 +1195,9 @@ function Dashboard() {
           onRequestCompose={handleRequestCompose}
           composeLoadingId={composeLoadingId}
           onRequestVoice={handleRequestVoice}
+          serverReconnectKeys={serverReconnectKeys}
+          serverHealth={serverHealth}
+          onRetryServer={handleManualRetry}
         />
         </div>
       </div>

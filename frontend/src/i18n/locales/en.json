@@ -235,6 +235,27 @@
     "unhide": "Unhide",
     "noHidden": "No hidden groups"
   },
+  "serverFilter": {
+    "title": "Servers",
+    "all": "All",
+    "online": "Online",
+    "offline": "Offline",
+    "checking": "Checking",
+    "unknown": "Unknown",
+    "retry": "Retry",
+    "clear": "Clear server filter",
+    "sessionCount": "{count} sessions",
+    "empty": "No sessions for this server in the current group",
+    "lastSeen": "Last seen {time}",
+    "reason": {
+      "unreachable": "Unreachable",
+      "timeout": "Timed out",
+      "bad_key": "Invalid API key",
+      "mixed_content": "Blocked by mixed content",
+      "health_fail": "Health check failed",
+      "unknown": "Unexpected error"
+    }
+  },
   "groups": {
     "newGroup": "New group",
     "namePlaceholder": "Group name",
@@ -356,6 +377,9 @@
     "connectionLost": "Connection lost",
     "connectionError": "Connection error",
     "serverNotConfigured": "Server not configured",
+    "serverPaused": "Server offline",
+    "serverPausedBody": "This terminal is paused because {server} is offline.",
+    "retryServer": "Retry server",
     "actions": {
       "menu": "Terminal actions",
       "disconnected": "Session disconnected — reconnect before running actions",

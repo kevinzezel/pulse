@@ -2,8 +2,10 @@ import { getCurrentLocale } from '@/providers/I18nProvider';
 import { getServerById } from '@/providers/ServersProvider';
 import { DEFAULT_PROJECT_ID } from '@/lib/projectScope';
 import { reorderById } from '@/utils/reorder';
+import { timeoutSignal } from '@/utils/serverHealth';
 
 export const SESSION_ID_SEP = '::';
+const REMOTE_REQUEST_TIMEOUT_MS = 3000;
 
 let _activeProjectId = DEFAULT_PROJECT_ID;
 
@@ -45,19 +47,34 @@ async function request(serverId, path, options = {}) {
   if (!server) throw notConfiguredError();
   const locale = getCurrentLocale();
   const name = server.name || `${server.host}:${server.port}`;
+  const {
+    headers: optionHeaders,
+    signal: optionSignal,
+    timeoutMs = REMOTE_REQUEST_TIMEOUT_MS,
+    ...fetchOptions
+  } = options;
 
   const headers = {
     'Accept-Language': locale,
     'X-API-Key': server.apiKey,
-    ...options.headers,
+    ...optionHeaders,
   };
-  if (options.body !== undefined && !headers['Content-Type']) {
+  if (fetchOptions.body !== undefined && !headers['Content-Type']) {
     headers['Content-Type'] = 'application/json';
   }
 
   let res;
+  const timeout = typeof timeoutMs === 'number' && timeoutMs > 0
+    ? timeoutSignal(timeoutMs)
+    : null;
+  const signal = (() => {
+    if (optionSignal && timeout?.signal && typeof AbortSignal !== 'undefined' && typeof AbortSignal.any === 'function') {
+      return AbortSignal.any([optionSignal, timeout.signal]);
+    }
+    return optionSignal || timeout?.signal;
+  })();
   try {
-    res = await fetch(`${buildBaseUrl(server)}${path}`, { ...options, headers });
+    res = await fetch(`${buildBaseUrl(server)}${path}`, { ...fetchOptions, headers, ...(signal ? { signal } : {}) });
   } catch (err) {
     const isTimeout = err?.name === 'TimeoutError' || err?.name === 'AbortError';
     const wrapped = new Error(err?.message || 'Network error');
@@ -67,6 +84,8 @@ async function request(serverId, path, options = {}) {
     wrapped.reason = isTimeout ? 'timeout' : 'unreachable';
     wrapped.cause = err;
     throw wrapped;
+  } finally {
+    timeout?.cancel();
   }
 
   const data = await res.json().catch(() => ({}));

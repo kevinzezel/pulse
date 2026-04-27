@@ -6,6 +6,31 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [3.2.0-pre] — 2026-04-27
+
+### Added
+
+- **Workspace context bar with split groups/servers header.** The dashboard now ships a dual-pane header above the terminal mosaic. On desktop it splits 50/50 — groups on the left, servers on the right — each with horizontal scrolling. On mobile the two bars stack into compact horizontal rows (groups first, then servers), so picking a group and switching the active server filter both fit on a small screen.
+- **Server filter chips with live health.** Each server appears as a pill with a status dot (online / offline / checking / unknown), the count of sessions in the active group, and an exclusive `All` chip that clears the filter. Clicking a server scopes the sidebar list and the terminal mosaic to that server only without mutating the saved layout, so hidden tiles return when you click `All` again.
+- **Per-server retry button.** Offline server chips and offline terminal placeholders expose a `Retry` action that runs an explicit health check and surfaces the result via toast (`toast.serverReconnected` on success, the existing `errors.server_*` family on failure).
+- **`ServerHealthProvider` with backoff.** A new top-level provider tracks `{ status, reason, lastSeenAt, lastCheckedAt }` per server and re-checks offline servers with a jittered 5/15/30/60/120-second backoff. Background probes are silent — the chip status updates without a toast.
+- **Paused-state placeholder for offline terminals.** When a server is known offline, terminal panes for that server stop opening WebSockets and render an inline overlay with the session name, server name, offline reason and a `Retry server` button. No more red `[Connection lost]` ANSI lines piling up while a VPN is disconnected.
+
+### Changed
+
+- **Reconnect is now server-scoped by default.** Automatic recoveries from a single server's WebSocket failures (`client_restart`, `heartbeat_timeout`) now destroy and remount only that server's panes via a new per-server reconnect counter, instead of remounting the whole mosaic. Manual `Reconnect` from the sidebar still performs a global reconnect with the existing `toast.reconnecting` notification.
+- **Background fetch failures no longer surface as toasts.** Initial dashboard load, focus refetches, automatic restore, and passive WebSocket health probes update the per-server health state instead of stacking error toasts. Toasts remain for explicit user actions (create/kill/rename, manual retry, server settings save).
+- **Remote server requests now time out after 3 seconds by default.** Creating a terminal, loading sessions and health checks now fail fast when a VPN/offline server does not respond, so the UI leaves loading states quickly and marks the server offline without blocking other servers.
+- **Sidebar drops the vertical servers section.** Server selection moved out of the sidebar into the workspace context bar; the sidebar keeps the new-terminal button, reconnect/reload controls, search, sessions list, clipboard gallery and attach-file button. The `selectedServerIds` localStorage key is no longer written.
+- **Project switch resets the server filter.** Switching active project clears the active server filter so chips never carry over from another project's server set.
+- **Server labels now keep color on the connection icon only.** Server identity colors no longer appear in the dashboard server chips or session tags; Wi-Fi icons now carry the status color (green online, red offline) while the pill text stays neutral.
+
+### Fixed
+
+- **Offline VPN servers no longer freeze the dashboard.** With multiple servers across different VPNs, an offline server now stays as a status chip in the header rather than triggering global reconnect loops, repeated error toasts, or remounts of healthy panes on other servers.
+- **Successful mutations heal stale offline status.** Creating a session or splitting a session also marks the target server online in the health provider, mirroring the existing `offlineServerIds` behavior so the snapshot effect persists fresh data immediately.
+- **Heartbeat timeouts pinpoint the right server.** The passive WebSocket heartbeat in `TerminalPane` now passes `session.id` and a `heartbeat_timeout` reason on failure, so the parent reconnect handler can scope the recovery to the affected server's panes only.
+
 ## [3.1.0] — 2026-04-27
 
 ### Added
@@ -1079,7 +1104,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v2.11.1-pre...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v3.2.0-pre...HEAD
+[3.2.0-pre]: https://github.com/kevinzezel/pulse/releases/tag/v3.2.0-pre
 [2.11.1-pre]: https://github.com/kevinzezel/pulse/releases/tag/v2.11.1-pre
 [2.11.0-pre]: https://github.com/kevinzezel/pulse/releases/tag/v2.11.0-pre
 [2.10.1]: https://github.com/kevinzezel/pulse/releases/tag/v2.10.1
