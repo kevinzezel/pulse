@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import toast from 'react-hot-toast';
+import { Loader, RefreshCw } from 'lucide-react';
 import {
   getSessions, createSession, killSession, renameSession, cloneSession,
   getGroups, createGroup, assignSessionGroup, setGroupHidden, saveGroups, setSessionNotify, createPrompt,
@@ -36,6 +37,15 @@ const TerminalMosaic = dynamic(() => import('@/components/TerminalMosaic'), { ss
 
 const EMPTY_ARRAY = [];
 
+const EMPTY_SERVER_GATE = {
+  visible: false,
+  checking: false,
+  checked: false,
+  total: 0,
+  onlineCount: 0,
+  results: [],
+};
+
 function loadFromStorage(key, fallback) {
   try {
     const raw = localStorage.getItem(key);
@@ -43,6 +53,58 @@ function loadFromStorage(key, fallback) {
   } catch {
     return fallback;
   }
+}
+
+function ServerBootGateModal({ gate, t, onRetry }) {
+  if (!gate.visible) return null;
+  const allFailed = gate.checked && gate.total > 0 && gate.onlineCount === 0;
+  const title = allFailed ? t('serverBoot.allOfflineTitle') : t('serverBoot.checkingTitle');
+  const body = allFailed ? t('serverBoot.allOfflineBody') : t('serverBoot.checkingBody');
+
+  return (
+    <div className="absolute inset-0 z-50 flex items-center justify-center bg-overlay/70 backdrop-blur-sm px-4">
+      <div className="w-full max-w-sm rounded-lg border border-border bg-card p-5 shadow-xl">
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted/50">
+            <Loader size={18} className={`text-primary ${gate.checking ? 'animate-spin' : ''}`} />
+          </div>
+          <div className="min-w-0">
+            <h2 className="text-sm font-semibold text-foreground">{title}</h2>
+            <p className="mt-1 text-xs text-muted-foreground">{body}</p>
+          </div>
+        </div>
+
+        {gate.results.length > 0 && (
+          <div className="mt-4 max-h-36 overflow-y-auto rounded-md border border-border bg-background/40">
+            {gate.results.map((item) => {
+              const reasonKey = item.reason ? `serverFilter.reason.${item.reason}` : null;
+              const checking = item.status === 'checking';
+              return (
+                <div key={item.serverId} className="flex items-center justify-between gap-3 px-3 py-2 text-xs">
+                  <span className="truncate text-foreground">{item.name}</span>
+                  <span className={item.ok ? 'text-success' : 'text-muted-foreground'}>
+                    {checking ? t('serverBoot.checkingStatus') : (item.ok ? t('serverBoot.online') : (reasonKey ? t(reasonKey) : t('serverBoot.offline')))}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {allFailed && (
+          <button
+            type="button"
+            onClick={onRetry}
+            disabled={gate.checking}
+            className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-md border border-border bg-primary px-3 py-2 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {gate.checking ? <Loader size={13} className="animate-spin" /> : <RefreshCw size={13} />}
+            {t('serverBoot.retry')}
+          </button>
+        )}
+      </div>
+    </div>
+  );
 }
 
 export default function DashboardPage() {
@@ -71,12 +133,7 @@ function Dashboard() {
   const [sessions, setSessions] = useState([]);
   const [groups, setGroups] = useState([]);
   const [offlineServerIds, setOfflineServerIds] = useState([]);
-  // Servers cuja resposta de getSessions ainda está pendente na fetch atual.
-  // Usado pra gatear efeitos destrutivos (validateTree, snapshot persist,
-  // compose drafts cleanup) enquanto a foto está parcial — sem isso, um
-  // servidor lento (ex.: VPN offline) faria os outros perderem layout/snapshot
-  // até o timeout de 3s.
-  const [pendingSessionServerIds, setPendingSessionServerIds] = useState([]);
+  const [serverGate, setServerGate] = useState(EMPTY_SERVER_GATE);
   const [mosaicLayouts, setMosaicLayouts] = useState({});
   const [hydratedLayouts, setHydratedLayouts] = useState(false);
   const [hydratedGroups, setHydratedGroups] = useState(false);
@@ -100,19 +157,14 @@ function Dashboard() {
   // (/api/groups), não dos servers, então rodam mesmo com servers=[]. O
   // contador descarta respostas atrasadas de troca de projeto.
   const fetchGroupsRunIdRef = useRef(0);
-  // Espelho de sessionsProjectId pra detectar troca de projeto sem precisar
-  // adicionar sessionsProjectId às deps de fetchSessions (evita loop de
-  // useCallback, já que setSessionsProjectId é chamado dentro dele).
-  const sessionsProjectIdRef = useRef(null);
-  // Espelho de groupsProjectId, mesma motivação do sessionsProjectIdRef.
+  // Espelho de groupsProjectId pra detectar troca de projeto sem adicionar
+  // groupsProjectId às deps de fetchGroups (evita loop de useCallback).
   const groupsProjectIdRef = useRef(null);
   // Espelho de activeProjectId pra handlers async checarem se o usuário
   // trocou de projeto enquanto a request estava em voo.
   const activeProjectIdRef = useRef(null);
-  // Fallback visual: serverId -> [rawSessions] do snapshot persistido.
-  // Usado só pra render quando o server real está offline e a fetch live
-  // não trouxe sessões. Nunca é gravado de volta.
-  const [snapshotByServer, setSnapshotByServer] = useState({});
+  const serverGateRef = useRef(EMPTY_SERVER_GATE);
+  const lastBlockingLoadKeyRef = useRef(null);
   const [busySessionIds, setBusySessionIds] = useState(new Set());
   const [draggingId, setDraggingId] = useState(null);
   const [reconnectKey, setReconnectKey] = useState(0);
@@ -158,11 +210,9 @@ function Dashboard() {
     setRestoreRetryKey(k => k + 1);
   }, []);
 
-  // Mantém sessionsProjectIdRef sincronizado pra fetchSessions detectar troca
-  // de projeto sem adicionar sessionsProjectId às próprias deps.
-  useEffect(() => { sessionsProjectIdRef.current = sessionsProjectId; }, [sessionsProjectId]);
   useEffect(() => { groupsProjectIdRef.current = groupsProjectId; }, [groupsProjectId]);
   useEffect(() => { activeProjectIdRef.current = activeProjectId; }, [activeProjectId]);
+  useEffect(() => { serverGateRef.current = serverGate; }, [serverGate]);
 
   const isMobile = useIsMobile();
   const isMaximized = savedLayout !== null;
@@ -268,7 +318,7 @@ function Dashboard() {
   // memory until the fetch effects run after paint. Never derive visible UI
   // from those stale arrays while the project ids are catching up.
   const groupsForDisplay = groupsProjectId === activeProjectId ? groups : EMPTY_ARRAY;
-  const liveSessionsForDisplay = sessionsProjectId === activeProjectId ? sessions : EMPTY_ARRAY;
+  const sessionsForDisplay = sessionsProjectId === activeProjectId ? sessions : EMPTY_ARRAY;
 
   useEffect(() => {
     if (!projectDataReady) return;
@@ -278,64 +328,6 @@ function Dashboard() {
       setSelectedGroupId(null);
     }
   }, [groupsForDisplay, selectedGroupId, projectDataReady, setSelectedGroupId]);
-
-  // Carrega o snapshot persistido quando o dashboard hidrata ou quando muda
-  // a lista de servers offline. É só leitura: o snapshot é mantido por um
-  // effect separado (linhas ~509-559). Falha silenciosa: se a leitura
-  // falhar, o fallback simplesmente não aparece.
-  useEffect(() => {
-    if (!hydrated) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const snap = await getSessionsSnapshot();
-        if (cancelled) return;
-        const byServer = snap?.servers && typeof snap.servers === 'object' ? snap.servers : {};
-        setSnapshotByServer(byServer);
-      } catch (err) {
-        console.warn('[snapshotByServer] load failed', err);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [hydrated, offlineServerIds]);
-
-  // sessionsForDisplay: mistura sessions live com fallback visual do snapshot.
-  // Para cada server offline sem sessões live, anexa entradas do snapshot
-  // marcadas com snapshot_only=true. Usado SÓ em leituras de UI (Sidebar,
-  // mosaic, validate). `sessions` segue sendo a fonte canônica pra
-  // persistência, restore, drafts e mutações.
-  const sessionsForDisplay = useMemo(() => {
-    if (sessionsProjectId !== activeProjectId) return EMPTY_ARRAY;
-    if (offlineServerIds.length === 0) return liveSessionsForDisplay;
-    const liveServerIds = new Set();
-    for (const s of liveSessionsForDisplay) liveServerIds.add(s.server_id);
-    const result = liveSessionsForDisplay.slice();
-    for (const serverId of offlineServerIds) {
-      if (liveServerIds.has(serverId)) continue;
-      // bad_key (HTTP 401) é problema de credencial, não de conectividade.
-      // Mostrar stubs paused enganaria o usuário sugerindo "VPN caiu" quando
-      // na verdade a apiKey está errada — o chip do header já comunica isso
-      // via serverFilter.reason.bad_key.
-      if (serverHealth[serverId]?.reason === 'bad_key') continue;
-      const srv = servers.find(s => s.id === serverId);
-      if (!srv) continue;
-      const snapList = snapshotByServer[serverId];
-      if (!Array.isArray(snapList)) continue;
-      for (const raw of snapList) {
-        if (!raw || !raw.id) continue;
-        if (raw.project_id && raw.project_id !== activeProjectId) continue;
-        result.push({
-          ...raw,
-          id: composeSessionId(serverId, raw.id),
-          server_id: serverId,
-          server_name: srv.name,
-          server_color: srv.color,
-          snapshot_only: true,
-        });
-      }
-    }
-    return result;
-  }, [liveSessionsForDisplay, sessionsProjectId, activeProjectId, offlineServerIds, snapshotByServer, servers, serverHealth]);
 
   const sessionsInSelectedGroup = useMemo(() => {
     const validGroupIds = new Set(groupsForDisplay.map(g => g.id));
@@ -384,21 +376,17 @@ function Dashboard() {
     if (!mosaicLayout) return mosaicLayout;
     const shouldValidateRenderLayout = Boolean(selectedServerFilterId)
       || offlineServerIds.length > 0
-      || pendingSessionServerIds.length > 0
       || serversNeedingRestore.size > 0;
     if (!shouldValidateRenderLayout) return mosaicLayout;
     const validIds = new Set(sessionsVisibleInWorkspace.map(s => s.id));
     return validateTree(mosaicLayout, validIds);
-  }, [mosaicLayout, selectedServerFilterId, sessionsVisibleInWorkspace, offlineServerIds, pendingSessionServerIds, serversNeedingRestore]);
+  }, [mosaicLayout, selectedServerFilterId, sessionsVisibleInWorkspace, offlineServerIds, serversNeedingRestore]);
 
   const mobileOpenIds = useMemo(() => Array.from(getVisibleSessionIds(mosaicRenderLayout)), [mosaicRenderLayout]);
 
   useEffect(() => {
     if (!projectDataReady) return;
-    // pendingSessionServerIds entra no gate junto com offline/restore: durante
-    // o carregamento progressivo, a foto de sessions é parcial; rodar
-    // validateTree aqui zeraria tiles dos servers que ainda não responderam.
-    if (offlineServerIds.length > 0 || serversNeedingRestore.size > 0 || pendingSessionServerIds.length > 0) return;
+    if (offlineServerIds.length > 0 || serversNeedingRestore.size > 0) return;
     const validGroupIds = new Set(groups.map(g => g.id));
     const sessionGroupMap = new Map();
     for (const s of sessions) {
@@ -426,7 +414,7 @@ function Dashboard() {
       }
       return changed ? next : prev;
     });
-  }, [sessions, groups, projectDataReady, activeProjectId, offlineServerIds, serversNeedingRestore, pendingSessionServerIds]);
+  }, [sessions, groups, projectDataReady, activeProjectId, offlineServerIds, serversNeedingRestore]);
 
   useEffect(() => {
     if (!projectDataReady) return;
@@ -466,98 +454,125 @@ function Dashboard() {
     if (isMobile && hydrated) setSidebarOpen(false);
   }, [isMobile, hydrated]);
 
-  const fetchSessions = useCallback(async () => {
+  const blockingLoadKey = useMemo(() => {
+    if (!serversLoaded) return null;
+    const serverKey = servers
+      .map((s) => `${s.id}:${s.protocol || 'http'}:${s.host}:${s.port}:${s.apiKey || ''}`)
+      .join('|');
+    return `${activeProjectId}::${serverKey}`;
+  }, [activeProjectId, servers, serversLoaded]);
+
+  const fetchSessions = useCallback(async (options = {}) => {
+    const { block = false } = options;
     if (servers.length === 0) {
       setSessions([]);
       setOfflineServerIds([]);
-      setPendingSessionServerIds([]);
       setSessionsProjectId(activeProjectId);
       // Com serversLoaded já true (gate no useEffect que dispara este callback),
       // servers=[] significa "dashboard configurado sem nenhum server" e não a
       // janela /login → / antes do ServersProvider carregar. Marcar hidratado
       // vazio aqui é seguro e necessário pra projectDataReady abrir.
       if (serversLoaded) setHydratedSessions(true);
+      if (block) setServerGate(EMPTY_SERVER_GATE);
       return;
     }
 
     const runId = ++fetchRunIdRef.current;
-    const previousProjectId = sessionsProjectIdRef.current;
-    const isSameProject = previousProjectId === activeProjectId;
-    const validServerIds = new Set(servers.map(s => s.id));
-
-    // Abre o gate do projectDataReady cedo (sessionsProjectId match + a
-    // marcação de hydratedSessions abaixo) pra que a UI consiga renderizar
-    // os terminais de cada server assim que ele responder, em vez de esperar
-    // o servidor mais lento. pendingSessionServerIds protege os efeitos
-    // destrutivos enquanto a foto está parcial.
-    setSessionsProjectId(activeProjectId);
-    setPendingSessionServerIds(servers.map(s => s.id));
-
-    if (isSameProject) {
-      // Refetch do mesmo projeto: preserva sessions já mostradas e só remove
-      // servers que sumiram. Cada server vai sobrescrever sua fatia conforme
-      // responder.
-      setSessions(prev => prev.filter(s => validServerIds.has(s.server_id)));
-      setOfflineServerIds(prev => prev.filter(id => validServerIds.has(id)));
-    } else {
-      // Troca de projeto: zera tudo. Sem isso, sessions do projeto anterior
-      // vazariam visualmente até o último server responder.
-      setSessions([]);
-      setOfflineServerIds([]);
+    const projectId = activeProjectId;
+    if (block) {
+      setHydratedSessions(false);
+      setServerGate({
+        visible: true,
+        checking: true,
+        checked: false,
+        total: servers.length,
+        onlineCount: 0,
+        results: servers.map((srv) => ({
+          serverId: srv.id,
+          name: srv.name || `${srv.host}:${srv.port}`,
+          status: 'checking',
+          ok: false,
+          reason: null,
+        })),
+      });
     }
 
-    const promises = servers.map(async (srv) => {
-      try {
+    const results = await Promise.allSettled(
+      servers.map(async (srv) => {
         const data = await getSessions(srv.id);
-        if (runId !== fetchRunIdRef.current) return;
         const mapped = (data.sessions || [])
-          .filter((s) => !s.project_id || s.project_id === activeProjectId)
-          .map(s => ({
+          .filter((s) => !s.project_id || s.project_id === projectId)
+          .map((s) => ({
             ...s,
             id: composeSessionId(srv.id, s.id),
             server_id: srv.id,
             server_name: srv.name,
             server_color: srv.color,
           }));
-        // Replace-by-server: substitui só a fatia deste server, preservando
-        // sessions de outros servers já carregados.
-        setSessions(prev => [
-          ...prev.filter(s => s.server_id !== srv.id),
-          ...mapped,
-        ]);
-        setOfflineServerIds(prev => prev.includes(srv.id) ? prev.filter(id => id !== srv.id) : prev);
+        return { sessions: mapped };
+      })
+    );
+
+    if (runId !== fetchRunIdRef.current) return;
+
+    const merged = [];
+    const offline = [];
+    const gateResults = [];
+    let onlineCount = 0;
+
+    results.forEach((result, index) => {
+      const srv = servers[index];
+      const name = srv.name || `${srv.host}:${srv.port}`;
+      if (result.status === 'fulfilled') {
+        onlineCount += 1;
+        merged.push(...result.value.sessions);
+        gateResults.push({
+          serverId: srv.id,
+          name,
+          status: 'online',
+          ok: true,
+          reason: null,
+        });
         // Sucesso silencioso: o background fetch também é o canal canônico
         // de "este server voltou", então propagamos pro health provider —
         // sem toast, só o status muda no header chip.
         markServerOnline(srv.id);
-      } catch (err) {
-        if (runId !== fetchRunIdRef.current) return;
+      } else {
+        const err = result.reason;
         const reason = err?.reason || 'unreachable';
-        setOfflineServerIds(prev => prev.includes(srv.id) ? prev : [...prev, srv.id]);
+        offline.push(srv.id);
+        gateResults.push({
+          serverId: srv.id,
+          name,
+          status: 'offline',
+          ok: false,
+          reason,
+        });
         // Falha background: nunca mostra toast (offline-por-VPN é estado
         // esperado), só registra no health provider, que agenda backoff
         // pra re-checar o server depois.
         markServerOffline(srv.id, reason);
         console.warn('[fetchSessions] server offline', srv.name, reason, err);
-      } finally {
-        if (runId === fetchRunIdRef.current) {
-          setPendingSessionServerIds(prev => prev.includes(srv.id) ? prev.filter(id => id !== srv.id) : prev);
-        }
       }
     });
 
-    // Marca hidratado já durante o fetch: projectDataReady vira true assim
-    // que hydratedLayouts/Groups também estiverem prontos, e o mosaic começa
-    // a renderizar incrementalmente. Os efeitos destrutivos são gatedos pelo
-    // pendingSessionServerIds, então não há limpeza na foto parcial.
+    setSessions(merged);
+    setOfflineServerIds(offline);
+    setSessionsProjectId(projectId);
     setHydratedSessions(true);
 
-    await Promise.all(promises);
-    if (runId !== fetchRunIdRef.current) return;
-    // Salva-vidas: cada finally já limpa seu próprio slot, então no fluxo
-    // normal pending já está vazio aqui — esse setState é só pra garantir
-    // que nenhum bug futuro deixe um servidor preso pendente para sempre.
-    setPendingSessionServerIds(prev => prev.length === 0 ? prev : []);
+    if (block || (serverGateRef.current.visible && onlineCount > 0)) {
+      setServerGate({
+        visible: onlineCount === 0,
+        checking: false,
+        checked: true,
+        total: servers.length,
+        onlineCount,
+        results: gateResults,
+      });
+    }
+
+    return { onlineCount, total: servers.length, offlineServerIds: offline };
   }, [servers, activeProjectId, markServerOnline, markServerOffline, serversLoaded]);
 
   const fetchGroups = useCallback(async () => {
@@ -595,9 +610,17 @@ function Dashboard() {
     // disparar aqui marcaria sessions/groups como hidratados vazios e zeraria
     // o mosaico. serversLoaded só vira true após o primeiro load() real.
     if (!serversLoaded) return;
-    fetchSessions();
+    const shouldBlock = lastBlockingLoadKeyRef.current !== blockingLoadKey;
+    lastBlockingLoadKeyRef.current = blockingLoadKey;
+    fetchSessions({ block: shouldBlock });
     fetchGroups();
-  }, [serversLoaded, servers, fetchSessions, fetchGroups]);
+  }, [serversLoaded, blockingLoadKey, servers, fetchSessions, fetchGroups]);
+
+  const handleBlockingRetry = useCallback(() => {
+    if (!serversLoaded) return;
+    fetchSessions({ block: true });
+    fetchGroups();
+  }, [serversLoaded, fetchSessions, fetchGroups]);
 
   useEffect(() => {
     if (!hydratedSessions) return;
@@ -633,13 +656,8 @@ function Dashboard() {
 
           const offlineSet = new Set(offlineServerIds);
           const restoreSet = serversNeedingRestore;
-          const pendingSet = new Set(pendingSessionServerIds);
           for (const srv of servers) {
-            // Servers offline, em restore ou ainda pendentes na fetch atual
-            // mantêm o snapshot anterior intacto: sem isso, um server lento
-            // teria suas sessões zeradas no snapshot enquanto a foto está
-            // parcial, e um F5 perderia os dados.
-            if (offlineSet.has(srv.id) || restoreSet.has(srv.id) || pendingSet.has(srv.id)) continue;
+            if (offlineSet.has(srv.id) || restoreSet.has(srv.id)) continue;
             const existing = Array.isArray(mergedServers[srv.id]) ? mergedServers[srv.id] : [];
             const otherProjects = existing.filter((s) => s && s.project_id && s.project_id !== activeProjectId);
             mergedServers[srv.id] = [...otherProjects, ...(liveByServer[srv.id] || [])];
@@ -649,7 +667,7 @@ function Dashboard() {
         })
         .catch(err => console.warn('[sessionsSnapshot] persist failed', err));
     }, 500);
-  }, [sessions, offlineServerIds, hydratedSessions, servers, activeProjectId, activeProject, sessionsProjectId, serversNeedingRestore, pendingSessionServerIds]);
+  }, [sessions, offlineServerIds, hydratedSessions, servers, activeProjectId, activeProject, sessionsProjectId, serversNeedingRestore]);
 
   useEffect(() => {
     if (!hydratedSessions) return;
@@ -664,7 +682,6 @@ function Dashboard() {
     }
     const offlineSet = new Set(offlineServerIds);
     const restoreSet = serversNeedingRestore;
-    const pendingSet = new Set(pendingSessionServerIds);
     const knownServerIds = new Set(servers.map(s => s.id));
 
     let changed = false;
@@ -673,10 +690,7 @@ function Dashboard() {
       const { serverId, sessionId } = splitSessionId(compositeId);
       if (!serverId || !sessionId) { changed = true; continue; }
       if (!knownServerIds.has(serverId)) { changed = true; continue; }
-      // Server offline/restore/pending → preserva o draft. Sem o pending, um
-      // server ainda carregando teria seu draft considerado "órfão" e
-      // descartado antes de a sessão correspondente reaparecer.
-      if (offlineSet.has(serverId) || restoreSet.has(serverId) || pendingSet.has(serverId)) {
+      if (offlineSet.has(serverId) || restoreSet.has(serverId)) {
         next[compositeId] = draft;
         continue;
       }
@@ -694,7 +708,7 @@ function Dashboard() {
       .catch(() => {})
       .then(() => putComposeDrafts({ drafts: next }))
       .catch(err => console.warn('[setComposeDrafts] cleanup failed', err));
-  }, [sessions, offlineServerIds, servers, composeDrafts, hydratedSessions, hydratedComposeDrafts, serversNeedingRestore, pendingSessionServerIds]);
+  }, [sessions, offlineServerIds, servers, composeDrafts, hydratedSessions, hydratedComposeDrafts, serversNeedingRestore]);
 
   useEffect(() => {
     return () => {
@@ -708,16 +722,6 @@ function Dashboard() {
     if (serversLoading) return;
     if (!servers || servers.length === 0) return;
     if (!hydratedSessions) return;
-    // Espera todos os servers responderem (ou caírem em offline) antes de
-    // tentar restore: hydratedSessions agora vira true cedo durante a fetch
-    // progressiva, mas a lista `sessions` está parcial enquanto há
-    // pendingSessionServerIds — disparar restore aqui faria roundtrip
-    // desnecessário (o client já tem essas sessões vivas) e poderia rodar
-    // skippedDuringForcedRestore por engano. Esse early-return não bloqueia
-    // permanentemente: o effect re-dispara a cada update de
-    // pendingSessionServerIds (está nas deps abaixo) e cruza o gate quando
-    // o último server sai de pending.
-    if (pendingSessionServerIds.length > 0) return;
 
     (async () => {
       let snapshot;
@@ -800,7 +804,7 @@ function Dashboard() {
         toast.success(t('toast.sessions_auto_restored', { count: totalRestored }));
       }
     })();
-  }, [servers, serversLoading, hydratedSessions, sessions, offlineServerIds, fetchSessions, t, serversNeedingRestore, restoreRetryKey, scheduleRestoreRetry, pendingSessionServerIds]);
+  }, [servers, serversLoading, hydratedSessions, sessions, offlineServerIds, fetchSessions, t, serversNeedingRestore, restoreRetryKey, scheduleRestoreRetry]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -812,8 +816,6 @@ function Dashboard() {
 
     const session = sessionsForDisplay.find(s => s.id === sid);
     if (!session) {
-      const { serverId } = splitSessionId(sid);
-      if (serverId && pendingSessionServerIds.includes(serverId)) return;
       handledSessionRef.current = sid;
       router.replace('/');
       return;
@@ -832,7 +834,7 @@ function Dashboard() {
     }
 
     router.replace('/');
-  }, [searchParams, sessionsForDisplay, hydrated, projectDataReady, isMobile, mosaicLayout, isMaximized, router, pendingSessionServerIds]);
+  }, [searchParams, sessionsForDisplay, hydrated, projectDataReady, isMobile, mosaicLayout, isMaximized, router]);
 
   const visibleSessionIds = useMemo(() => {
     const ids = getVisibleSessionIds(mosaicLayout);
@@ -1038,6 +1040,9 @@ function Dashboard() {
       const { serverId } = splitSessionId(sessionId);
       if (serverId) {
         handleReconnectServer(serverId, { silent: true });
+        Promise.resolve(fetchSessions()).catch((err) => {
+          console.warn('[heartbeat_timeout] session refetch failed', err);
+        });
         return;
       }
     }
@@ -1098,7 +1103,10 @@ function Dashboard() {
     previousHealthRef.current = serverHealth;
     if (recoveredAny && !recoveryFetchInFlightRef.current) {
       recoveryFetchInFlightRef.current = true;
-      Promise.resolve(fetchSessions())
+      const shouldBlock = serverGateRef.current.visible
+        && serverGateRef.current.checked
+        && serverGateRef.current.onlineCount === 0;
+      Promise.resolve(fetchSessions({ block: shouldBlock }))
         .finally(() => { recoveryFetchInFlightRef.current = false; });
     }
   }, [serverHealth, handleReconnectServer, fetchSessions]);
@@ -1123,7 +1131,11 @@ function Dashboard() {
       const delay = BACKOFF[Math.min(attempt, BACKOFF.length - 1)];
       setTimeout(() => { scheduled = false; }, delay);
       attempt += 1;
-      reconnectServers(serverIds);
+      if (reconnectServers(serverIds)) {
+        Promise.resolve(fetchSessions()).catch((err) => {
+          console.warn('[dead_connections] session refetch failed', err);
+        });
+      }
     };
     const onVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
@@ -1135,7 +1147,11 @@ function Dashboard() {
         // hasDeadConnections() sozinho não detecta isso e o trigger acima sai
         // sem reconectar.
         probeDeadConnectionServerIds(2000).then((serverIds) => {
-          reconnectServers(serverIds);
+          if (reconnectServers(serverIds)) {
+            Promise.resolve(fetchSessions()).catch((err) => {
+              console.warn('[zombie_connections] session refetch failed', err);
+            });
+          }
         });
       }
     };
@@ -1144,11 +1160,15 @@ function Dashboard() {
     };
     document.addEventListener('visibilitychange', onVisibilityChange);
     window.addEventListener('pageshow', onPageShow);
+    window.addEventListener('online', onVisibilityChange);
+    window.addEventListener('offline', trigger);
     return () => {
       document.removeEventListener('visibilitychange', onVisibilityChange);
       window.removeEventListener('pageshow', onPageShow);
+      window.removeEventListener('online', onVisibilityChange);
+      window.removeEventListener('offline', trigger);
     };
-  }, []);
+  }, [fetchSessions]);
 
   function handleCloseTile(sessionId) {
     setMosaicLayout(prev => prev ? removeFromTree(prev, sessionId) : prev);
@@ -1321,7 +1341,7 @@ function Dashboard() {
   }
 
   return (
-    <div className="flex flex-col h-full min-h-0">
+    <div className="relative flex flex-col h-full min-h-0">
       <div className={`flex flex-1 min-h-0 overflow-hidden relative ${isMobile ? 'pl-12' : ''}`}>
 
         {isMobile && sidebarOpen && (
@@ -1436,6 +1456,12 @@ function Dashboard() {
         servers={servers}
         offlineServerIds={offlineServerIds}
         onRetest={fetchSessions}
+      />
+
+      <ServerBootGateModal
+        gate={serverGate}
+        t={t}
+        onRetry={handleBlockingRetry}
       />
     </div>
   );

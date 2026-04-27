@@ -1,4 +1,4 @@
-export const SERVER_HEALTH_TIMEOUT_MS = 3000;
+export const SERVER_HEALTH_TIMEOUT_MS = 1000;
 
 export function timeoutSignal(ms) {
   if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {

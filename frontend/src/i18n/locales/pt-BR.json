@@ -63,6 +63,16 @@
     "cancel": "Cancelar",
     "confirm": "Remover"
   },
+  "serverBoot": {
+    "checkingTitle": "Verificando servidores",
+    "checkingBody": "Preparando os terminais. Isso leva até 1 segundo por servidor.",
+    "allOfflineTitle": "Nenhum servidor respondeu",
+    "allOfflineBody": "O Pulse não conseguiu acessar nenhum servidor configurado. Verifique a VPN/rede e tente novamente.",
+    "checkingStatus": "Verificando",
+    "online": "Online",
+    "offline": "Offline",
+    "retry": "Tentar novamente"
+  },
   "nav": {
     "dashboard": "Terminais",
     "tasks": "Tarefas",

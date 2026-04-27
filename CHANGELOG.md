@@ -6,6 +6,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [3.2.3-pre] — 2026-04-27
+
+### Changed
+
+- **Terminal boot is blocking again when server state must be reconciled.** Entering or refreshing the terminal dashboard, switching projects, or changing the configured server list now runs one full server batch before opening the workspace. The modal closes only after every configured server has either responded or timed out and at least one server is online.
+- **All-offline boot keeps the user on a retry modal.** If every configured server fails the initial batch, Pulse keeps the terminal screen blocked with the per-server failure reasons and a retry button instead of opening an empty or half-hydrated workspace.
+- **Remote server checks now time out after 1 second.** Session loading, health checks and remote requests fail faster so VPN-off servers move to offline/backoff state quickly.
+- **The terminal dashboard no longer uses progressive offline snapshot stubs.** The post-`v3.2.0-pre` `pendingSessionServerIds` and `snapshot_only` rendering paths were removed in favor of one simpler boot batch plus the existing health backoff.
+
+### Fixed
+
+- **VPN transitions now trigger session reconciliation without a page refresh.** Dead or zombie terminal WebSockets detected on visibility/page/network changes now remount the affected server panes and refetch sessions, so opening or closing a VPN no longer leaves the dashboard stuck until F5.
+
 ## [3.2.2-pre] — 2026-04-27
 
 ### Fixed
@@ -1120,7 +1133,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v3.2.2-pre...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v3.2.3-pre...HEAD
+[3.2.3-pre]: https://github.com/kevinzezel/pulse/releases/tag/v3.2.3-pre
 [3.2.2-pre]: https://github.com/kevinzezel/pulse/releases/tag/v3.2.2-pre
 [3.2.1]: https://github.com/kevinzezel/pulse/releases/tag/v3.2.1
 [3.2.0]: https://github.com/kevinzezel/pulse/releases/tag/v3.2.0

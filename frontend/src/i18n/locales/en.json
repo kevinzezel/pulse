@@ -63,6 +63,16 @@
     "cancel": "Cancel",
     "confirm": "Remove"
   },
+  "serverBoot": {
+    "checkingTitle": "Checking servers",
+    "checkingBody": "Preparing terminals. This can take up to 1 second per server.",
+    "allOfflineTitle": "No servers responded",
+    "allOfflineBody": "Pulse could not reach any configured server. Check VPN/network and try again.",
+    "checkingStatus": "Checking",
+    "online": "Online",
+    "offline": "Offline",
+    "retry": "Try again"
+  },
   "nav": {
     "dashboard": "Terminals",
     "tasks": "Tasks",

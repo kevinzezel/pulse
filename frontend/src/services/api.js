@@ -2,10 +2,10 @@ import { getCurrentLocale } from '@/providers/I18nProvider';
 import { getServerById } from '@/providers/ServersProvider';
 import { DEFAULT_PROJECT_ID } from '@/lib/projectScope';
 import { reorderById } from '@/utils/reorder';
-import { timeoutSignal } from '@/utils/serverHealth';
+import { SERVER_HEALTH_TIMEOUT_MS, timeoutSignal } from '@/utils/serverHealth';
 
 export const SESSION_ID_SEP = '::';
-const REMOTE_REQUEST_TIMEOUT_MS = 3000;
+const REMOTE_REQUEST_TIMEOUT_MS = SERVER_HEALTH_TIMEOUT_MS;
 
 let _activeProjectId = DEFAULT_PROJECT_ID;
 
