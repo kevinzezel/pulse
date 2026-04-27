@@ -1,6 +1,6 @@
 'use client';
 
-import { Settings, LayoutDashboard, FileText, Workflow, LogOut } from 'lucide-react';
+import { Settings, LayoutDashboard, FileText, Workflow, SquareKanban, LogOut } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useTranslation } from '@/providers/I18nProvider';
@@ -13,6 +13,7 @@ import NotesHeaderButton from './Notes/NotesHeaderButton';
 
 const NAV_ITEMS = [
   { href: '/', icon: LayoutDashboard, labelKey: 'nav.dashboard' },
+  { href: '/tasks', icon: SquareKanban, labelKey: 'nav.tasks' },
   { href: '/flows', icon: Workflow, labelKey: 'nav.flows' },
   { href: '/prompts', icon: FileText, labelKey: 'nav.prompts' },
   { href: '/settings', icon: Settings, labelKey: 'nav.settings' },

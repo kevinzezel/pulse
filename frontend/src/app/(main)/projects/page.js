@@ -105,6 +105,8 @@ function DeleteBlockedModal({ project, stats, onClose }) {
           {stats.notes > 0 && <li>• {t('projects.deleteBlocked.notes', { n: stats.notes })}</li>}
           {stats.flows > 0 && <li>• {t('projects.deleteBlocked.flows', { n: stats.flows })}</li>}
           {stats.prompts > 0 && <li>• {t('projects.deleteBlocked.prompts', { n: stats.prompts })}</li>}
+          {stats.taskBoards > 0 && <li>• {t('projects.deleteBlocked.taskBoards', { n: stats.taskBoards })}</li>}
+          {stats.tasks > 0 && <li>• {t('projects.deleteBlocked.tasks', { n: stats.tasks })}</li>}
         </ul>
         <p className="text-xs text-muted-foreground mb-4">
           {t('projects.deleteBlocked.instructions')}
@@ -196,6 +198,7 @@ function ProjectCard({ project, isActive, stats, loadingStats, onActivate, onRen
   const { t, formatDate } = useTranslation();
   const total = stats
     ? stats.groups + stats.terminals + stats.notes + stats.flows + stats.prompts
+      + (stats.taskBoards || 0) + (stats.tasks || 0)
     : null;
   const isEmpty = total === 0;
 
@@ -271,6 +274,18 @@ function ProjectCard({ project, isActive, stats, loadingStats, onActivate, onRen
                 <span>{t('projects.stats.flows', { n: stats.flows })}</span>
                 <span>·</span>
                 <span>{t('projects.stats.prompts', { n: stats.prompts })}</span>
+                {(stats.taskBoards || 0) > 0 && (
+                  <>
+                    <span>·</span>
+                    <span>{t('projects.stats.taskBoards', { n: stats.taskBoards })}</span>
+                  </>
+                )}
+                {(stats.tasks || 0) > 0 && (
+                  <>
+                    <span>·</span>
+                    <span>{t('projects.stats.tasks', { n: stats.tasks })}</span>
+                  </>
+                )}
               </div>
             )}
           </div>
@@ -403,6 +418,7 @@ export default function ProjectsPage() {
     const stats = statsByProject[project.id];
     const total = stats
       ? stats.groups + stats.terminals + stats.notes + stats.flows + stats.prompts
+        + (stats.taskBoards || 0) + (stats.tasks || 0)
       : 0;
     if (total > 0) {
       setDeleteBlocked({ project, stats });

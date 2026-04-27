@@ -6,6 +6,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [3.1.0] — 2026-04-27
+
+### Added
+
+- **Tasks page with native Kanban boards.** A new top-level `/tasks` area lets you organize work into per-project boards with columns and tasks. Boards live inside groups (mirroring the Flows pattern), each board starts with `Todo` / `Doing` / `Done` columns, and tasks carry title, description, start/end dates and assignee. The column the card sits in *is* its status — there's no separate status field to keep in sync.
+- **Drag-and-drop columns and tasks.** Built directly on `@dnd-kit` (already shipped with the project): reorder columns horizontally, drag tasks between columns including empty ones, and reorder within a column through dedicated drag handles. Drag works in any direction — left ↔ right, up ↔ down — using the `closestCorners` collision detection recommended for Kanban boards.
+- **Two new synced documents.** `data/task-boards.json` and `data/task-board-groups.json` join the storage layer (now 14 synced documents) so Kanban data flows through Settings → Storage to MongoDB and S3 just like the rest of the workspace.
+- **Assignee suggestions auto-populate.** The assignee field on a task offers a dropdown of every name already used in tasks for the active project — no separate "people" store, no extra setup. A "Manage" button on the task editor lets you remove a name from the dropdown by clearing it from every task on the board in one shot.
+- **Task descriptions generate media previews.** Image links, direct video links and YouTube links pasted into a task description render as previews on the card and inside the editor, so separate media URL fields are no longer needed.
+
+### Changed
+
+- **Project stats now report task boards and tasks.** `/api/projects/stats` and the Projects page surface `taskBoards` and `tasks` counts, and project deletion is blocked until those are also empty.
+- **Column creation and renaming now use modals.** Task columns follow the same modal pattern used by groups and flows instead of editing inline in the board.
+- **Cards expose quick edits.** Assignee and dates can be adjusted directly on the card without opening the full task editor.
+
 ## [3.0.1] — 2026-04-27
 
 ### Changed

@@ -1,6 +1,8 @@
 # Storage drivers — local files, MongoDB, S3
 
-Pulse persists twelve synced JSON documents per dashboard: `projects`, `flows`, `flow-groups`, `groups`, `notes`, `prompts`, `prompt-groups`, `servers`, `sessions`, `compose-drafts`, `recent-cwds`, and `intelligence-config`. Per-tab view state and terminal layouts live in browser `sessionStorage`, not in the storage driver. By default the synced documents live in local files under `frontend/data/`. Configure a remote driver to share the same workspace across machines — install Pulse on your desktop, laptop, and a VPS, point each one at the same remote, and the same data appears on all three.
+Pulse persists fourteen synced JSON documents per dashboard: `projects`, `flows`, `flow-groups`, `groups`, `notes`, `prompts`, `prompt-groups`, `servers`, `sessions`, `compose-drafts`, `recent-cwds`, `intelligence-config`, `task-boards`, and `task-board-groups`. Per-tab view state and terminal layouts live in browser `sessionStorage`, not in the storage driver. By default the synced documents live in local files under `frontend/data/`. Configure a remote driver to share the same workspace across machines — install Pulse on your desktop, laptop, and a VPS, point each one at the same remote, and the same data appears on all three.
+
+Tasks/Kanban images and videos are referenced from links pasted into the task `description` inside `task-boards.json` — not as binary attachments. The storage layer only persists JSON; raw media stays on whatever host the URL points to.
 
 Without a remote configured, Pulse works exactly as a single install (local files, no dependency on anything external).
 

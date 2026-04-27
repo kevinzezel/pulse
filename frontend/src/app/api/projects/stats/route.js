@@ -28,20 +28,32 @@ export const GET = withAuth(async (req) => {
     return NextResponse.json({ detail: 'Missing project_id', detail_key: 'errors.invalid_body' }, { status: 400 });
   }
 
-  const [groups, flowGroups, notes, flows, prompts, sessions] = await Promise.all([
+  const [groups, flowGroups, taskBoardGroups, notes, flows, prompts, taskBoards, sessions] = await Promise.all([
     readArray('data/groups.json', 'groups'),
     readArray('data/flow-groups.json', 'groups'),
+    readArray('data/task-board-groups.json', 'groups'),
     readArray('data/notes.json', 'notes'),
     readArray('data/flows.json', 'flows'),
     readArray('data/prompts.json', 'prompts'),
+    readArray('data/task-boards.json', 'boards'),
     readSessions(),
   ]);
 
+  const projectBoards = taskBoards.filter((b) => b && b.project_id === projectId);
+  const tasksCount = projectBoards.reduce(
+    (acc, b) => acc + (Array.isArray(b.tasks) ? b.tasks.length : 0),
+    0,
+  );
+
   return NextResponse.json({
-    groups: countForProject(groups, projectId) + countForProject(flowGroups, projectId),
+    groups: countForProject(groups, projectId)
+      + countForProject(flowGroups, projectId)
+      + countForProject(taskBoardGroups, projectId),
     terminals: countForProject(sessions, projectId),
     notes: countForProject(notes, projectId),
     flows: countForProject(flows, projectId),
     prompts: countForProject(prompts, projectId),
+    taskBoards: projectBoards.length,
+    tasks: tasksCount,
   });
 });

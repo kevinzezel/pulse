@@ -878,6 +878,150 @@ export function deleteFlow(id) {
   });
 }
 
+// ===== Task Boards =====
+
+export function listTaskBoards() {
+  return localRequest('/api/task-boards');
+}
+
+export function createTaskBoard(payload) {
+  const body = { ...(payload || {}), project_id: getActiveProjectId() };
+  return localRequest('/api/task-boards', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export function patchTaskBoard(id, actionPayload) {
+  return localRequest(`/api/task-boards/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(actionPayload),
+  });
+}
+
+export function deleteTaskBoard(id) {
+  return localRequest(`/api/task-boards/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  });
+}
+
+// ===== Task Board Groups =====
+
+export async function getTaskBoardGroups() {
+  return localRequest('/api/task-board-groups');
+}
+
+export async function saveTaskBoardGroups(groups) {
+  return localRequest('/api/task-board-groups', {
+    method: 'PUT',
+    body: JSON.stringify({ groups }),
+  });
+}
+
+export async function reorderTaskBoardGroups(fromId, toId) {
+  const { groups } = await getTaskBoardGroups();
+  const from = groups.find(g => g.id === fromId);
+  const to = groups.find(g => g.id === toId);
+  if (!from || !to || from.project_id !== to.project_id) {
+    const err = new Error('Task board group not found');
+    err.detail_key = 'errors.task_board_group_not_found';
+    throw err;
+  }
+  const scoped = groups.filter(g => g.project_id === from.project_id);
+  const reordered = reorderById(scoped, fromId, toId);
+  if (reordered === scoped) return { groups };
+  let idx = 0;
+  const next = groups.map(g => (
+    g.project_id === from.project_id ? reordered[idx++] : g
+  ));
+  const res = await saveTaskBoardGroups(next);
+  return { groups: res.groups };
+}
+
+export async function createTaskBoardGroup(name) {
+  const clean = normalizeGroupName(name);
+  const { groups } = await getTaskBoardGroups();
+  const pid = getActiveProjectId();
+  const scoped = groups.filter((g) => g.project_id === pid);
+  assertUniqueName(scoped, clean);
+  const draft = { name: clean, project_id: pid };
+  const res = await localRequest('/api/task-board-groups', {
+    method: 'PUT',
+    body: JSON.stringify({ groups: [...groups, draft] }),
+  });
+  const created = res.groups[res.groups.length - 1];
+  return { group: created, detail_key: 'success.task_board_group_created' };
+}
+
+export async function renameTaskBoardGroup(groupId, name) {
+  const clean = normalizeGroupName(name);
+  const { groups } = await getTaskBoardGroups();
+  const target = groups.find(g => g.id === groupId);
+  if (!target) {
+    const err = new Error('Task board group not found');
+    err.detail_key = 'errors.task_board_group_not_found';
+    throw err;
+  }
+  const scoped = groups.filter(g => g.project_id === target.project_id);
+  assertUniqueName(scoped, clean, groupId);
+  const next = groups.map(g => g.id === groupId ? { ...g, name: clean } : g);
+  const res = await localRequest('/api/task-board-groups', {
+    method: 'PUT',
+    body: JSON.stringify({ groups: next }),
+  });
+  const updated = res.groups.find(g => g.id === groupId);
+  return { group: updated, detail_key: 'success.task_board_group_renamed' };
+}
+
+export async function setTaskBoardGroupHidden(groupId, hidden) {
+  const { groups } = await getTaskBoardGroups();
+  if (!groups.some(g => g.id === groupId)) {
+    const err = new Error('Task board group not found');
+    err.detail_key = 'errors.task_board_group_not_found';
+    throw err;
+  }
+  const next = groups.map(g => g.id === groupId ? { ...g, hidden: !!hidden } : g);
+  const res = await localRequest('/api/task-board-groups', {
+    method: 'PUT',
+    body: JSON.stringify({ groups: next }),
+  });
+  const updated = res.groups.find(g => g.id === groupId);
+  return { group: updated, detail_key: hidden ? 'success.task_board_group_hidden' : 'success.task_board_group_shown' };
+}
+
+export async function deleteTaskBoardGroup(groupId) {
+  const { groups } = await getTaskBoardGroups();
+  if (!groups.some(g => g.id === groupId)) {
+    const err = new Error('Task board group not found');
+    err.detail_key = 'errors.task_board_group_not_found';
+    throw err;
+  }
+  // Detach orphan boards from the group before removing it. Same rationale
+  // as deleteFlowGroup: keeps the JSON clean even if a future group reuses
+  // the id (UUID makes it improbable, but the cleanup costs nothing).
+  try {
+    const data = await listTaskBoards();
+    const orphans = (data?.boards || []).filter((b) => b.group_id === groupId);
+    const results = await Promise.allSettled(orphans.map((b) =>
+      patchTaskBoard(b.id, { action: 'move_board_group', group_id: null })
+    ));
+    for (let i = 0; i < results.length; i++) {
+      if (results[i].status === 'rejected') {
+        console.warn('deleteTaskBoardGroup: failed to clear group_id on board', orphans[i]?.id, results[i].reason);
+      }
+    }
+  } catch (err) {
+    console.warn('deleteTaskBoardGroup: orphan cleanup failed:', err);
+  }
+
+  const nextGroups = groups.filter(g => g.id !== groupId);
+  await localRequest('/api/task-board-groups', {
+    method: 'PUT',
+    body: JSON.stringify({ groups: nextGroups }),
+  });
+  return { detail_key: 'success.task_board_group_deleted' };
+}
+
 // ===== Projects =====
 
 const PROJECT_NAME_MAX = 64;
@@ -981,7 +1125,8 @@ export async function deleteProject(projectId) {
   }
   const stats = await getProjectStats(projectId);
   const total = (stats?.groups || 0) + (stats?.terminals || 0)
-    + (stats?.notes || 0) + (stats?.flows || 0) + (stats?.prompts || 0);
+    + (stats?.notes || 0) + (stats?.flows || 0) + (stats?.prompts || 0)
+    + (stats?.taskBoards || 0) + (stats?.tasks || 0);
   if (total > 0) {
     const err = new Error('Project is not empty');
     err.detail_key = 'errors.project_not_empty';

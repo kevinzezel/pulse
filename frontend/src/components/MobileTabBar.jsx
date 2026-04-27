@@ -2,11 +2,12 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, FileText, Workflow, Settings } from 'lucide-react';
+import { LayoutDashboard, FileText, Workflow, SquareKanban, Settings } from 'lucide-react';
 import { useTranslation } from '@/providers/I18nProvider';
 
 const NAV_ITEMS = [
   { href: '/', icon: LayoutDashboard, labelKey: 'nav.dashboard' },
+  { href: '/tasks', icon: SquareKanban, labelKey: 'nav.tasks' },
   { href: '/flows', icon: Workflow, labelKey: 'nav.flows' },
   { href: '/prompts', icon: FileText, labelKey: 'nav.prompts' },
   { href: '/settings', icon: Settings, labelKey: 'nav.settings' },
@@ -28,14 +29,16 @@ export default function MobileTabBar() {
           <Link
             key={item.href}
             href={item.href}
-            className={`flex-1 flex items-center justify-center gap-1.5 border-t-2 transition-colors ${
+            className={`min-w-0 flex-1 flex flex-col items-center justify-center gap-0.5 border-t-2 transition-colors ${
               active
                 ? 'text-primary border-primary'
                 : 'text-muted-foreground border-transparent'
             }`}
           >
             <Icon size={16} />
-            <span className="text-[10px] font-medium tracking-wide">{t(item.labelKey)}</span>
+            <span className="w-full truncate px-0.5 text-center text-[10px] font-medium tracking-wide">
+              {t(item.labelKey)}
+            </span>
           </Link>
         );
       })}
