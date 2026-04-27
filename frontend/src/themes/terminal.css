@@ -607,11 +607,6 @@
   align-items: center;
   justify-content: center;
   transition: color 0.15s, background 0.15s;
-  opacity: 0;
-}
-
-.mosaic-window:hover .mosaic-tool-btn,
-.mosaic-window-toolbar:hover .mosaic-tool-btn {
   opacity: 1;
 }
 

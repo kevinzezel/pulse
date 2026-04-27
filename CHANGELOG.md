@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [3.0.1] — 2026-04-27
+
+### Changed
+
+- **Terminal pane toolbar actions are always visible.** Split horizontal, split vertical, open editor, maximize and close controls no longer require hovering over a terminal pane.
+
 ## [3.0.0] — 2026-04-27
 
 ### Changed
