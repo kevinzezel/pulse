@@ -46,6 +46,12 @@ const EMPTY_SERVER_GATE = {
   results: [],
 };
 
+const INITIAL_SERVER_GATE = {
+  ...EMPTY_SERVER_GATE,
+  visible: true,
+  checking: true,
+};
+
 function loadFromStorage(key, fallback) {
   try {
     const raw = localStorage.getItem(key);
@@ -62,7 +68,7 @@ function ServerBootGateModal({ gate, t, onRetry }) {
   const body = allFailed ? t('serverBoot.allOfflineBody') : t('serverBoot.checkingBody');
 
   return (
-    <div className="absolute inset-0 z-50 flex items-center justify-center bg-overlay/70 backdrop-blur-sm px-4">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-overlay/70 backdrop-blur-sm px-4">
       <div className="w-full max-w-sm rounded-lg border border-border bg-card p-5 shadow-xl">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted/50">
@@ -133,7 +139,7 @@ function Dashboard() {
   const [sessions, setSessions] = useState([]);
   const [groups, setGroups] = useState([]);
   const [offlineServerIds, setOfflineServerIds] = useState([]);
-  const [serverGate, setServerGate] = useState(EMPTY_SERVER_GATE);
+  const [serverGate, setServerGate] = useState(INITIAL_SERVER_GATE);
   const [mosaicLayouts, setMosaicLayouts] = useState({});
   const [hydratedLayouts, setHydratedLayouts] = useState(false);
   const [hydratedGroups, setHydratedGroups] = useState(false);
@@ -163,7 +169,7 @@ function Dashboard() {
   // Espelho de activeProjectId pra handlers async checarem se o usuário
   // trocou de projeto enquanto a request estava em voo.
   const activeProjectIdRef = useRef(null);
-  const serverGateRef = useRef(EMPTY_SERVER_GATE);
+  const serverGateRef = useRef(INITIAL_SERVER_GATE);
   const lastBlockingLoadKeyRef = useRef(null);
   const [busySessionIds, setBusySessionIds] = useState(new Set());
   const [draggingId, setDraggingId] = useState(null);

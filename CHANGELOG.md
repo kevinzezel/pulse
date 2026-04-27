@@ -6,6 +6,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [3.2.4-pre] — 2026-04-27
+
+### Fixed
+
+- **The server boot modal now covers the full viewport.** The blocking server check overlay is fixed to the browser viewport, including the header, so the terminal dashboard cannot be interacted with while the initial server batch is still settling.
+- **The server boot modal appears immediately on terminal page hydration.** The dashboard now starts with the boot gate visible and fills in server details once the configured server list is loaded, removing the short delay before the modal appeared.
+
 ## [3.2.3-pre] — 2026-04-27
 
 ### Changed
@@ -1133,7 +1140,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v3.2.3-pre...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v3.2.4-pre...HEAD
+[3.2.4-pre]: https://github.com/kevinzezel/pulse/releases/tag/v3.2.4-pre
 [3.2.3-pre]: https://github.com/kevinzezel/pulse/releases/tag/v3.2.3-pre
 [3.2.2-pre]: https://github.com/kevinzezel/pulse/releases/tag/v3.2.2-pre
 [3.2.1]: https://github.com/kevinzezel/pulse/releases/tag/v3.2.1
