@@ -149,17 +149,17 @@ export default function PaneActionsFab({
         title={gearTitle}
         aria-label={gearTitle}
         aria-disabled={!connected}
-        className={`relative w-9 h-9 rounded-full inline-flex items-center justify-center border transition-all shadow-sm disabled:cursor-not-allowed disabled:opacity-60 ${
+        className={`relative w-10 h-10 rounded-full inline-flex items-center justify-center border transition-all shadow-md disabled:cursor-not-allowed disabled:opacity-60 ${
           isOpen
             ? 'bg-primary text-primary-foreground border-primary'
-            : 'border-primary/50 bg-primary/15 text-primary hover:bg-primary/25'
+            : 'border-border bg-muted text-foreground hover:bg-accent'
         }`}
         style={{
           transform: isOpen ? 'rotate(45deg)' : 'rotate(0)',
           transitionDuration: '200ms',
         }}
       >
-        {isOpen ? <X size={16} strokeWidth={2.5} /> : <Settings size={16} strokeWidth={2.25} />}
+        {isOpen ? <X size={17} strokeWidth={2.5} /> : <Settings size={17} strokeWidth={2.25} />}
       </button>
 
       <div

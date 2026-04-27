@@ -10,6 +10,9 @@ function loadTheme() {
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored && THEME_IDS.includes(stored)) return stored;
+    if (stored && stored !== DEFAULT_THEME) {
+      localStorage.setItem(STORAGE_KEY, DEFAULT_THEME);
+    }
   } catch {}
   return DEFAULT_THEME;
 }

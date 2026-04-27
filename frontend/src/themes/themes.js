@@ -1,6 +1,6 @@
 export const THEMES = [
-  { id: 'dark', labelKey: 'themes.defaultDark', base: 'dark' },
   { id: 'pulse-graphite', label: 'Pulse Graphite', base: 'dark' },
+  { id: 'omni', label: 'Omni', base: 'dark' },
   { id: 'light', labelKey: 'themes.defaultLight', base: 'light' },
   { id: 'dracula', label: 'Dracula', base: 'dark' },
   { id: 'nord', label: 'Nord', base: 'dark' },
@@ -19,10 +19,12 @@ export const THEMES = [
 ];
 
 export const THEME_IDS = THEMES.map(t => t.id);
-export const DEFAULT_THEME = 'dark';
+export const DEFAULT_THEME = 'pulse-graphite';
 
 export function getThemeMeta(id) {
-  return THEMES.find(t => t.id === id) || THEMES[0];
+  return THEMES.find(t => t.id === id)
+    || THEMES.find(t => t.id === DEFAULT_THEME)
+    || THEMES[0];
 }
 
 export function applyThemeClasses(id) {
@@ -33,7 +35,7 @@ export function applyThemeClasses(id) {
     if (cls.startsWith('theme-')) root.classList.remove(cls);
   }
   root.classList.add(meta.base);
-  if (id !== 'dark' && id !== 'light') {
-    root.classList.add(`theme-${id}`);
+  if (meta.id !== 'light') {
+    root.classList.add(`theme-${meta.id}`);
   }
 }

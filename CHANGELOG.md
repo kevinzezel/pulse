@@ -6,6 +6,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [3.0.0] — 2026-04-27
+
+### Changed
+
+- **Pulse Graphite is now the default theme.** New sessions load Graphite immediately, the old default dark theme is no longer offered in the selector, and saved `dark` preferences migrate to Graphite.
+- **Omni theme is now available.** The theme selector includes Omni, with matching dashboard tokens and xterm.js terminal colors.
+- **Graphite UI states are now neutral.** Active navigation, selected groups, selected terminals, prompt filters and related selected states now use the graphite light-gray treatment instead of the previous blue accent.
+- **Primary actions are no longer gradient buttons.** Buttons that used the brand gradient now render as solid theme-aware controls across all themes, matching the quick prompt modal direction.
+- **Pulse branding now uses a graphite mark.** The in-app logo, app icon and static logo assets were refreshed to a neutral graphite badge without the blue-purple gradient.
+
+### Fixed
+
+- **Terminal and notes floating action buttons are no longer translucent.** The terminal gear FAB and the desktop notes FAB now share a solid dark button style and matching compact size.
+
 ## [2.11.1-pre] — 2026-04-26
 
 ### Fixed

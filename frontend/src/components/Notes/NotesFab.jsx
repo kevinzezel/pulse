@@ -128,7 +128,7 @@ export function NotesFab() {
       <button
         ref={fabRef}
         type="button"
-        className="fixed z-[9000] flex h-11 w-11 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-md hover:bg-primary/90 hover:shadow-lg transition-colors"
+        className="fixed z-[9000] flex h-10 w-10 items-center justify-center rounded-full border border-border bg-muted text-foreground shadow-md hover:bg-accent hover:shadow-lg transition-colors"
         style={{
           ...positionStyle,
           cursor: dragPos ? 'grabbing' : 'grab',
@@ -141,12 +141,12 @@ export function NotesFab() {
         onPointerCancel={handlePointerCancel}
         title={t('notes.fab')}
       >
-        <IconNote size={18} />
+        <IconNote size={17} strokeWidth={2.25} />
         {badge !== null && (
           <span
-            className="absolute -right-1 -top-1 flex min-w-[18px] items-center justify-center rounded-full px-1 text-[10px] font-semibold leading-none pointer-events-none"
+            className="absolute -right-1 -top-1 flex min-w-[16px] items-center justify-center rounded-full px-1 text-[10px] font-semibold leading-none pointer-events-none"
             style={{
-              height: 18,
+              height: 16,
               background: 'hsl(var(--destructive))',
               color: 'white',
               border: '2px solid hsl(var(--background))',

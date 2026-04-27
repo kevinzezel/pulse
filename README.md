@@ -141,7 +141,7 @@ For remote clients, the same button opens `vscode://vscode-remote/ssh-remote+<ho
 
 ### Polish
 
-**16 themes** — Dracula, Nord, Tokyo Night, Catppuccin (Latte / Frappé / Macchiato / Mocha), Gruvbox (light + dark), Solarized (light + dark), One Dark, Monokai, GitHub Dark Dimmed, plus the default dark and light. Each one repaints the dashboard *and* the xterm palette.
+**17 themes** — Pulse Graphite by default, Omni, Dracula, Nord, Tokyo Night, Catppuccin (Latte / Frappé / Macchiato / Mocha), Gruvbox (light + dark), Solarized (light + dark), One Dark, Monokai, GitHub Dark Dimmed, plus light. Each one repaints the dashboard *and* the xterm palette.
 
 **3 UI languages** — English, Português (Brasil), Español, with full parity (601 keys each).
 

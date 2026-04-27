@@ -1,17 +1,11 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 120" width="420" height="120" role="img" aria-label="Pulse">
   <title>Pulse</title>
-  <defs>
-    <linearGradient id="pulseBrandWM" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%"   stop-color="#3B82F6"/>
-      <stop offset="100%" stop-color="#9333EA"/>
-    </linearGradient>
-  </defs>
   <!-- icon -->
-  <rect width="120" height="120" rx="26" ry="26" fill="url(#pulseBrandWM)"/>
+  <rect x="8" y="8" width="104" height="104" rx="26" ry="26" fill="#141821" stroke="#2f3745" stroke-width="4"/>
   <path
-    d="M18 60 H34 L44 36 L60 84 L74 44 L84 60 H102"
+    d="M24 60 H39 L47 39 L63 81 L74 47 L82 60 H96"
     fill="none"
-    stroke="#FFFFFF"
+    stroke="#E5EDF8"
     stroke-width="8"
     stroke-linecap="round"
     stroke-linejoin="round"
@@ -21,6 +15,6 @@
         font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica Neue, Arial, sans-serif"
         font-size="72"
         font-weight="700"
-        letter-spacing="-2"
-        fill="url(#pulseBrandWM)">Pulse</text>
+        letter-spacing="0"
+        fill="#151A23">Pulse</text>
 </svg>

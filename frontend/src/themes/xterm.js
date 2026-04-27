@@ -13,13 +13,24 @@ const XTERM_THEMES = {
   'pulse-graphite': {
     background: '#06080d',
     foreground: '#dce4ef',
-    cursor: '#3d9dff',
-    selectionBackground: '#173554',
+    cursor: '#dce4ef',
+    selectionBackground: '#2c3340',
     black: '#06080d', red: '#ea526f', green: '#2cc47d', yellow: '#f4ad31',
     blue: '#3d9dff', magenta: '#956bff', cyan: '#1dcedd', white: '#dce4ef',
     brightBlack: '#657083', brightRed: '#ff6b86', brightGreen: '#41d892',
     brightYellow: '#ffc45a', brightBlue: '#6ab7ff', brightMagenta: '#ad8cff',
     brightCyan: '#4de3ee', brightWhite: '#f5f8fc',
+  },
+  omni: {
+    background: '#191622',
+    foreground: '#e1e1e6',
+    cursor: '#ff79c6',
+    selectionBackground: '#41414d',
+    black: '#191622', red: '#e96379', green: '#67e480', yellow: '#e7de79',
+    blue: '#78d1e1', magenta: '#ff79c6', cyan: '#78d1e1', white: '#e1e1e6',
+    brightBlack: '#5a4f69', brightRed: '#ff7a93', brightGreen: '#85f49a',
+    brightYellow: '#fff59d', brightBlue: '#9be9f4', brightMagenta: '#ff92d0',
+    brightCyan: '#a6f2ff', brightWhite: '#ffffff',
   },
   light: {
     background: '#ffffff',
@@ -189,5 +200,5 @@ const XTERM_THEMES = {
 };
 
 export function getXtermTheme(themeId) {
-  return XTERM_THEMES[themeId] || XTERM_THEMES.dark;
+  return XTERM_THEMES[themeId] || XTERM_THEMES['pulse-graphite'];
 }

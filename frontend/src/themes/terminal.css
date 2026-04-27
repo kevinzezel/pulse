@@ -24,8 +24,6 @@
 
   --success: 142 71% 35%;
   --overlay: 0 0% 0%;
-  --brand-gradient-from: 213 94% 55%;
-  --brand-gradient-to: 262 83% 58%;
 
   /* --- notes (sticky notes) — universais, iguais em todos os temas --- */
   --note-yellow-bg: 54 95% 75%;
@@ -82,12 +80,10 @@
 
   --success: 140 60% 65%;
   --overlay: 0 0% 0%;
-  --brand-gradient-from: 213 94% 60%;
-  --brand-gradient-to: 262 83% 62%;
 }
 
 .theme-pulse-graphite {
-  --primary: 212 100% 62%;
+  --primary: 213 31% 91%;
   --primary-foreground: 222 28% 6%;
   --background: 222 28% 6%;
   --foreground: 213 31% 91%;
@@ -101,7 +97,7 @@
   --destructive-foreground: 0 0% 100%;
   --border: 218 16% 22%;
   --input: 217 22% 13%;
-  --ring: 212 100% 62%;
+  --ring: 216 14% 63%;
 
   --terminal-bg: 220 30% 5%;
   --terminal-header: 219 22% 10%;
@@ -111,8 +107,33 @@
 
   --success: 154 63% 47%;
   --overlay: 225 40% 2%;
-  --brand-gradient-from: 212 100% 62%;
-  --brand-gradient-to: 258 88% 68%;
+}
+
+.theme-omni {
+  --primary: 326 100% 74%;
+  --primary-foreground: 255 21% 11%;
+  --background: 255 21% 11%;
+  --foreground: 240 9% 89%;
+  --card: 257 25% 15%;
+  --card-foreground: 240 9% 89%;
+  --muted: 257 22% 18%;
+  --muted-foreground: 260 11% 65%;
+  --accent: 257 22% 21%;
+  --accent-foreground: 240 9% 89%;
+  --destructive: 350 74% 65%;
+  --destructive-foreground: 255 21% 11%;
+  --border: 258 20% 25%;
+  --input: 257 25% 15%;
+  --ring: 326 100% 74%;
+
+  --terminal-bg: 255 21% 11%;
+  --terminal-header: 257 25% 15%;
+  --terminal-border: 258 20% 25%;
+  --sidebar-bg: 254 23% 9%;
+  --sidebar-border: 257 22% 18%;
+
+  --success: 131 70% 65%;
+  --overlay: 255 30% 4%;
 }
 
 .theme-dracula {
@@ -140,8 +161,6 @@
 
   --success: 135 94% 65%;
   --overlay: 231 15% 8%;
-  --brand-gradient-from: 265 89% 78%;
-  --brand-gradient-to: 326 100% 74%;
 }
 
 .theme-nord {
@@ -169,8 +188,6 @@
 
   --success: 92 28% 65%;
   --overlay: 220 16% 8%;
-  --brand-gradient-from: 210 34% 63%;
-  --brand-gradient-to: 311 20% 63%;
 }
 
 .theme-tokyo-night {
@@ -198,8 +215,6 @@
 
   --success: 91 49% 61%;
   --overlay: 240 13% 5%;
-  --brand-gradient-from: 219 89% 72%;
-  --brand-gradient-to: 260 87% 79%;
 }
 
 .theme-one-dark {
@@ -227,8 +242,6 @@
 
   --success: 95 38% 62%;
   --overlay: 220 13% 8%;
-  --brand-gradient-from: 207 82% 66%;
-  --brand-gradient-to: 286 60% 67%;
 }
 
 .theme-gruvbox-dark {
@@ -256,8 +269,6 @@
 
   --success: 61 66% 44%;
   --overlay: 0 0% 0%;
-  --brand-gradient-from: 24 99% 54%;
-  --brand-gradient-to: 42 96% 59%;
 }
 
 .theme-monokai {
@@ -285,8 +296,6 @@
 
   --success: 80 76% 53%;
   --overlay: 0 0% 0%;
-  --brand-gradient-from: 338 95% 56%;
-  --brand-gradient-to: 261 100% 75%;
 }
 
 .theme-solarized-dark {
@@ -314,8 +323,6 @@
 
   --success: 68 100% 30%;
   --overlay: 0 0% 0%;
-  --brand-gradient-from: 205 69% 49%;
-  --brand-gradient-to: 237 43% 60%;
 }
 
 .theme-github-dark-dimmed {
@@ -343,8 +350,6 @@
 
   --success: 119 54% 70%;
   --overlay: 213 15% 5%;
-  --brand-gradient-from: 212 100% 71%;
-  --brand-gradient-to: 260 67% 70%;
 }
 
 .theme-catppuccin-mocha {
@@ -372,8 +377,6 @@
 
   --success: 115 54% 76%;
   --overlay: 240 23% 5%;
-  --brand-gradient-from: 267 84% 81%;
-  --brand-gradient-to: 316 72% 86%;
 }
 
 .theme-catppuccin-macchiato {
@@ -401,8 +404,6 @@
 
   --success: 115 54% 76%;
   --overlay: 232 23% 8%;
-  --brand-gradient-from: 267 84% 81%;
-  --brand-gradient-to: 316 72% 86%;
 }
 
 .theme-catppuccin-frappe {
@@ -430,8 +431,6 @@
 
   --success: 115 54% 76%;
   --overlay: 229 19% 10%;
-  --brand-gradient-from: 267 84% 81%;
-  --brand-gradient-to: 316 72% 86%;
 }
 
 .theme-solarized-light {
@@ -459,8 +458,6 @@
 
   --success: 68 100% 30%;
   --overlay: 192 100% 11%;
-  --brand-gradient-from: 205 69% 49%;
-  --brand-gradient-to: 237 43% 60%;
 }
 
 .theme-gruvbox-light {
@@ -488,8 +485,6 @@
 
   --success: 59 70% 34%;
   --overlay: 0 0% 16%;
-  --brand-gradient-from: 24 99% 54%;
-  --brand-gradient-to: 40 72% 49%;
 }
 
 .theme-catppuccin-latte {
@@ -517,8 +512,6 @@
 
   --success: 109 58% 40%;
   --overlay: 234 16% 20%;
-  --brand-gradient-from: 220 91% 54%;
-  --brand-gradient-to: 266 85% 58%;
 }
 
 /* react-mosaic theme */

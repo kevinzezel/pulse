@@ -1,6 +1,6 @@
 import "./globals.css";
 import InnerLayout from "./InnerLayout";
-import { THEMES } from "@/themes/themes";
+import { DEFAULT_THEME, THEMES } from "@/themes/themes";
 
 export const metadata = {
   title: "Pulse",
@@ -21,12 +21,13 @@ const THEME_INIT_SCRIPT = `
   try {
     var DARK = ${JSON.stringify(DARK_IDS)};
     var LIGHT = ${JSON.stringify(LIGHT_IDS)};
+    var DEFAULT = ${JSON.stringify(DEFAULT_THEME)};
     var stored = localStorage.getItem('rt:theme');
-    var theme = (DARK.indexOf(stored) >= 0 || LIGHT.indexOf(stored) >= 0) ? stored : 'dark';
+    var theme = (DARK.indexOf(stored) >= 0 || LIGHT.indexOf(stored) >= 0) ? stored : DEFAULT;
     var root = document.documentElement;
     if (LIGHT.indexOf(theme) >= 0) { root.classList.add('light'); }
     else { root.classList.add('dark'); }
-    if (theme !== 'dark' && theme !== 'light') { root.classList.add('theme-' + theme); }
+    if (theme !== 'light') { root.classList.add('theme-' + theme); }
     var locale = localStorage.getItem('rt:locale');
     if (locale) root.lang = locale;
   } catch (e) {}

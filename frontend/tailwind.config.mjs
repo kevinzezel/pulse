@@ -45,7 +45,7 @@ export default {
         overlay: 'hsl(var(--overlay))',
       },
       backgroundImage: {
-        'brand-gradient': 'linear-gradient(to right, hsl(var(--brand-gradient-from)), hsl(var(--brand-gradient-to)))',
+        'brand-gradient': 'none',
       },
       borderRadius: {
         lg: 'var(--radius)',
