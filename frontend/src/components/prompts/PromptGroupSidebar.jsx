@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import {
-  Folder, FolderOpen, Pin, FileText, Plus, Pencil, Trash2, X, Loader, Check,
+  Folder, FolderOpen, Pin, FileText, Plus, Pencil, Trash2, X, Loader,
 } from 'lucide-react';
 import { useTranslation } from '@/providers/I18nProvider';
 import {
@@ -44,8 +44,25 @@ export default function PromptGroupSidebar({
     }
   }, [createOpen, editingId]);
 
+  useEffect(() => {
+    function onKey(e) {
+      if (e.key !== 'Escape') return;
+      if (createOpen && !creating) {
+        setCreateOpen(false);
+        setCreateName('');
+      } else if (editingId && renamingId !== editingId) {
+        setEditingId(null);
+        setEditName('');
+      } else if (confirmDeleteId && deletingId !== confirmDeleteId) {
+        setConfirmDeleteId(null);
+      }
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [createOpen, creating, editingId, renamingId, confirmDeleteId, deletingId]);
+
   function handleCreateSubmit(e) {
-    e.preventDefault();
+    e?.preventDefault();
     const name = createName.trim();
     if (!name) return;
     onCreateGroup(name).then(() => {
@@ -55,9 +72,9 @@ export default function PromptGroupSidebar({
   }
 
   function handleEditSubmit(e) {
-    e.preventDefault();
+    e?.preventDefault();
     const name = editName.trim();
-    if (!name) return;
+    if (!name || !editingId) return;
     onRenameGroup(editingId, name).then(() => {
       setEditingId(null);
       setEditName('');
@@ -91,44 +108,8 @@ export default function PromptGroupSidebar({
 
   function renderRow({ token, label, icon, group }) {
     const isActive = selectedGroupToken === token;
-    const isEditing = editingId && group && editingId === group.id;
     const isDeleting = deletingId === (group?.id || null);
     const count = counts ? counts.get(token) || 0 : 0;
-
-    if (isEditing) {
-      return (
-        <li key={token}>
-          <form onSubmit={handleEditSubmit} className="flex items-center gap-1 px-2 py-1.5">
-            <input
-              ref={editInputRef}
-              type="text"
-              value={editName}
-              onChange={(e) => setEditName(e.target.value)}
-              maxLength={50}
-              disabled={renamingId === group.id}
-              className="flex-1 min-w-0 px-2 py-1 rounded bg-input border border-border text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-            />
-            <button
-              type="submit"
-              disabled={renamingId === group.id || !editName.trim()}
-              className="p-1 rounded text-success hover:bg-muted/40 disabled:opacity-50"
-              title={t('prompts.save')}
-            >
-              {renamingId === group.id ? <Loader size={14} className="animate-spin" /> : <Check size={14} />}
-            </button>
-            <button
-              type="button"
-              onClick={() => { setEditingId(null); setEditName(''); }}
-              disabled={renamingId === group.id}
-              className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted/40 disabled:opacity-50"
-              title={t('common.cancel')}
-            >
-              <X size={14} />
-            </button>
-          </form>
-        </li>
-      );
-    }
 
     return (
       <li key={token}>
@@ -150,19 +131,12 @@ export default function PromptGroupSidebar({
         >
           {icon}
           <span className="flex-1 min-w-0 truncate">{label}</span>
-          <span
-            className={`text-[10px] px-1.5 py-0.5 rounded ${
-              isActive ? 'text-primary/80 bg-primary/10' : 'text-muted-foreground bg-muted/40'
-            }`}
-          >
-            {count}
-          </span>
           {group && (
-            <>
+            <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
               <button
                 type="button"
                 onClick={(e) => { e.stopPropagation(); startEdit(group); }}
-                className="opacity-0 group-hover:opacity-100 p-1 rounded text-muted-foreground hover:text-primary hover:bg-muted/60 transition-opacity"
+                className="p-1 rounded text-muted-foreground hover:text-primary hover:bg-muted/60 transition-colors"
                 title={t('prompts.renameGroup')}
               >
                 <Pencil size={11} />
@@ -171,13 +145,20 @@ export default function PromptGroupSidebar({
                 type="button"
                 onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(group.id); }}
                 disabled={isDeleting}
-                className="opacity-0 group-hover:opacity-100 p-1 rounded text-muted-foreground hover:text-destructive hover:bg-muted/60 transition-opacity disabled:opacity-50"
+                className="p-1 rounded text-muted-foreground hover:text-destructive hover:bg-muted/60 transition-colors disabled:opacity-50"
                 title={t('prompts.deleteGroup')}
               >
                 {isDeleting ? <Loader size={11} className="animate-spin" /> : <Trash2 size={11} />}
               </button>
-            </>
+            </div>
           )}
+          <span
+            className={`inline-flex min-w-6 h-6 items-center justify-center rounded px-1.5 text-xs ${
+              isActive ? 'text-primary/80 bg-primary/10' : 'text-muted-foreground bg-muted/40'
+            }`}
+          >
+            {count}
+          </span>
         </div>
       </li>
     );
@@ -185,6 +166,7 @@ export default function PromptGroupSidebar({
 
   const deleteTarget = confirmDeleteId ? groups.find((g) => g.id === confirmDeleteId) : null;
   const deleteCount = deleteTarget && counts ? (counts.get(deleteTarget.id) || 0) : 0;
+  const editingTarget = editingId ? groups.find((g) => g.id === editingId) : null;
 
   return (
     <div className="flex flex-col h-full min-h-0 bg-sidebar border-r border-sidebar-border">
@@ -226,43 +208,118 @@ export default function PromptGroupSidebar({
             icon: <FileText size={14} className="text-muted-foreground" />,
           })}
         </ul>
+      </div>
 
-        {createOpen && (
-          <form
-            onSubmit={handleCreateSubmit}
-            className="mt-3 mx-1 p-2 rounded-md border border-border bg-card"
-          >
-            <input
-              ref={createInputRef}
-              type="text"
-              value={createName}
-              onChange={(e) => setCreateName(e.target.value)}
-              placeholder={t('prompts.newGroup')}
-              maxLength={50}
-              disabled={creating}
-              className="w-full px-2 py-1 rounded bg-input border border-border text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-            />
-            <div className="flex gap-1 mt-2">
-              <button
-                type="submit"
-                disabled={creating || !createName.trim()}
-                className="flex-1 inline-flex items-center justify-center gap-1 py-1.5 rounded text-xs font-medium text-white bg-brand-gradient hover:opacity-90 disabled:opacity-50"
-              >
-                {creating ? <Loader size={12} className="animate-spin" /> : <Check size={12} />}
-                {t('prompts.save')}
-              </button>
+      {createOpen && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-overlay/60 px-4">
+          <div className="bg-card border border-border rounded-lg p-6 w-full max-w-sm">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-foreground font-semibold">{t('prompts.newGroup')}</h3>
               <button
                 type="button"
-                onClick={() => { setCreateOpen(false); setCreateName(''); }}
+                onClick={() => { if (!creating) { setCreateOpen(false); setCreateName(''); } }}
                 disabled={creating}
-                className="px-2 py-1.5 rounded text-xs border border-border text-muted-foreground hover:text-foreground hover:bg-muted/40 disabled:opacity-50"
+                className="text-muted-foreground hover:text-foreground disabled:opacity-60"
+                aria-label={t('common.cancel')}
               >
-                {t('common.cancel')}
+                <X size={18} />
               </button>
             </div>
-          </form>
-        )}
-      </div>
+            <form onSubmit={handleCreateSubmit}>
+              <label className="block text-sm text-muted-foreground mb-1">
+                {t('prompts.groupLabel')}
+              </label>
+              <input
+                ref={createInputRef}
+                type="text"
+                value={createName}
+                onChange={(e) => setCreateName(e.target.value)}
+                placeholder={t('prompts.newGroup')}
+                maxLength={50}
+                autoFocus
+                disabled={creating}
+                className="w-full px-3 py-2 bg-input border border-border rounded-md text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring mb-4"
+              />
+              <div className="flex gap-2">
+                <button
+                  type="submit"
+                  disabled={creating || !createName.trim()}
+                  className="flex-1 inline-flex items-center justify-center gap-1 py-2 rounded-md text-sm font-medium text-white bg-brand-gradient hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
+                >
+                  {creating && <Loader size={12} className="animate-spin" />}
+                  {t('prompts.save')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setCreateOpen(false); setCreateName(''); }}
+                  disabled={creating}
+                  className="px-3 py-2 rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-muted/40 disabled:opacity-60 transition-colors"
+                >
+                  {t('common.cancel')}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {editingTarget && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-overlay/60 px-4">
+          <div className="bg-card border border-border rounded-lg p-6 w-full max-w-sm">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-foreground font-semibold">{t('prompts.renameGroup')}</h3>
+              <button
+                type="button"
+                onClick={() => {
+                  if (renamingId !== editingTarget.id) {
+                    setEditingId(null);
+                    setEditName('');
+                  }
+                }}
+                disabled={renamingId === editingTarget.id}
+                className="text-muted-foreground hover:text-foreground disabled:opacity-60"
+                aria-label={t('common.cancel')}
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <form onSubmit={handleEditSubmit}>
+              <label className="block text-sm text-muted-foreground mb-1">
+                {t('prompts.groupLabel')}
+              </label>
+              <input
+                ref={editInputRef}
+                type="text"
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                placeholder={t('prompts.renameGroup')}
+                maxLength={50}
+                autoFocus
+                disabled={renamingId === editingTarget.id}
+                className="w-full px-3 py-2 bg-input border border-border rounded-md text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring mb-4"
+              />
+              <div className="flex gap-2">
+                <button
+                  type="submit"
+                  disabled={renamingId === editingTarget.id || !editName.trim()}
+                  className="flex-1 inline-flex items-center justify-center gap-1 py-2 rounded-md text-sm font-medium text-white bg-brand-gradient hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
+                >
+                  {renamingId === editingTarget.id && <Loader size={12} className="animate-spin" />}
+                  {t('prompts.save')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setEditingId(null); setEditName(''); }}
+                  disabled={renamingId === editingTarget.id}
+                  className="px-3 py-2 rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-muted/40 disabled:opacity-60 transition-colors"
+                >
+                  {t('common.cancel')}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {deleteTarget && (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-overlay/60 px-4">

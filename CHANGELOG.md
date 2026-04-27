@@ -6,6 +6,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [2.11.1-pre] — 2026-04-26
+
+### Fixed
+
+- **Prompt group counts now align with the other group rows.** Hidden edit/delete actions no longer push the count badge away from the right edge on real prompt groups.
+- **Prompt group create and rename now use modals.** Prompt groups now follow the same modal interaction pattern as the other group managers instead of editing inline in the sidebar.
+
 ## [2.11.0-pre] — 2026-04-26
 
 ### Added
@@ -1036,7 +1043,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v2.11.0-pre...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v2.11.1-pre...HEAD
+[2.11.1-pre]: https://github.com/kevinzezel/pulse/releases/tag/v2.11.1-pre
 [2.11.0-pre]: https://github.com/kevinzezel/pulse/releases/tag/v2.11.0-pre
 [2.10.1]: https://github.com/kevinzezel/pulse/releases/tag/v2.10.1
 [2.10.0]: https://github.com/kevinzezel/pulse/releases/tag/v2.10.0
