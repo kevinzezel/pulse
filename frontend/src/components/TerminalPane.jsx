@@ -232,7 +232,10 @@ export default function TerminalPane({
   // placeholder com botão Retry. Quando o health volta pra online, o parent
   // bumpa serverReconnectKeys (Phase 8), forçando remount do pane com a
   // nova key — daí o effect roda e cria a WS de novo.
-  const isServerOffline = serverHealth?.status === 'offline';
+  // session.snapshot_only = stub vindo do snapshot persistido (server real
+  // ainda não respondeu). Tratamos como offline aqui pra evitar abrir WS
+  // mesmo durante o render intermediário em que serverHealth ainda é unknown.
+  const isServerOffline = session?.snapshot_only === true || serverHealth?.status === 'offline';
   const offlineReason = serverHealth?.reason || null;
 
   useEffect(() => {

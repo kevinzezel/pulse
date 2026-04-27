@@ -96,10 +96,23 @@ function Dashboard() {
   // projeto/server enquanto uma fetch está em curso, comparamos runId no
   // handler de cada server e ignoramos updates de fetches superadas.
   const fetchRunIdRef = useRef(0);
+  // Epoch independente pra fetchGroups: grupos vêm do dashboard local
+  // (/api/groups), não dos servers, então rodam mesmo com servers=[]. O
+  // contador descarta respostas atrasadas de troca de projeto.
+  const fetchGroupsRunIdRef = useRef(0);
   // Espelho de sessionsProjectId pra detectar troca de projeto sem precisar
   // adicionar sessionsProjectId às deps de fetchSessions (evita loop de
   // useCallback, já que setSessionsProjectId é chamado dentro dele).
   const sessionsProjectIdRef = useRef(null);
+  // Espelho de groupsProjectId, mesma motivação do sessionsProjectIdRef.
+  const groupsProjectIdRef = useRef(null);
+  // Espelho de activeProjectId pra handlers async checarem se o usuário
+  // trocou de projeto enquanto a request estava em voo.
+  const activeProjectIdRef = useRef(null);
+  // Fallback visual: serverId -> [rawSessions] do snapshot persistido.
+  // Usado só pra render quando o server real está offline e a fetch live
+  // não trouxe sessões. Nunca é gravado de volta.
+  const [snapshotByServer, setSnapshotByServer] = useState({});
   const [busySessionIds, setBusySessionIds] = useState(new Set());
   const [draggingId, setDraggingId] = useState(null);
   const [reconnectKey, setReconnectKey] = useState(0);
@@ -148,6 +161,8 @@ function Dashboard() {
   // Mantém sessionsProjectIdRef sincronizado pra fetchSessions detectar troca
   // de projeto sem adicionar sessionsProjectId às próprias deps.
   useEffect(() => { sessionsProjectIdRef.current = sessionsProjectId; }, [sessionsProjectId]);
+  useEffect(() => { groupsProjectIdRef.current = groupsProjectId; }, [groupsProjectId]);
+  useEffect(() => { activeProjectIdRef.current = activeProjectId; }, [activeProjectId]);
 
   const isMobile = useIsMobile();
   const isMaximized = savedLayout !== null;
@@ -249,22 +264,86 @@ function Dashboard() {
     && groupsProjectId === activeProjectId
     && serversLoaded;
 
+  // Render-safe slices: state updates from a previous project can still be in
+  // memory until the fetch effects run after paint. Never derive visible UI
+  // from those stale arrays while the project ids are catching up.
+  const groupsForDisplay = groupsProjectId === activeProjectId ? groups : EMPTY_ARRAY;
+  const liveSessionsForDisplay = sessionsProjectId === activeProjectId ? sessions : EMPTY_ARRAY;
+
   useEffect(() => {
     if (!projectDataReady) return;
     if (selectedGroupId === null) return;
-    const match = groups.find(g => g.id === selectedGroupId);
+    const match = groupsForDisplay.find(g => g.id === selectedGroupId);
     if (!match || match.hidden) {
       setSelectedGroupId(null);
     }
-  }, [groups, selectedGroupId, projectDataReady, setSelectedGroupId]);
+  }, [groupsForDisplay, selectedGroupId, projectDataReady, setSelectedGroupId]);
+
+  // Carrega o snapshot persistido quando o dashboard hidrata ou quando muda
+  // a lista de servers offline. É só leitura: o snapshot é mantido por um
+  // effect separado (linhas ~509-559). Falha silenciosa: se a leitura
+  // falhar, o fallback simplesmente não aparece.
+  useEffect(() => {
+    if (!hydrated) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const snap = await getSessionsSnapshot();
+        if (cancelled) return;
+        const byServer = snap?.servers && typeof snap.servers === 'object' ? snap.servers : {};
+        setSnapshotByServer(byServer);
+      } catch (err) {
+        console.warn('[snapshotByServer] load failed', err);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [hydrated, offlineServerIds]);
+
+  // sessionsForDisplay: mistura sessions live com fallback visual do snapshot.
+  // Para cada server offline sem sessões live, anexa entradas do snapshot
+  // marcadas com snapshot_only=true. Usado SÓ em leituras de UI (Sidebar,
+  // mosaic, validate). `sessions` segue sendo a fonte canônica pra
+  // persistência, restore, drafts e mutações.
+  const sessionsForDisplay = useMemo(() => {
+    if (sessionsProjectId !== activeProjectId) return EMPTY_ARRAY;
+    if (offlineServerIds.length === 0) return liveSessionsForDisplay;
+    const liveServerIds = new Set();
+    for (const s of liveSessionsForDisplay) liveServerIds.add(s.server_id);
+    const result = liveSessionsForDisplay.slice();
+    for (const serverId of offlineServerIds) {
+      if (liveServerIds.has(serverId)) continue;
+      // bad_key (HTTP 401) é problema de credencial, não de conectividade.
+      // Mostrar stubs paused enganaria o usuário sugerindo "VPN caiu" quando
+      // na verdade a apiKey está errada — o chip do header já comunica isso
+      // via serverFilter.reason.bad_key.
+      if (serverHealth[serverId]?.reason === 'bad_key') continue;
+      const srv = servers.find(s => s.id === serverId);
+      if (!srv) continue;
+      const snapList = snapshotByServer[serverId];
+      if (!Array.isArray(snapList)) continue;
+      for (const raw of snapList) {
+        if (!raw || !raw.id) continue;
+        if (raw.project_id && raw.project_id !== activeProjectId) continue;
+        result.push({
+          ...raw,
+          id: composeSessionId(serverId, raw.id),
+          server_id: serverId,
+          server_name: srv.name,
+          server_color: srv.color,
+          snapshot_only: true,
+        });
+      }
+    }
+    return result;
+  }, [liveSessionsForDisplay, sessionsProjectId, activeProjectId, offlineServerIds, snapshotByServer, servers, serverHealth]);
 
   const sessionsInSelectedGroup = useMemo(() => {
-    const validGroupIds = new Set(groups.map(g => g.id));
-    return sessions.filter(s => {
+    const validGroupIds = new Set(groupsForDisplay.map(g => g.id));
+    return sessionsForDisplay.filter(s => {
       const gid = s.group_id && validGroupIds.has(s.group_id) ? s.group_id : null;
       return gid === selectedGroupId;
     });
-  }, [sessions, groups, selectedGroupId]);
+  }, [sessionsForDisplay, groupsForDisplay, selectedGroupId]);
 
   // Filtro de servidor escopado ao projeto/grupo ativo — null = "All". Não
   // alimenta layout cleanup (`validateTree` segue usando sessionsInSelectedGroup
@@ -393,11 +472,11 @@ function Dashboard() {
       setOfflineServerIds([]);
       setPendingSessionServerIds([]);
       setSessionsProjectId(activeProjectId);
-      // NÃO seta hydratedSessions=true. Semântica: "fetch real bem-sucedida com
-      // servers populados". Sem servers, não há fetch confiável; deixar false impede
-      // que projectDataReady vire true com sessions=[] de short-circuit — o que
-      // faria a validação zerar tiles do mosaico achando que são órfãos durante a
-      // janela /login → / antes do ServersProvider terminar de carregar.
+      // Com serversLoaded já true (gate no useEffect que dispara este callback),
+      // servers=[] significa "dashboard configurado sem nenhum server" e não a
+      // janela /login → / antes do ServersProvider carregar. Marcar hidratado
+      // vazio aqui é seguro e necessário pra projectDataReady abrir.
+      if (serversLoaded) setHydratedSessions(true);
       return;
     }
 
@@ -479,32 +558,46 @@ function Dashboard() {
     // normal pending já está vazio aqui — esse setState é só pra garantir
     // que nenhum bug futuro deixe um servidor preso pendente para sempre.
     setPendingSessionServerIds(prev => prev.length === 0 ? prev : []);
-  }, [servers, activeProjectId, markServerOnline, markServerOffline]);
+  }, [servers, activeProjectId, markServerOnline, markServerOffline, serversLoaded]);
 
   const fetchGroups = useCallback(async () => {
-    if (servers.length === 0) {
+    // Grupos são locais (/api/groups), não dependem de servers — então
+    // não tem short-circuit por servers=[]. Cold-boot com server offline
+    // ainda mostra grupos do projeto ativo.
+    const runId = ++fetchGroupsRunIdRef.current;
+    const projectId = activeProjectId;
+    if (groupsProjectIdRef.current !== projectId) {
+      // Troca de projeto: zera grupos antes do await pra UI não exibir
+      // grupos do projeto anterior enquanto a nova fetch está em voo.
+      // Espelha o tratamento de `!isSameProject` no fetchSessions.
       setGroups([]);
-      setGroupsProjectId(activeProjectId);
-      // Mesmo motivo do fetchSessions short-circuit: não setar hydratedGroups=true.
-      return;
+      setHydratedGroups(false);
     }
     try {
       const data = await getGroups();
-      const list = (data.groups || []).filter((g) => g.project_id === activeProjectId);
+      if (runId !== fetchGroupsRunIdRef.current) return;
+      const list = (data.groups || []).filter((g) => g.project_id === projectId);
       setGroups(list);
     } catch (err) {
+      if (runId !== fetchGroupsRunIdRef.current) return;
       showError(err);
     } finally {
-      setGroupsProjectId(activeProjectId);
-      setHydratedGroups(true);
+      if (runId === fetchGroupsRunIdRef.current) {
+        setGroupsProjectId(projectId);
+        setHydratedGroups(true);
+      }
     }
-  }, [servers.length, showError, activeProjectId]);
+  }, [showError, activeProjectId]);
 
   useEffect(() => {
-    if (serversLoading) return;
+    // Espera serversLoaded (não só !serversLoading): durante /login → /, o
+    // ServersProvider tem loading=false e servers=[] do estado anterior, e
+    // disparar aqui marcaria sessions/groups como hidratados vazios e zeraria
+    // o mosaico. serversLoaded só vira true após o primeiro load() real.
+    if (!serversLoaded) return;
     fetchSessions();
     fetchGroups();
-  }, [serversLoading, servers, fetchSessions, fetchGroups]);
+  }, [serversLoaded, servers, fetchSessions, fetchGroups]);
 
   useEffect(() => {
     if (!hydratedSessions) return;
@@ -712,12 +805,12 @@ function Dashboard() {
   useEffect(() => {
     if (!hydrated) return;
     if (!projectDataReady) return;
-    if (!sessions.length) return;
+    if (!sessionsForDisplay.length) return;
     const sid = searchParams.get('session');
     if (!sid) { handledSessionRef.current = null; return; }
     if (handledSessionRef.current === sid) return;
 
-    const session = sessions.find(s => s.id === sid);
+    const session = sessionsForDisplay.find(s => s.id === sid);
     if (!session) {
       const { serverId } = splitSessionId(sid);
       if (serverId && pendingSessionServerIds.includes(serverId)) return;
@@ -739,7 +832,7 @@ function Dashboard() {
     }
 
     router.replace('/');
-  }, [searchParams, sessions, hydrated, projectDataReady, isMobile, mosaicLayout, isMaximized, router, pendingSessionServerIds]);
+  }, [searchParams, sessionsForDisplay, hydrated, projectDataReady, isMobile, mosaicLayout, isMaximized, router, pendingSessionServerIds]);
 
   const visibleSessionIds = useMemo(() => {
     const ids = getVisibleSessionIds(mosaicLayout);
@@ -772,8 +865,10 @@ function Dashboard() {
 
   async function handleRename(id, newName) {
     const { serverId } = splitSessionId(id);
+    const scopeProjectId = activeProjectIdRef.current;
     try {
       const data = await renameSession(id, newName);
+      if (activeProjectIdRef.current !== scopeProjectId) return;
       if (!servers.some(s => s.id === serverId)) return;
       const session = decorateSession(data.session, serverId);
       setSessions(prev => prev.map(s => s.id === id ? session : s));
@@ -795,12 +890,14 @@ function Dashboard() {
 
   async function handleCreate(serverId, name, groupId, cwd) {
     if (!serverId) return;
+    const scopeProjectId = activeProjectIdRef.current;
     try {
       const group = groupId ? groups.find(g => g.id === groupId) : null;
       const data = await createSession(serverId, name, groupId, cwd, {
         groupName: group?.name || t('sidebar.noGroup'),
         projectName: activeProject?.name || t('projects.defaultName'),
       });
+      if (activeProjectIdRef.current !== scopeProjectId) return;
       const session = decorateSession(data.session, serverId);
       setSessions(prev => [...prev, session]);
       // A successful mutation proves the server is online — if it had been
@@ -828,8 +925,10 @@ function Dashboard() {
   }
 
   async function handleKill(id) {
+    const scopeProjectId = activeProjectIdRef.current;
     try {
       await killSession(id);
+      if (activeProjectIdRef.current !== scopeProjectId) return;
       destroyTerminal(id);
       setSessions(prev => prev.filter(s => s.id !== id));
       setMosaicLayout(prev => prev ? removeFromTree(prev, id) : prev);
@@ -849,9 +948,11 @@ function Dashboard() {
     if (busySessionIds.has(sourceSessionId)) return;
     const { serverId } = splitSessionId(sourceSessionId);
     if (!serverId) return;
+    const scopeProjectId = activeProjectIdRef.current;
     setBusySessionIds(prev => new Set(prev).add(sourceSessionId));
     try {
       const data = await cloneSession(sourceSessionId);
+      if (activeProjectIdRef.current !== scopeProjectId) return;
       const session = decorateSession(data.session, serverId);
       setSessions(prev => [...prev, session]);
       // Successful clone = server is online (see handleCreate for rationale).
@@ -1058,17 +1159,20 @@ function Dashboard() {
   }
 
   async function handleToggleNotify(sessionId, value) {
+    const scopeProjectId = activeProjectIdRef.current;
     const prev = sessions;
     setSessions(p => p.map(s => s.id === sessionId ? { ...s, notify_on_idle: value } : s));
     try {
       await setSessionNotify(sessionId, value);
     } catch (err) {
+      if (activeProjectIdRef.current !== scopeProjectId) return;
       setSessions(prev);
       showError(err);
     }
   }
 
   async function handleAssignGroup(sessionId, groupId) {
+    const scopeProjectId = activeProjectIdRef.current;
     const prevSessions = sessions;
     const group = groupId ? groups.find(g => g.id === groupId) : null;
     // Sempre grava um label legível (mesmo "Sem grupo") pra notificação ficar
@@ -1078,6 +1182,7 @@ function Dashboard() {
     try {
       await assignSessionGroup(sessionId, groupId, groupName);
     } catch (err) {
+      if (activeProjectIdRef.current !== scopeProjectId) return;
       setSessions(prevSessions);
       showError(err);
     }
@@ -1173,6 +1278,7 @@ function Dashboard() {
   }
 
   async function handleReorderGroups(fromId, toId) {
+    const scopeProjectId = activeProjectIdRef.current;
     const next = reorderById(groups, fromId, toId);
     if (next === groups) return;
     const prev = groups;
@@ -1180,26 +1286,32 @@ function Dashboard() {
     try {
       await saveGroups(next);
     } catch (err) {
+      if (activeProjectIdRef.current !== scopeProjectId) return;
       setGroups(prev);
       showError(err);
     }
   }
 
   async function handleHideGroup(groupId) {
+    const scopeProjectId = activeProjectIdRef.current;
     const prevGroups = groups;
     setGroups(prev => prev.map(g => g.id === groupId ? { ...g, hidden: true } : g));
     try {
       await setGroupHidden(groupId, true);
+      if (activeProjectIdRef.current !== scopeProjectId) return;
       toast.success(t('groupSelector.hidden'));
     } catch (err) {
+      if (activeProjectIdRef.current !== scopeProjectId) return;
       setGroups(prevGroups);
       showError(err);
     }
   }
 
   async function handleCreateGroupInline(name) {
+    const scopeProjectId = activeProjectIdRef.current;
     try {
       const data = await createGroup(name);
+      if (activeProjectIdRef.current !== scopeProjectId) return null;
       setGroups(prev => [...prev, data.group]);
       return data.group;
     } catch (err) {
@@ -1221,8 +1333,8 @@ function Dashboard() {
 
         <Sidebar
           sessions={sessionsVisibleInWorkspace}
-          allSessions={sessions}
-          groups={groups}
+          allSessions={sessionsForDisplay}
+          groups={groupsForDisplay}
           servers={servers}
           onCreateSession={handleCreate}
           onKillSession={handleKill}
@@ -1246,8 +1358,8 @@ function Dashboard() {
 
         <div className="flex-1 flex flex-col min-h-0 min-w-0">
           <WorkspaceContextBar
-            groups={groups}
-            sessions={sessions}
+            groups={groupsForDisplay}
+            sessions={sessionsForDisplay}
             groupSessions={sessionsInSelectedGroup}
             selectedGroupId={selectedGroupId}
             onSelectGroup={setSelectedGroupId}

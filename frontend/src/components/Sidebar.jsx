@@ -176,6 +176,7 @@ export default function Sidebar({
     setAssigningGroup(true);
     try {
       const group = await onCreateGroupInline(name);
+      if (!group?.id) return;
       await onAssignGroup(sessionId, group.id);
       closeAssignPopover();
     } catch {

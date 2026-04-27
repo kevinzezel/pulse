@@ -6,6 +6,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [3.2.2-pre] — 2026-04-27
+
+### Fixed
+
+- **Switching projects with an offline server no longer leaks groups from the previous project.** `fetchGroups` now runs through its own `runId` epoch counter (independent of `fetchSessions`) and resets `groups` immediately on project change before awaiting `/api/groups`, mirroring the existing treatment in `fetchSessions`. A late response from a previous project's fetch is dropped instead of overwriting the new project's group list. Project switch is also blindfolded across every async mutation handler (`handleCreate`, `handleSplit`, `handleRename`, `handleKill`, `handleAssignGroup`, `handleToggleNotify`, `handleReorderGroups`, `handleHideGroup`, `handleCreateGroupInline`) — each captures the active project at dispatch time and bails out before applying success state or rollback if the user has switched projects.
+- **Cold boot with an offline server no longer empties the dashboard.** The "paused-state placeholder for offline terminals" promised by v3.2.0 only worked when the server had been online earlier in the session. On a fresh boot the offline server contributed nothing to `sessions`, so `validateTree` wiped its tiles from the rendered mosaic, leaving an empty dashboard behind the TLS modal until F5. The dashboard now hydrates a separate `snapshotByServer` state from the persisted sessions snapshot and merges it into a `sessionsForDisplay` view-model: for each server that is currently in `offlineServerIds` and has no live sessions, snapshot entries are decorated with `composeSessionId`, server identity fields and a `snapshot_only: true` flag, then handed to the sidebar, the workspace context bar, the mosaic and the search-param resolver. The live `sessions` array remains the canonical source for snapshot persistence, auto-restore, draft cleanup and mutations — `snapshot_only` never reaches disk.
+- **Snapshot-only stubs never open WebSockets.** `TerminalPane` now treats `session.snapshot_only === true` as offline alongside `serverHealth.status === 'offline'`, so the existing `OfflineOverlay` renders the paused panel even during the brief render where `serverHealth` is still `unknown`.
+- **Bad API key no longer masquerades as a paused server.** `bad_key` errors (HTTP 401) are excluded from the snapshot-fallback path, so a misconfigured key surfaces as a regular offline chip with the `serverFilter.reason.bad_key` message instead of misleading "paused" panels that suggest a VPN dropout.
+- **Dashboard groups load even when no servers are reachable.** `fetchGroups` previously short-circuited when `servers.length === 0`, leaving `hydratedGroups=false` and stalling `projectDataReady`. Groups come from the local `/api/groups` endpoint and are independent of remote servers, so the short-circuit was wrong; it has been removed. `fetchSessions` keeps its zero-server short-circuit but now flips `hydratedSessions=true` when `serversLoaded && servers.length === 0`, allowing `projectDataReady` to open in genuine zero-server configurations. The boot effect waits on `serversLoaded` (not `!serversLoading`) so the `/login → /` transition no longer races the provider's first real load.
+
 ## [3.2.1] — 2026-04-27
 
 ### Fixed
@@ -1110,7 +1120,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v3.2.1...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v3.2.2-pre...HEAD
+[3.2.2-pre]: https://github.com/kevinzezel/pulse/releases/tag/v3.2.2-pre
 [3.2.1]: https://github.com/kevinzezel/pulse/releases/tag/v3.2.1
 [3.2.0]: https://github.com/kevinzezel/pulse/releases/tag/v3.2.0
 [2.11.1-pre]: https://github.com/kevinzezel/pulse/releases/tag/v2.11.1-pre
