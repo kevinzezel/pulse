@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [3.2.9-pre] — 2026-04-28
+
+### Fixed
+
+- **Restore no longer loops forever (and stops hammering remote storage with HTTP 429) when two dashboards are open at once.** The forced-restore path used to treat a fully-skipped response (every requested session was `skipped: already_exists` on the backend) as a failure and call `scheduleRestoreRetry`. With two dashboards open against the same client (e.g. the user's two PCs viewing terminals in parallel during `pulse restart`), the first dashboard's POST `/api/sessions/restore` would create the PTYs; the second dashboard's POST would then arrive with the same payload and get every entry back as skipped. That triggered `skippedDuringForcedRestore`, which scheduled another retry 3s later, which produced another fully-skipped response, and so on — an unbounded loop of POSTs at 3s intervals. Each iteration ran `await fetchSessions()` → `setSessions(...)` → snapshot persist → `PUT /api/sessions`. With the storage backend on Google Cloud Storage, which rate-limits mutations on a single key (`sessions.json`) to roughly 1/s, the cascade quickly hit `HTTP 429 SlowDown` and bubbled up as `[s3Store] writeJsonFileAtomic failed: StorageUnavailableError`, leaving the snapshot stale across both dashboards. The fix treats any non-error result (including all-skipped) as success: the sessions get marked attempted, `fetchSessions` reidrates the React state, and the server is removed from `serversNeedingRestore`, ending the cycle. Only genuine failures (network error, unreachable backend) still schedule a retry.
+
 ## [3.2.8-pre] — 2026-04-28
 
 ### Fixed

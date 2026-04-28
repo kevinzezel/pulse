@@ -876,17 +876,18 @@ function Dashboard() {
       );
       const succeededServerIds = [];
       let anyFailed = false;
-      let skippedDuringForcedRestore = false;
       for (const r of results) {
         if (r.err) { anyFailed = true; continue; }
-        if (r.forceRestore) {
-          const restoredCount = r.res?.restored?.length || 0;
-          const skippedCount = r.res?.skipped?.length || 0;
-          if (restoredCount === 0 && skippedCount > 0 && skippedCount >= r.requested) {
-            skippedDuringForcedRestore = true;
-            continue;
-          }
-        }
+        // Tudo skipped (backend já tem essas sessões) é tratado como sucesso,
+        // não como retry. Cenário comum: outro dashboard (multi-PC) ou nosso
+        // próprio retry anterior já restaurou as PTYs antes desta resposta
+        // chegar — backend responde 200 com `skipped >= requested`. A versão
+        // anterior agendava scheduleRestoreRetry quando isso acontecia, criando
+        // um loop infinito de POST /sessions/restore a cada 3s. Cada iteração
+        // do loop disparava setSessions → snapshot persist → PUT /api/sessions
+        // no GCS, que tem rate limit por chave (~1/s); resultado: cascata de
+        // HTTP 429 SlowDown e dashboards travados. O cleanup abaixo
+        // (fetchSessions + remove do restoreSet) encerra o ciclo corretamente.
         restoreAttemptedRef.current.add(r.serverId);
         succeededServerIds.push(r.serverId);
       }
@@ -905,10 +906,10 @@ function Dashboard() {
           return changed ? next : prev;
         });
       }
-      if (anyFailed || skippedDuringForcedRestore) {
-        // Servers that failed (still booting / unreachable) keep getting
-        // retried until they come back. Other servers are already marked
-        // attempted above, so they won't re-run on every sessions[] change.
+      if (anyFailed) {
+        // Apenas falhas reais (network error / server unreachable) agendam
+        // retry. Servers que tiveram sucesso ou skipped são marcados como
+        // attempted acima e não voltam a este caminho.
         scheduleRestoreRetry();
       }
       if (totalRestored > 0) {
