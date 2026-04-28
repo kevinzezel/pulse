@@ -280,8 +280,17 @@ function Dashboard() {
       return next;
     });
     setOfflineServerIds(prev => prev.includes(serverId) ? prev : [...prev, serverId]);
+    // Também marca offline no ServerHealthProvider. Sem isso, o auto-recovery
+    // effect (que compara wasOffline → isOnline em `serverHealth`) nunca
+    // detecta o flip quando o backend volta, então `fetchSessions` não é
+    // disparado e a única tentativa de reconexão é via `scheduleRestoreRetry`
+    // com setTimeout — que pode demorar (3s mínimo) ou ficar preso. Marcar
+    // offline aqui agenda um backoff explícito de 5s no health provider:
+    // assim que o backend voltar, o ping detecta ONLINE, o auto-recovery
+    // dispara e o restore reidrata as sessões sem depender do retry interno.
+    markServerOffline(serverId, 'restart');
     setRestoreRetryKey(k => k + 1);
-  }, [persistSnapshotForServer, sessions]);
+  }, [persistSnapshotForServer, sessions, markServerOffline]);
 
   useEffect(() => { groupsProjectIdRef.current = groupsProjectId; }, [groupsProjectId]);
   useEffect(() => { activeProjectIdRef.current = activeProjectId; }, [activeProjectId]);

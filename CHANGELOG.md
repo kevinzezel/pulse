@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [3.2.8-pre] — 2026-04-28
+
+### Fixed
+
+- **Auto-restore now reliably triggers when the backend comes back, without requiring an F5.** v3.2.7-pre stopped the snapshot from being truncated, so `pulse restart` preserved the active terminal in the on-disk snapshot. But the dashboard still wasn't restoring it automatically — the user had to refresh the page to get the terminals back. Root cause: `markServerForRestore` was updating two different "this server is offline" stores asymmetrically. It added the server to the page's `offlineServerIds` array (which gates the snapshot persist effect and the restore promise loop), but it never told the `ServerHealthProvider` that the server had gone offline. The auto-recovery effect that fires the recovery `fetchSessions` watches `serverHealth` for a `OFFLINE → ONLINE` transition; with `serverHealth.status` stuck at `ONLINE` (because the WS-close path never went through `markServerOffline`), the transition never happened when the backend came back, so `fetchSessions` was never called and the restore loop had nothing to react to. The only remaining path to recovery was `scheduleRestoreRetry`'s 3s `setTimeout`, which silently stalled in some cases — leaving the dashboard stuck on "[connection lost]" until F5. The fix calls `markServerOffline(serverId, 'restart')` from `markServerForRestore`, so the health provider runs its 5s backoff probe; the moment the backend answers, the auto-recovery effect fires `fetchSessions` and the restore loop reidrates the active-project sessions.
+
 ## [3.2.7-pre] — 2026-04-27
 
 ### Fixed
