@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [3.2.6-pre] — 2026-04-27
+
+### Fixed
+
+- **Active terminal no longer disappears from the snapshot when the client restarts fast.** v3.2.5-pre's `markServerForRestore` synchronously flushes the per-server snapshot before marking the server for restore, so a recently created terminal Y survives a `pulse restart`. But on a fast restart (backend back online in well under a second on LAN), a second WS close fires almost immediately: the dashboard remounts the pane via `bumpServerReconnectKey`, the new WS opens before the backend has restored anything, and the backend replies `4004 "Session not found"`. That close also routes through `handleReconnect` → `markServerForRestore`. Meanwhile `fetchSessions` triggered by `ServerHealthProvider`'s online flip has just set `sessions[]` to `[]` (the backend reports zero PTYs because restore hasn't run yet). The second `markServerForRestore` then flushes the snapshot with `liveForServer = []`, producing `mergedServers[server] = [otherProjects, ...empty]` — wiping every active-project session (including Y) from the on-disk snapshot. The subsequent restore poll reads the truncated snapshot and POSTs `/sessions/restore` without Y, the backend never recreates it, and `fetchSessions` removes Y from React state. Y is gone for good. The fix gates the flush on `sessions.some(s => splitSessionId(s.id).serverId === serverId)`: when there are no live entries for this server in the current React state, the existing on-disk snapshot is the source of truth and we leave it alone instead of overwriting it with empty.
+
 ## [3.2.5-pre] — 2026-04-27
 
 ### Fixed

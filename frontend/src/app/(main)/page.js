@@ -250,14 +250,27 @@ function Dashboard() {
     // do server agora, com o estado de `sessions[]` que ainda contém as
     // sessões recém-criadas. Encadeia atrás de qualquer persist em voo
     // pra não competir com escrita simultânea.
-    if (snapshotDebounceRef.current) {
-      clearTimeout(snapshotDebounceRef.current);
-      snapshotDebounceRef.current = null;
+    //
+    // Carve-out crítico: só flushamos quando `sessions[]` realmente tem
+    // entries do server-alvo. Quando markServerForRestore é re-disparado
+    // por um WS close 4004 logo após o backend voltar (race comum em LAN
+    // com restart < 1s), `fetchSessions` pode ter acabado de zerar
+    // `sessions[]` porque o backend ainda não restaurou as PTYs. Flushar
+    // nesse momento escreveria snapshot[server] = [otherProjects, ...empty]
+    // — apagando do disco exatamente as sessões do projeto ativo que
+    // estamos tentando restaurar. O snapshot existente já tem o estado
+    // correto (do primeiro flush ou do dia anterior); preservamos.
+    const hasLiveForServer = sessions.some((s) => splitSessionId(s.id).serverId === serverId);
+    if (hasLiveForServer) {
+      if (snapshotDebounceRef.current) {
+        clearTimeout(snapshotDebounceRef.current);
+        snapshotDebounceRef.current = null;
+      }
+      snapshotInFlight.current = snapshotInFlight.current
+        .catch(() => {})
+        .then(() => persistSnapshotForServer(serverId));
+      await snapshotInFlight.current.catch((err) => console.warn('[markServerForRestore] persist failed', err));
     }
-    snapshotInFlight.current = snapshotInFlight.current
-      .catch(() => {})
-      .then(() => persistSnapshotForServer(serverId));
-    await snapshotInFlight.current.catch((err) => console.warn('[markServerForRestore] persist failed', err));
 
     restoreAttemptedRef.current.delete(serverId);
     setServersNeedingRestore(prev => {
@@ -268,7 +281,7 @@ function Dashboard() {
     });
     setOfflineServerIds(prev => prev.includes(serverId) ? prev : [...prev, serverId]);
     setRestoreRetryKey(k => k + 1);
-  }, [persistSnapshotForServer]);
+  }, [persistSnapshotForServer, sessions]);
 
   useEffect(() => { groupsProjectIdRef.current = groupsProjectId; }, [groupsProjectId]);
   useEffect(() => { activeProjectIdRef.current = activeProjectId; }, [activeProjectId]);
