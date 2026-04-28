@@ -1,5 +1,5 @@
 [Unit]
-Description=Pulse Client — terminal agent keeping tmux sessions alive
+Description=Pulse Client — terminal agent managing host PTYs
 Documentation=https://github.com/kevinzezel/pulse
 After=network.target
 # Give up after 5 restarts in 60s (prevents tight crash loops from hammering the box).
@@ -12,7 +12,7 @@ WorkingDirectory=%h/.local/share/pulse/client/src
 EnvironmentFile=%h/.config/pulse/client.env
 # /snap/bin covers snap-installed VSCode/Cursor (Ubuntu default).
 Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin:/snap/bin
-# tmux attach-session refuses to run without TERM; systemd units inherit no TERM.
+# PTY shells expect TERM; systemd units inherit no TERM.
 Environment=TERM=xterm-256color
 # Import the user's graphical session env so the editor-open handler
 # (routes/terminal.py:open_editor → subprocess.Popen of VSCode) can reach
@@ -30,23 +30,20 @@ ExecStartPre=/bin/sh -c '/usr/bin/systemctl --user import-environment DISPLAY WA
 ExecStart=/bin/sh -c 'set -a; . "$HOME/.config/pulse/client.env"; set +a; if [ "${TLS_ENABLED:-false}" = "true" ]; then exec "$HOME/.local/share/pulse/client/.venv/bin/uvicorn" service:app --host "$API_HOST" --port "$API_PORT" --ssl-keyfile "$TLS_KEY_PATH" --ssl-certfile "$TLS_CERT_PATH"; else exec "$HOME/.local/share/pulse/client/.venv/bin/uvicorn" service:app --host "$API_HOST" --port "$API_PORT"; fi'
 Restart=on-failure
 RestartSec=5
-# Bound the graceful drain of in-flight WebSockets on `systemctl stop` so the
-# installer's stop step (used by `pulse upgrade`) cannot block indefinitely if
-# uvicorn gets stuck waiting for connections to close. After 15s systemd
-# escalates to SIGKILL on the main process and the unit flips to inactive,
-# clearing the way for `enable --now` to actually start the new process.
+# Bound the graceful drain of in-flight WebSockets and PTY cleanup on
+# `systemctl stop` so the installer's stop step (used by `pulse upgrade`)
+# cannot block indefinitely.
 TimeoutStopSec=15
 StandardOutput=journal
 StandardError=journal
 
-# Kill only the main uvicorn process on stop/restart — not the whole cgroup.
-# The client spawns `tmux new-session -d`, which daemonises but stays in this
-# unit's cgroup under systemd (fork doesn't escape cgroups v2). With the
-# default KillMode=control-group, every `systemctl stop pulse-client` — which
-# `pulse upgrade` runs — would take the tmux server down with it, wiping all
-# live sessions. `KillMode=process` leaves the tmux daemon running so sessions
-# survive upgrades, restarts, and crashes; recover_sessions() reattaches on boot.
-KillMode=process
+# PTY mode has no server-side session persistence: restarting the client ends
+# every PTY and the dashboard recreates metadata from its snapshot. Send TERM
+# only to uvicorn first so FastAPI can close WebSockets with the restart code
+# and call PTYSession.close(); then let systemd SIGKILL anything still left in
+# the cgroup. This prevents stale `code`, `node`, `next-server`, etc. children
+# from keeping pulse-client.service polluted after stop/restart.
+KillMode=mixed
 
 # Security hardening (user unit — most of this is no-op for user units but set for discipline).
 # PrivateTmp is intentionally NOT set: the editor-open handler needs access to

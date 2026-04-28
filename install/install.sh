@@ -429,15 +429,13 @@ download_and_extract() {
 stop_services_if_running() {
     case "$PULSE_OS" in
         linux)
-            # `systemctl stop` blocks until the unit is genuinely inactive
-            # (respecting KillMode=process from the installed pulse-client unit
-            # — only the main PID is signalled, leaving any orphan children for
-            # the systemd cgroup to handle). The previous approach used
-            # `systemctl kill` + `sleep 2`, but `kill` does not flip the unit
-            # state, so `enable --now` later in the install became a no-op
-            # whenever uvicorn took longer than 2s to drain its WebSockets,
-            # leaving pulse-client stopped post-upgrade and forcing the user to
-            # run `pulse start` manually.
+            # `systemctl stop` blocks until the unit is genuinely inactive.
+            # The pulse-client unit uses KillMode=mixed in PTY mode: uvicorn
+            # gets TERM first so it can close WebSockets and PTYs cleanly, and
+            # systemd kills any leaked terminal descendants before the unit is
+            # considered stopped. The previous `systemctl kill` + `sleep 2`
+            # path did not flip the unit state, so `enable --now` later in the
+            # install could no-op while uvicorn was still draining.
             for unit in pulse-client.service pulse.service; do
                 if systemctl --user is-active --quiet "$unit" 2>/dev/null; then
                     systemctl --user stop "$unit" 2>/dev/null || true

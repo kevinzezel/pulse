@@ -377,17 +377,87 @@ class PTYSession:
     def is_alive(self):
         return self.process is not None and self.process.poll() is None
 
+    def _descendant_pids(self):
+        """Best-effort Linux child walk for jobs started by the shell.
+
+        Interactive shells with job control put foreground jobs in their own
+        process groups, so signalling only the login shell's pgroup can miss a
+        running `npm`, editor, ssh, etc. `/proc/.../children` gives us direct
+        child PIDs without shelling out; on non-Linux systems this simply
+        returns an empty list and the foreground pgroup path still applies.
+        """
+        if self.process is None:
+            return []
+        root = self.process.pid
+        proc_root = Path("/proc")
+        if not proc_root.is_dir():
+            return []
+        out = []
+        queue = [root]
+        seen = {root}
+        while queue:
+            parent = queue.pop(0)
+            try:
+                raw = (proc_root / str(parent) / "task" / str(parent) / "children").read_text()
+            except OSError:
+                continue
+            for token in raw.split():
+                try:
+                    pid = int(token)
+                except ValueError:
+                    continue
+                if pid in seen:
+                    continue
+                seen.add(pid)
+                out.append(pid)
+                queue.append(pid)
+        return out
+
+    def _shutdown_process_groups(self):
+        if self.process is None:
+            return []
+
+        pgids = []
+
+        def add_pgid(pgid):
+            if pgid and pgid > 0 and pgid not in pgids:
+                pgids.append(pgid)
+
+        if self.master_fd is not None:
+            try:
+                add_pgid(os.tcgetpgrp(self.master_fd))
+            except OSError:
+                pass
+        try:
+            add_pgid(os.getpgid(self.process.pid))
+        except (ProcessLookupError, OSError):
+            pass
+        for pid in self._descendant_pids():
+            try:
+                add_pgid(os.getpgid(pid))
+            except (ProcessLookupError, OSError):
+                pass
+        return pgids
+
     def kill(self):
         if self.process is None:
             return
         if self.process.poll() is not None:
             return
-        # SIGHUP semantica "terminal foi embora" — pega o pgroup todo, então
-        # filhos (vim, agentes, etc) também recebem.
-        try:
-            os.killpg(os.getpgid(self.process.pid), signal.SIGHUP)
-        except (ProcessLookupError, OSError):
-            pass
+        # SIGHUP semântica "terminal foi embora". Com job control, o shell e o
+        # job em foreground podem estar em process groups diferentes; sinaliza
+        # todos os grupos conhecidos e acorda jobs parados para receber o HUP.
+        pgids = self._shutdown_process_groups()
+        for pgid in pgids:
+            try:
+                os.killpg(pgid, signal.SIGHUP)
+            except (ProcessLookupError, OSError):
+                pass
+        for pgid in pgids:
+            try:
+                os.killpg(pgid, signal.SIGCONT)
+            except (ProcessLookupError, OSError):
+                pass
 
     def close(self):
         if self._closed:

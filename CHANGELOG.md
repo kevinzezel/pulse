@@ -6,6 +6,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [3.3.1] — 2026-04-28
+
+### Fixed
+
+- **Linux user services no longer accumulate terminal children after client stop/restart.** `pulse-client.service` now uses `KillMode=mixed` for direct PTY mode: uvicorn receives TERM first so it can close WebSockets with the restart code and run `PTYSession.close()`, then systemd clears any leaked descendants still left in the cgroup. This matches the post-tmux lifecycle, where sessions do not persist across client restarts, and prevents the `Found left-over process ... (code/node/next-server)` / `Unit process ... remains running after unit stopped` journal spam that could leave the installed client in a polluted state.
+- **PTY shutdown catches foreground jobs in their own process groups.** `PTYSession.close()` now signals the shell pgroup, the current foreground pgroup from the PTY, and Linux child process groups discovered through `/proc`, so foreground tools like `npm run dev`, `ssh`, editors, and agents are much less likely to survive as orphaned session work after the client exits.
+- **Local editor launches are detached from the Pulse client cgroup when systemd is available.** The `/open-editor` endpoint now tries `systemd-run --user` with a transient unit before falling back to the old detached `Popen` path, so VS Code/Cursor windows opened through Pulse are not swept up by the new cgroup cleanup.
+- **The installed dashboard no longer triggers Next.js workspace-root warnings when another lockfile exists under `$HOME`.** `next.config.mjs` now pins `outputFileTracingRoot` to the frontend directory, avoiding the noisy "Next.js inferred your workspace root" log line seen on startup.
+
 ## [3.3.0] — 2026-04-28
 
 ### Changed
@@ -1189,7 +1198,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v3.3.0...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v3.3.1...HEAD
+[3.3.1]: https://github.com/kevinzezel/pulse/releases/tag/v3.3.1
 [3.3.0]: https://github.com/kevinzezel/pulse/releases/tag/v3.3.0
 [3.2.10-pre]: https://github.com/kevinzezel/pulse/releases/tag/v3.2.10-pre
 [3.2.9-pre]: https://github.com/kevinzezel/pulse/releases/tag/v3.2.9-pre

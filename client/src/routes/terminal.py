@@ -379,6 +379,74 @@ _GUI_ENV_KEYS = (
     "XDG_SESSION_TYPE", "XDG_CURRENT_DESKTOP",
 )
 
+_EDITOR_SCOPE_ENV_KEYS = (
+    "HOME", "USER", "LOGNAME", "SHELL", "PATH",
+    "DISPLAY", "WAYLAND_DISPLAY", "XAUTHORITY",
+    "DBUS_SESSION_BUS_ADDRESS", "XDG_RUNTIME_DIR",
+    "XDG_SESSION_TYPE", "XDG_CURRENT_DESKTOP",
+    "LANG", "LC_ALL", "LC_CTYPE", "SSH_AUTH_SOCK",
+)
+
+
+def _safe_systemd_env_args(env):
+    args = []
+    keys = set(_EDITOR_SCOPE_ENV_KEYS)
+    keys.update(k for k in env if k.startswith("LC_"))
+    for key in sorted(keys):
+        value = env.get(key)
+        if not value or "\x00" in value or "\n" in value:
+            continue
+        args.append(f"--setenv={key}={value}")
+    return args
+
+
+def _launch_editor_process(cmd, env):
+    """Launch editor outside pulse-client.service when systemd is available."""
+    runner = None
+    if getattr(os, "uname", None) and os.uname().sysname == "Linux":
+        runner = shutil.which("systemd-run", path=env.get("PATH")) or shutil.which("systemd-run")
+    if runner:
+        unit = f"pulse-editor-{os.getpid()}-{int(time.time() * 1000)}"
+        run_cmd = [
+            runner,
+            "--user",
+            "--quiet",
+            "--collect",
+            f"--unit={unit}",
+            *_safe_systemd_env_args(env),
+            "--",
+            *cmd,
+        ]
+        try:
+            result = subprocess.run(
+                run_cmd,
+                env=env,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=2.0,
+                check=False,
+            )
+            if result.returncode == 0:
+                logger.info("editor launched in transient user unit: %s", unit)
+                return
+            stderr = (result.stderr or "").strip()
+            logger.warning(
+                "systemd-run editor launch failed (rc=%s): %s",
+                result.returncode,
+                stderr[:300] or "-",
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            logger.warning("systemd-run editor launch failed", exc_info=True)
+
+    subprocess.Popen(
+        cmd,
+        env=env,
+        start_new_session=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
 
 def _import_from_user_manager(env):
     # If pulse-client.service started before the graphical session (linger
@@ -504,8 +572,7 @@ def open_editor(
         cmd = [binary, "-n", cwd]
     else:
         cmd = [binary, cwd]
-    subprocess.Popen(cmd, env=env, start_new_session=True,
-                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    _launch_editor_process(cmd, env)
     return build_i18n_response(request, 200, {
         "detail_key": "success.editor_opened",
         "cwd": cwd,
