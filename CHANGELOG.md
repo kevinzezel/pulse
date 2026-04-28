@@ -6,6 +6,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [3.2.10-pre] — 2026-04-28
+
+### Fixed
+
+- **Restart recovery no longer opens WebSockets before restored PTYs exist.** The dashboard now treats client restart recovery as a per-server restore barrier: panes are blocked while the snapshot is being flushed and while `/api/sessions/restore` is in flight, early `GET /api/sessions` calls preserve the pre-restart session list for that server, and `4004 "Session not found"` closes are ignored while the barrier is active. Once restore succeeds, Pulse reconciles sessions once, clears the barrier, and remounts only that server's panes. This prevents the rapid WS open/disconnect storm without regressing automatic recovery after `pulse restart`.
+- **Session refresh calls can now be traced by reason.** Setting `localStorage.rt:debugFetchSessions` to `1` logs each dashboard `fetchSessions` trigger with a reason label, making duplicate `GET /api/sessions` sources easier to identify without adding production noise.
+
 ## [3.2.9-pre] — 2026-04-28
 
 ### Fixed
@@ -1175,7 +1182,13 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v3.2.4-pre...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v3.2.10-pre...HEAD
+[3.2.10-pre]: https://github.com/kevinzezel/pulse/releases/tag/v3.2.10-pre
+[3.2.9-pre]: https://github.com/kevinzezel/pulse/releases/tag/v3.2.9-pre
+[3.2.8-pre]: https://github.com/kevinzezel/pulse/releases/tag/v3.2.8-pre
+[3.2.7-pre]: https://github.com/kevinzezel/pulse/releases/tag/v3.2.7-pre
+[3.2.6-pre]: https://github.com/kevinzezel/pulse/releases/tag/v3.2.6-pre
+[3.2.5-pre]: https://github.com/kevinzezel/pulse/releases/tag/v3.2.5-pre
 [3.2.4-pre]: https://github.com/kevinzezel/pulse/releases/tag/v3.2.4-pre
 [3.2.3-pre]: https://github.com/kevinzezel/pulse/releases/tag/v3.2.3-pre
 [3.2.2-pre]: https://github.com/kevinzezel/pulse/releases/tag/v3.2.2-pre

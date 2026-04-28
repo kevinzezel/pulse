@@ -121,6 +121,7 @@ export default function TerminalMosaic({
   composeLoadingId,
   onRequestVoice,
   serverReconnectKeys = {},
+  restoringServerIds = new Set(),
   serverHealth = {},
   onRetryServer,
 }) {
@@ -212,6 +213,7 @@ export default function TerminalMosaic({
                     onReconnect={onReconnect}
                     isMobile={true}
                     serverHealth={paneHealth}
+                    isServerRestoring={restoringServerIds.has(session.server_id)}
                     onRetryServer={onRetryServer}
                   />
                   {id === activeTerminalId && (
@@ -293,6 +295,7 @@ export default function TerminalMosaic({
                   onSessionEnded={() => onSessionEnded(id)}
                   onReconnect={onReconnect}
                   serverHealth={serverHealth[session.server_id]}
+                  isServerRestoring={restoringServerIds.has(session.server_id)}
                   onRetryServer={onRetryServer}
                 />
                 <PaneActionsFab

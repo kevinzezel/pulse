@@ -153,6 +153,8 @@ function Dashboard() {
   const composeDraftsInFlight = useRef(Promise.resolve());
   const latestLayoutsRef = useRef({});
   const previousLayoutsRef = useRef({});
+  const sessionsRef = useRef([]);
+  const offlineServerIdsRef = useRef([]);
   // Per-server tracking: cada serverId entra no Set assim que seu restore
   // inicial sucede (ou é confirmado como vazio). Antes era um boolean global
   // — qualquer falha (ex: server B offline) deixava o gate aberto e mudanças
@@ -160,6 +162,8 @@ function Dashboard() {
   // ressuscitando sessões deletadas em outros servers.
   const restoreAttemptedRef = useRef(new Set());
   const restoreRetryTimerRef = useRef(null);
+  const restoreInFlightRef = useRef(new Set());
+  const restoreBlockedServerIdsRef = useRef(new Set());
   // Epoch counter pra descartar respostas obsoletas: se o usuário troca de
   // projeto/server enquanto uma fetch está em curso, comparamos runId no
   // handler de cada server e ignoramos updates de fetches superadas.
@@ -184,6 +188,7 @@ function Dashboard() {
   // (em vez de remontar todo o TerminalMosaic via reconnectKey global).
   const [serverReconnectKeys, setServerReconnectKeys] = useState({});
   const [restoreRetryKey, setRestoreRetryKey] = useState(0);
+  const [serversPreparingRestore, setServersPreparingRestore] = useState(new Set());
   const [serversNeedingRestore, setServersNeedingRestore] = useState(new Set());
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [activeTerminalId, setActiveTerminalId] = useState(() => loadFromStorage('rt:activeTerminalId', null));
@@ -206,6 +211,38 @@ function Dashboard() {
       restoreRetryTimerRef.current = null;
       setRestoreRetryKey(k => k + 1);
     }, 3000);
+  }, []);
+
+  const restoreBlockedServerIds = useMemo(() => {
+    const next = new Set(serversPreparingRestore);
+    for (const serverId of serversNeedingRestore) next.add(serverId);
+    return next;
+  }, [serversPreparingRestore, serversNeedingRestore]);
+
+  const clearRestoreBarrierForServers = useCallback((serverIds) => {
+    const ids = new Set((serverIds || []).filter(Boolean));
+    if (ids.size === 0) return;
+
+    restoreBlockedServerIdsRef.current = new Set(
+      [...restoreBlockedServerIdsRef.current].filter((id) => !ids.has(id))
+    );
+    setServersPreparingRestore(prev => {
+      let changed = false;
+      const next = new Set(prev);
+      for (const id of ids) {
+        if (next.delete(id)) changed = true;
+      }
+      return changed ? next : prev;
+    });
+    setServersNeedingRestore(prev => {
+      let changed = false;
+      const next = new Set(prev);
+      for (const id of ids) {
+        if (next.delete(id)) changed = true;
+      }
+      return changed ? next : prev;
+    });
+    setOfflineServerIds(prev => prev.filter((id) => !ids.has(id)));
   }, []);
 
   // Espelha o efeito de persist debounce (linhas ~636-680) para um único
@@ -246,6 +283,15 @@ function Dashboard() {
 
   const markServerForRestore = useCallback(async (serverId) => {
     if (!serverId) return;
+    if (restoreBlockedServerIdsRef.current.has(serverId)) return;
+    restoreBlockedServerIdsRef.current = new Set([...restoreBlockedServerIdsRef.current, serverId]);
+    setServersPreparingRestore(prev => {
+      if (prev.has(serverId)) return prev;
+      const next = new Set(prev);
+      next.add(serverId);
+      return next;
+    });
+
     // Flush sincronizado: cancela debounce pendente e persiste o snapshot
     // do server agora, com o estado de `sessions[]` que ainda contém as
     // sessões recém-criadas. Encadeia atrás de qualquer persist em voo
@@ -273,6 +319,12 @@ function Dashboard() {
     }
 
     restoreAttemptedRef.current.delete(serverId);
+    setServersPreparingRestore(prev => {
+      if (!prev.has(serverId)) return prev;
+      const next = new Set(prev);
+      next.delete(serverId);
+      return next;
+    });
     setServersNeedingRestore(prev => {
       if (prev.has(serverId)) return prev;
       const next = new Set(prev);
@@ -295,6 +347,9 @@ function Dashboard() {
   useEffect(() => { groupsProjectIdRef.current = groupsProjectId; }, [groupsProjectId]);
   useEffect(() => { activeProjectIdRef.current = activeProjectId; }, [activeProjectId]);
   useEffect(() => { serverGateRef.current = serverGate; }, [serverGate]);
+  useEffect(() => { sessionsRef.current = sessions; }, [sessions]);
+  useEffect(() => { offlineServerIdsRef.current = offlineServerIds; }, [offlineServerIds]);
+  useEffect(() => { restoreBlockedServerIdsRef.current = restoreBlockedServerIds; }, [restoreBlockedServerIds]);
 
   const isMobile = useIsMobile();
   const isMaximized = savedLayout !== null;
@@ -458,17 +513,17 @@ function Dashboard() {
     if (!mosaicLayout) return mosaicLayout;
     const shouldValidateRenderLayout = Boolean(selectedServerFilterId)
       || offlineServerIds.length > 0
-      || serversNeedingRestore.size > 0;
+      || restoreBlockedServerIds.size > 0;
     if (!shouldValidateRenderLayout) return mosaicLayout;
     const validIds = new Set(sessionsVisibleInWorkspace.map(s => s.id));
     return validateTree(mosaicLayout, validIds);
-  }, [mosaicLayout, selectedServerFilterId, sessionsVisibleInWorkspace, offlineServerIds, serversNeedingRestore]);
+  }, [mosaicLayout, selectedServerFilterId, sessionsVisibleInWorkspace, offlineServerIds, restoreBlockedServerIds]);
 
   const mobileOpenIds = useMemo(() => Array.from(getVisibleSessionIds(mosaicRenderLayout)), [mosaicRenderLayout]);
 
   useEffect(() => {
     if (!projectDataReady) return;
-    if (offlineServerIds.length > 0 || serversNeedingRestore.size > 0) return;
+    if (offlineServerIds.length > 0 || restoreBlockedServerIds.size > 0) return;
     const validGroupIds = new Set(groups.map(g => g.id));
     const sessionGroupMap = new Map();
     for (const s of sessions) {
@@ -496,7 +551,7 @@ function Dashboard() {
       }
       return changed ? next : prev;
     });
-  }, [sessions, groups, projectDataReady, activeProjectId, offlineServerIds, serversNeedingRestore]);
+  }, [sessions, groups, projectDataReady, activeProjectId, offlineServerIds, restoreBlockedServerIds]);
 
   useEffect(() => {
     if (!projectDataReady) return;
@@ -545,7 +600,14 @@ function Dashboard() {
   }, [activeProjectId, servers, serversLoaded]);
 
   const fetchSessions = useCallback(async (options = {}) => {
-    const { block = false } = options;
+    const { block = false, forceServerIds = [], reason = 'unspecified' } = options;
+    try {
+      if (typeof window !== 'undefined' && window.localStorage?.getItem('rt:debugFetchSessions') === '1') {
+        console.debug('[fetchSessions]', reason);
+      }
+    } catch {
+      // Ignore storage access failures; debug logging must not affect fetches.
+    }
     if (servers.length === 0) {
       setSessions([]);
       setOfflineServerIds([]);
@@ -561,6 +623,9 @@ function Dashboard() {
 
     const runId = ++fetchRunIdRef.current;
     const projectId = activeProjectId;
+    const forceServerSet = new Set(forceServerIds);
+    const blockedServerIds = restoreBlockedServerIdsRef.current;
+    const previousOfflineSet = new Set(offlineServerIdsRef.current);
     if (block) {
       setHydratedSessions(false);
       setServerGate({
@@ -581,6 +646,13 @@ function Dashboard() {
 
     const results = await Promise.allSettled(
       servers.map(async (srv) => {
+        if (blockedServerIds.has(srv.id) && !forceServerSet.has(srv.id)) {
+          const carried = sessionsRef.current.filter((s) => {
+            if (s.server_id) return s.server_id === srv.id;
+            return splitSessionId(s.id).serverId === srv.id;
+          });
+          return { sessions: carried, skippedForRestore: true };
+        }
         const data = await getSessions(srv.id);
         const mapped = (data.sessions || [])
           .filter((s) => !s.project_id || s.project_id === projectId)
@@ -606,6 +678,18 @@ function Dashboard() {
       const srv = servers[index];
       const name = srv.name || `${srv.host}:${srv.port}`;
       if (result.status === 'fulfilled') {
+        if (result.value.skippedForRestore) {
+          merged.push(...result.value.sessions);
+          if (previousOfflineSet.has(srv.id)) offline.push(srv.id);
+          gateResults.push({
+            serverId: srv.id,
+            name,
+            status: previousOfflineSet.has(srv.id) ? 'offline' : 'checking',
+            ok: false,
+            reason: 'unknown',
+          });
+          return;
+        }
         onlineCount += 1;
         merged.push(...result.value.sessions);
         gateResults.push({
@@ -694,13 +778,13 @@ function Dashboard() {
     if (!serversLoaded) return;
     const shouldBlock = lastBlockingLoadKeyRef.current !== blockingLoadKey;
     lastBlockingLoadKeyRef.current = blockingLoadKey;
-    fetchSessions({ block: shouldBlock });
+    fetchSessions({ block: shouldBlock, reason: 'initial-load' });
     fetchGroups();
   }, [serversLoaded, blockingLoadKey, servers, fetchSessions, fetchGroups]);
 
   const handleBlockingRetry = useCallback(() => {
     if (!serversLoaded) return;
-    fetchSessions({ block: true });
+    fetchSessions({ block: true, reason: 'manual-retry' });
     fetchGroups();
   }, [serversLoaded, fetchSessions, fetchGroups]);
 
@@ -737,7 +821,7 @@ function Dashboard() {
           }
 
           const offlineSet = new Set(offlineServerIds);
-          const restoreSet = serversNeedingRestore;
+          const restoreSet = restoreBlockedServerIds;
           for (const srv of servers) {
             if (offlineSet.has(srv.id) || restoreSet.has(srv.id)) continue;
             const existing = Array.isArray(mergedServers[srv.id]) ? mergedServers[srv.id] : [];
@@ -763,7 +847,7 @@ function Dashboard() {
         })
         .catch(err => console.warn('[sessionsSnapshot] persist failed', err));
     }, 500);
-  }, [sessions, offlineServerIds, hydratedSessions, servers, activeProjectId, activeProject, sessionsProjectId, serversNeedingRestore]);
+  }, [sessions, offlineServerIds, hydratedSessions, servers, activeProjectId, activeProject, sessionsProjectId, restoreBlockedServerIds]);
 
   useEffect(() => {
     if (!hydratedSessions) return;
@@ -777,7 +861,7 @@ function Dashboard() {
       (liveByServer[serverId] ||= new Set()).add(sessionId);
     }
     const offlineSet = new Set(offlineServerIds);
-    const restoreSet = serversNeedingRestore;
+    const restoreSet = restoreBlockedServerIds;
     const knownServerIds = new Set(servers.map(s => s.id));
 
     let changed = false;
@@ -804,7 +888,7 @@ function Dashboard() {
       .catch(() => {})
       .then(() => putComposeDrafts({ drafts: next }))
       .catch(err => console.warn('[setComposeDrafts] cleanup failed', err));
-  }, [sessions, offlineServerIds, servers, composeDrafts, hydratedSessions, hydratedComposeDrafts, serversNeedingRestore]);
+  }, [sessions, offlineServerIds, servers, composeDrafts, hydratedSessions, hydratedComposeDrafts, restoreBlockedServerIds]);
 
   useEffect(() => {
     return () => {
@@ -843,6 +927,8 @@ function Dashboard() {
       // the restore against a stale snapshot and could resurrect deleted
       // terminals on healthy servers.
       const restorePromises = [];
+      const completedWithoutRequestServerIds = [];
+      let skippedBecauseInFlight = false;
       for (const [serverId, snapList] of Object.entries(snapshot.servers)) {
         if (!servers.some(srv => srv.id === serverId)) continue;
         if (!Array.isArray(snapList)) continue;
@@ -854,15 +940,26 @@ function Dashboard() {
           // Snapshot already aligned with live state — mark attempted so we
           // don't re-evaluate on the next sessions[] change.
           restoreAttemptedRef.current.add(serverId);
+          if (forceRestore) completedWithoutRequestServerIds.push(serverId);
           continue;
         }
+        if (restoreInFlightRef.current.has(serverId)) {
+          skippedBecauseInFlight = true;
+          continue;
+        }
+        restoreInFlightRef.current.add(serverId);
         restorePromises.push(
           restoreSessions(serverId, missing)
             .then(res => ({ serverId, res, forceRestore, requested: missing.length }))
             .catch(err => ({ serverId, err, forceRestore, requested: missing.length }))
+            .finally(() => { restoreInFlightRef.current.delete(serverId); })
         );
       }
+      if (completedWithoutRequestServerIds.length > 0) {
+        clearRestoreBarrierForServers(completedWithoutRequestServerIds);
+      }
       if (restorePromises.length === 0) {
+        if (skippedBecauseInFlight) return;
         // Either every server in snapshot has no missing sessions, or the
         // snapshot is empty for known servers. Mark all known servers as
         // attempted so subsequent sessions[] mutations don't re-run this.
@@ -892,18 +989,17 @@ function Dashboard() {
         succeededServerIds.push(r.serverId);
       }
       if (succeededServerIds.length > 0) {
-        await fetchSessions();
+        await fetchSessions({ forceServerIds: succeededServerIds, reason: 'restore-success' });
         for (const serverId of succeededServerIds) {
           destroyTerminalsByServerId(serverId);
         }
-        setReconnectKey(prev => prev + 1);
-        setServersNeedingRestore(prev => {
-          let changed = false;
-          const next = new Set(prev);
+        clearRestoreBarrierForServers(succeededServerIds);
+        setServerReconnectKeys(prev => {
+          const next = { ...prev };
           for (const serverId of succeededServerIds) {
-            if (next.delete(serverId)) changed = true;
+            next[serverId] = (next[serverId] || 0) + 1;
           }
-          return changed ? next : prev;
+          return next;
         });
       }
       if (anyFailed) {
@@ -916,7 +1012,7 @@ function Dashboard() {
         toast.success(t('toast.sessions_auto_restored', { count: totalRestored }));
       }
     })();
-  }, [servers, serversLoading, hydratedSessions, sessions, offlineServerIds, fetchSessions, t, serversNeedingRestore, restoreRetryKey, scheduleRestoreRetry]);
+  }, [servers, serversLoading, hydratedSessions, sessions, offlineServerIds, fetchSessions, t, serversNeedingRestore, restoreRetryKey, scheduleRestoreRetry, clearRestoreBarrierForServers]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -1163,12 +1259,10 @@ function Dashboard() {
       const { serverId } = splitSessionId(sessionId);
       if (serverId) {
         // markServerForRestore agora é async (faz flush sync do snapshot
-        // antes de marcar o server). Disparado fire-and-forget porque o
-        // ordering interno (await flush → setStates → effect re-roda com
-        // snapshot fresh) já garante a invariante. handleReconnectServer
-        // só limpa cache xterm e força remount, pode rodar em paralelo.
+        // antes de liberar o restore). Disparado fire-and-forget; enquanto
+        // prepara/restaura, o pane fica bloqueado e não abre WS para uma
+        // sessão que ainda existe só no snapshot.
         markServerForRestore(serverId).catch(() => {});
-        handleReconnectServer(serverId, { silent: true });
       } else {
         handleReconnectAll({ silent: true });
       }
@@ -1178,7 +1272,7 @@ function Dashboard() {
       const { serverId } = splitSessionId(sessionId);
       if (serverId) {
         handleReconnectServer(serverId, { silent: true });
-        Promise.resolve(fetchSessions()).catch((err) => {
+        Promise.resolve(fetchSessions({ reason: 'heartbeat-timeout' })).catch((err) => {
           console.warn('[heartbeat_timeout] session refetch failed', err);
         });
         return;
@@ -1234,6 +1328,7 @@ function Dashboard() {
       const wasOffline = prev[serverId]?.status === SERVER_HEALTH_STATUS.OFFLINE;
       const isOnline = entry?.status === SERVER_HEALTH_STATUS.ONLINE;
       if (wasOffline && isOnline) {
+        if (restoreBlockedServerIdsRef.current.has(serverId)) continue;
         handleReconnectServer(serverId, { silent: true });
         recoveredAny = true;
       }
@@ -1244,7 +1339,7 @@ function Dashboard() {
       const shouldBlock = serverGateRef.current.visible
         && serverGateRef.current.checked
         && serverGateRef.current.onlineCount === 0;
-      Promise.resolve(fetchSessions({ block: shouldBlock }))
+      Promise.resolve(fetchSessions({ block: shouldBlock, reason: 'health-recovery' }))
         .finally(() => { recoveryFetchInFlightRef.current = false; });
     }
   }, [serverHealth, handleReconnectServer, fetchSessions]);
@@ -1270,7 +1365,7 @@ function Dashboard() {
       setTimeout(() => { scheduled = false; }, delay);
       attempt += 1;
       if (reconnectServers(serverIds)) {
-        Promise.resolve(fetchSessions()).catch((err) => {
+        Promise.resolve(fetchSessions({ reason: 'dead-connection' })).catch((err) => {
           console.warn('[dead_connections] session refetch failed', err);
         });
       }
@@ -1286,7 +1381,7 @@ function Dashboard() {
         // sem reconectar.
         probeDeadConnectionServerIds(2000).then((serverIds) => {
           if (reconnectServers(serverIds)) {
-            Promise.resolve(fetchSessions()).catch((err) => {
+            Promise.resolve(fetchSessions({ reason: 'zombie-connection' })).catch((err) => {
               console.warn('[zombie_connections] session refetch failed', err);
             });
           }
@@ -1556,6 +1651,7 @@ function Dashboard() {
           composeLoadingId={composeLoadingId}
           onRequestVoice={handleRequestVoice}
           serverReconnectKeys={serverReconnectKeys}
+          restoringServerIds={restoreBlockedServerIds}
           serverHealth={serverHealth}
           onRetryServer={handleManualRetry}
         />
@@ -1593,7 +1689,7 @@ function Dashboard() {
       <TlsAcceptModal
         servers={servers}
         offlineServerIds={offlineServerIds}
-        onRetest={fetchSessions}
+        onRetest={() => fetchSessions({ reason: 'tls-retest' })}
       />
 
       <ServerBootGateModal

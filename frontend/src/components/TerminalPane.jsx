@@ -212,6 +212,7 @@ export default function TerminalPane({
   onReconnect,
   isMobile = false,
   serverHealth = null,
+  isServerRestoring = false,
   onRetryServer,
 }) {
   const { theme } = useTheme();
@@ -222,10 +223,12 @@ export default function TerminalPane({
   const onReconnectRef = useRef(onReconnect);
   const tRef = useRef(t);
   const isMobileRef = useRef(isMobile);
+  const isServerRestoringRef = useRef(isServerRestoring);
   onSessionEndedRef.current = onSessionEnded;
   onReconnectRef.current = onReconnect;
   tRef.current = t;
   isMobileRef.current = isMobile;
+  isServerRestoringRef.current = isServerRestoring;
 
   // Server health offline = não criamos WS aqui. Usuário com VPN trocada
   // raramente precisa que o pane "tente até dar timeout"; melhor mostrar
@@ -234,6 +237,7 @@ export default function TerminalPane({
   // nova key — daí o effect roda e cria a WS de novo.
   const isServerOffline = serverHealth?.status === 'offline';
   const offlineReason = serverHealth?.reason || null;
+  const isServerBlocked = isServerOffline || isServerRestoring;
 
   useEffect(() => {
     applyXtermThemeToAll(theme);
@@ -259,7 +263,7 @@ export default function TerminalPane({
   }, []);
 
   useEffect(() => {
-    if (isServerOffline) return;
+    if (isServerBlocked) return;
     const cached = terminalCache.get(session.id);
 
     if (cached) {
@@ -366,10 +370,16 @@ export default function TerminalPane({
         } else if (event.code === 4000) {
           terminal.write(`\r\n\x1b[33m[${tr('terminal.connectionReplaced')}]\x1b[0m\r\n`);
         } else {
+          const isSessionNotFoundClose =
+            event.code === SESSION_NOT_FOUND_CLOSE_CODE &&
+            event.reason === SESSION_NOT_FOUND_CLOSE_REASON;
+          if (isSessionNotFoundClose && isServerRestoringRef.current) {
+            return;
+          }
           terminal.write(`\r\n\x1b[31m[${tr('terminal.connectionLost')}]\x1b[0m\r\n`);
           if (
             event.code === CLIENT_RESTART_CLOSE_CODE ||
-            (event.code === SESSION_NOT_FOUND_CLOSE_CODE && event.reason === SESSION_NOT_FOUND_CLOSE_REASON)
+            isSessionNotFoundClose
           ) {
             // session.id passado pra que o parent escope a reconexão pro
             // server desse pane (não destruir terminais de outros servers).
@@ -530,12 +540,12 @@ export default function TerminalPane({
         }
       }
     };
-  }, [session.id, setupResizeObserver, isServerOffline]);
+  }, [session.id, setupResizeObserver, isServerBlocked]);
 
   useEffect(() => {
-    if (!isServerOffline) return;
+    if (!isServerBlocked) return;
     destroyTerminal(session.id);
-  }, [isServerOffline, session.id]);
+  }, [isServerBlocked, session.id]);
 
   // Refit quando o teclado virtual abre/fecha no mobile. O viewport meta
   // (`interactiveWidget: 'resizes-content'` em app/layout.js) pede ao browser
@@ -697,22 +707,28 @@ export default function TerminalPane({
   return (
     <div className="flex flex-col overflow-hidden relative" style={{ height: '100%', background: 'hsl(var(--terminal-bg))' }}>
       <div ref={slotRef} className="flex-1 min-h-0 min-w-0" />
-      {isServerOffline && (
+      {isServerBlocked && (
         <OfflineOverlay
           t={t}
           sessionName={session.name}
           serverName={session.server_name}
           serverId={session.server_id}
-          reason={offlineReason}
-          onRetry={onRetryServer}
+          reason={isServerRestoring ? null : offlineReason}
+          restoring={isServerRestoring}
+          onRetry={isServerRestoring ? null : onRetryServer}
         />
       )}
     </div>
   );
 }
 
-function OfflineOverlay({ t, sessionName, serverName, serverId, reason, onRetry }) {
+function OfflineOverlay({ t, sessionName, serverName, serverId, reason, restoring = false, onRetry }) {
   const reasonKey = reason ? `serverFilter.reason.${reason}` : null;
+  const title = restoring ? t('terminal.serverRestoring') : t('terminal.serverPaused');
+  const body = restoring
+    ? t('terminal.serverRestoringBody', { server: serverName || t('serverFilter.unknown') })
+    : t('terminal.serverPausedBody', { server: serverName || t('serverFilter.unknown') });
+  const Icon = restoring ? RefreshCw : WifiOff;
   return (
     <div
       className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-6 text-center"
@@ -722,12 +738,12 @@ function OfflineOverlay({ t, sessionName, serverName, serverId, reason, onRetry 
         className="flex items-center justify-center w-12 h-12 rounded-full"
         style={{ background: 'hsl(var(--muted) / 0.4)' }}
       >
-        <WifiOff size={20} className="text-destructive" />
+        <Icon size={20} className={restoring ? 'text-primary animate-spin' : 'text-destructive'} />
       </div>
       <div className="flex flex-col gap-1">
-        <p className="text-sm font-medium text-foreground">{t('terminal.serverPaused')}</p>
+        <p className="text-sm font-medium text-foreground">{title}</p>
         <p className="text-xs text-muted-foreground">
-          {t('terminal.serverPausedBody', { server: serverName || t('serverFilter.unknown') })}
+          {body}
         </p>
         {sessionName && (
           <p className="text-xs text-muted-foreground/80 mt-1 font-mono truncate max-w-[280px] mx-auto">

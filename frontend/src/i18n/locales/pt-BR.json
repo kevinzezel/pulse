@@ -263,6 +263,7 @@
       "bad_key": "API key inválida",
       "mixed_content": "Bloqueado por conteúdo misto",
       "health_fail": "Health check falhou",
+      "restart": "Reiniciando",
       "unknown": "Erro inesperado"
     }
   },
@@ -389,6 +390,8 @@
     "serverNotConfigured": "Servidor não configurado",
     "serverPaused": "Servidor offline",
     "serverPausedBody": "Este terminal está pausado porque {server} está offline.",
+    "serverRestoring": "Restaurando terminal",
+    "serverRestoringBody": "Aguardando {server} recriar esta sessão.",
     "retryServer": "Tentar reconectar servidor",
     "actions": {
       "menu": "Ações do terminal",

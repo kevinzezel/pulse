@@ -263,6 +263,7 @@
       "bad_key": "Invalid API key",
       "mixed_content": "Blocked by mixed content",
       "health_fail": "Health check failed",
+      "restart": "Restarting",
       "unknown": "Unexpected error"
     }
   },
@@ -389,6 +390,8 @@
     "serverNotConfigured": "Server not configured",
     "serverPaused": "Server offline",
     "serverPausedBody": "This terminal is paused because {server} is offline.",
+    "serverRestoring": "Restoring terminal",
+    "serverRestoringBody": "Waiting for {server} to recreate this session.",
     "retryServer": "Retry server",
     "actions": {
       "menu": "Terminal actions",
