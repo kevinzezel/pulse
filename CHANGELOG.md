@@ -6,6 +6,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [3.3.0-pre] — 2026-04-28
+
+### Changed
+
+- **Tasks now use cleaner Trello-style cards.** Task cards no longer show inline assignee and date form controls; clicking a card opens the existing editor for those fields. Assignees render as compact initials avatars, and start/end dates appear only when they are set.
+- **Task board columns are visually tighter.** The Kanban canvas now uses narrower columns, more compact headers, softer token-based column backgrounds, and less prominent add-card/add-column controls while preserving drag-and-drop behavior.
+
 ## [3.2.10-pre] — 2026-04-28
 
 ### Fixed
@@ -1183,6 +1190,7 @@ First public release.
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
 [Unreleased]: https://github.com/kevinzezel/pulse/compare/v3.2.10-pre...HEAD
+[3.3.0-pre]: https://github.com/kevinzezel/pulse/releases/tag/v3.3.0-pre
 [3.2.10-pre]: https://github.com/kevinzezel/pulse/releases/tag/v3.2.10-pre
 [3.2.9-pre]: https://github.com/kevinzezel/pulse/releases/tag/v3.2.9-pre
 [3.2.8-pre]: https://github.com/kevinzezel/pulse/releases/tag/v3.2.8-pre

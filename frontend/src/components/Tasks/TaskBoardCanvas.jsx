@@ -29,12 +29,10 @@ import TaskColumnModal from './TaskColumnModal';
 function SortableColumn({
   column,
   tasks,
-  assigneeOptions,
   onCreateTask,
   onEditColumn,
   onDeleteColumn,
   onTaskClick,
-  onQuickUpdateTask,
 }) {
   const {
     attributes,
@@ -56,13 +54,11 @@ function SortableColumn({
       <TaskColumn
         column={column}
         tasks={tasks}
-        assigneeOptions={assigneeOptions}
         columnDragHandle={{ attributes, listeners }}
         onCreateTask={onCreateTask}
         onEditColumn={onEditColumn}
         onDeleteColumn={onDeleteColumn}
         onTaskClick={onTaskClick}
-        onQuickUpdateTask={onQuickUpdateTask}
       />
     </div>
   );
@@ -71,9 +67,9 @@ function SortableColumn({
 function ColumnOverlay({ column, tasks }) {
   return (
     <div
-      className="flex w-[300px] min-w-[300px] flex-col rounded-md border shadow-xl"
+      className="flex w-[292px] min-w-[292px] flex-col rounded-md border shadow-xl"
       style={{
-        background: 'hsl(var(--sidebar-bg))',
+        background: 'hsl(var(--muted) / 0.35)',
         borderColor: 'hsl(var(--sidebar-border))',
       }}
     >
@@ -407,33 +403,6 @@ export default function TaskBoardCanvas({ board, onBoardUpdate, assigneeOptions 
     }
   }
 
-  async function handleQuickUpdateTask(taskId, patch) {
-    const previous = boardRef.current;
-    const target = previous.tasks.find((task) => task.id === taskId);
-    if (!target) return;
-    const optimistic = {
-      ...previous,
-      tasks: previous.tasks.map((task) => (
-        task.id === taskId ? { ...task, ...patch } : task
-      )),
-    };
-    onBoardUpdate(optimistic);
-    boardRef.current = optimistic;
-    try {
-      const updated = await patchTaskBoard(previous.id, {
-        action: 'update_task',
-        task_id: taskId,
-        task: patch,
-      });
-      onBoardUpdate(updated);
-      boardRef.current = updated;
-    } catch (err) {
-      onBoardUpdate(previous);
-      boardRef.current = previous;
-      showError(err);
-    }
-  }
-
   const columnSortableIds = board.columns.map((c) => `column:${c.id}`);
 
   const overlay = activeDrag?.type === 'task'
@@ -463,29 +432,30 @@ export default function TaskBoardCanvas({ board, onBoardUpdate, assigneeOptions 
         onDragEnd={handleDragEnd}
         onDragCancel={handleDragCancel}
       >
-        <div className="flex-1 min-h-0 overflow-x-auto overflow-y-hidden">
-          <div className="h-full p-3 flex items-stretch gap-3">
+        <div className="min-h-0 flex-1 overflow-x-auto overflow-y-hidden">
+          <div className="flex h-full items-start gap-3 p-3 sm:p-4">
             <SortableContext items={columnSortableIds} strategy={horizontalListSortingStrategy}>
               {board.columns.map((column) => (
                 <SortableColumn
                   key={column.id}
                   column={column}
                   tasks={tasksForColumn(column.id)}
-                  assigneeOptions={assigneeOptions}
                   onCreateTask={openCreateTask}
                   onEditColumn={(col) => setColumnModal({ mode: 'rename', column: col })}
                   onDeleteColumn={handleDeleteColumn}
                   onTaskClick={openEditTask}
-                  onQuickUpdateTask={handleQuickUpdateTask}
                 />
               ))}
             </SortableContext>
-            <div className="flex-shrink-0 w-[300px] min-w-[300px] flex flex-col">
+            <div className="flex w-[292px] min-w-[292px] flex-shrink-0 flex-col">
               <button
                 type="button"
                 onClick={() => setColumnModal({ mode: 'create' })}
-                className="rounded-md border border-dashed py-3 px-2 inline-flex items-center justify-center gap-1.5 text-xs text-muted-foreground hover:text-primary hover:border-primary/50 transition-colors"
-                style={{ borderColor: 'hsl(var(--border))' }}
+                className="inline-flex items-center justify-start gap-1.5 rounded-md border border-dashed px-3 py-2.5 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:bg-muted/30 hover:text-primary"
+                style={{
+                  background: 'hsl(var(--muted) / 0.22)',
+                  borderColor: 'hsl(var(--border))',
+                }}
               >
                 <Plus size={12} />
                 {t('tasks.addColumn')}

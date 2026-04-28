@@ -8,7 +8,7 @@ import { CSS } from '@dnd-kit/utilities';
 import { useTranslation } from '@/providers/I18nProvider';
 import TaskCard from './TaskCard';
 
-function SortableTaskCard({ task, assigneeOptions, onClick, onQuickUpdate }) {
+function SortableTaskCard({ task, onClick }) {
   const {
     attributes,
     listeners,
@@ -28,8 +28,6 @@ function SortableTaskCard({ task, assigneeOptions, onClick, onQuickUpdate }) {
       ref={setNodeRef}
       task={task}
       onClick={onClick}
-      assigneeOptions={assigneeOptions}
-      onQuickUpdate={onQuickUpdate}
       dragAttributes={attributes}
       dragListeners={listeners}
       style={style}
@@ -46,8 +44,6 @@ export default function TaskColumn({
   onEditColumn,
   onDeleteColumn,
   onTaskClick,
-  onQuickUpdateTask,
-  assigneeOptions = [],
 }) {
   const { t } = useTranslation();
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -65,21 +61,21 @@ export default function TaskColumn({
   return (
     <div
       ref={setDroppableRef}
-      className={`flex-shrink-0 w-[300px] min-w-[300px] flex flex-col rounded-md border ${
+      className={`flex max-h-full w-[292px] min-w-[292px] flex-shrink-0 flex-col rounded-md border shadow-sm ${
         isOver ? 'ring-2 ring-primary/40' : ''
       }`}
       style={{
-        background: 'hsl(var(--sidebar-bg))',
+        background: 'hsl(var(--muted) / 0.35)',
         borderColor: 'hsl(var(--sidebar-border))',
       }}
     >
-      <div className="flex items-center gap-1 px-2 py-2 border-b" style={{ borderColor: 'hsl(var(--sidebar-border))' }}>
+      <div className="flex items-center gap-1 border-b px-2.5 py-2" style={{ borderColor: 'hsl(var(--sidebar-border))' }}>
         {columnDragHandle && (
           <button
             type="button"
             {...(columnDragHandle.attributes || {})}
             {...(columnDragHandle.listeners || {})}
-            className="p-1 text-muted-foreground hover:text-foreground cursor-grab active:cursor-grabbing"
+            className="cursor-grab rounded p-1 text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground active:cursor-grabbing"
             aria-label={t('tasks.dragColumn')}
             title={t('tasks.dragColumn')}
           >
@@ -89,18 +85,18 @@ export default function TaskColumn({
         <button
           type="button"
           onClick={() => onEditColumn(column)}
-          className="min-w-0 flex-1 truncate text-left text-sm font-medium text-foreground transition-colors hover:text-primary"
+          className="min-w-0 flex-1 truncate text-left text-[13px] font-semibold text-foreground transition-colors hover:text-primary"
           title={column.title}
         >
           {column.title}
         </button>
-        <span className="px-1.5 text-[10px] rounded bg-muted/40 text-muted-foreground">
+        <span className="inline-flex h-5 min-w-5 items-center justify-center rounded bg-muted/60 px-1.5 text-[10px] font-medium text-muted-foreground">
           {tasks.length}
         </span>
         <button
           type="button"
           onClick={() => onEditColumn(column)}
-          className="p-1 text-muted-foreground hover:text-foreground transition-colors"
+          className="rounded p-1 text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
           title={t('tasks.renameColumn')}
         >
           <Pencil size={12} />
@@ -108,28 +104,26 @@ export default function TaskColumn({
         <button
           type="button"
           onClick={() => setConfirmDelete(true)}
-          className="p-1 text-muted-foreground hover:text-destructive transition-colors"
+          className="rounded p-1 text-muted-foreground transition-colors hover:bg-muted/50 hover:text-destructive"
           title={t('tasks.deleteColumn')}
         >
           <Trash2 size={12} />
         </button>
       </div>
 
-      <div className="flex-1 min-h-[60px] p-2 flex flex-col gap-2 overflow-y-auto">
+      <div className="flex min-h-[60px] flex-1 flex-col gap-2 overflow-y-auto p-2">
         <SortableContext items={sortableIds} strategy={verticalListSortingStrategy}>
           {tasks.map((task) => (
             <SortableTaskCard
               key={task.id}
               task={task}
-              assigneeOptions={assigneeOptions}
               onClick={() => onTaskClick(task.id)}
-              onQuickUpdate={onQuickUpdateTask}
             />
           ))}
         </SortableContext>
         {isEmpty && (
           <div
-            className="flex-1 min-h-[40px] rounded border border-dashed text-center text-[11px] text-muted-foreground py-3 px-2"
+            className="min-h-[44px] rounded border border-dashed px-2 py-3 text-center text-[11px] text-muted-foreground"
             style={{ borderColor: 'hsl(var(--border))' }}
           >
             {t('tasks.emptyColumn')}
@@ -137,11 +131,11 @@ export default function TaskColumn({
         )}
       </div>
 
-      <div className="p-2 border-t" style={{ borderColor: 'hsl(var(--sidebar-border))' }}>
+      <div className="border-t p-2" style={{ borderColor: 'hsl(var(--sidebar-border))' }}>
         <button
           type="button"
           onClick={() => onCreateTask(column.id)}
-          className="w-full flex items-center justify-center gap-1.5 py-1.5 rounded text-xs text-muted-foreground hover:text-primary hover:bg-muted/40 transition-colors"
+          className="flex w-full items-center justify-start gap-1.5 rounded px-2 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-muted/50 hover:text-primary"
         >
           <Plus size={12} />
           {t('tasks.addTask')}
