@@ -419,6 +419,8 @@
     "server_timeout": "Server {name} timed out",
     "server_bad_key": "Server {name}: invalid API key",
     "server_unknown": "Server {name}: unexpected error",
+    "invalid_payload": "Invalid request: {detail}",
+    "session_write_failed": "Failed to write to terminal (session may have ended)",
     "group_not_found": "Group not found",
     "group_name_required": "Group name is required",
     "group_name_too_long": "Group name must be at most {max} characters",
@@ -588,7 +590,8 @@
     "sendEnter": "Send + ↵",
     "saveAs": "Save as prompt",
     "saveAsConfirm": "Save",
-    "promptName": "Prompt name"
+    "promptName": "Prompt name",
+    "charCount": "{length}/{max}"
   },
   "voice": {
     "title": "Voice input",

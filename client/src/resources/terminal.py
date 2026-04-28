@@ -60,6 +60,21 @@ async def close_active_websockets_for_shutdown():
         except Exception:
             pass
         logger.info("Closed WebSocket during client shutdown: %s", sid)
+    # Encerra todas as PTYs registradas. PTY mode (post-v3.0) não persiste
+    # cross-restart — recover_sessions é no-op — então deixar os processos
+    # vivos só polui o cgroup do systemd (vide "Unit process X (bash) remains
+    # running after unit stopped" nos logs pré-fix). PTYSession.close() é
+    # idempotente: remove_reader → SIGHUP no pgroup → close fd → wait curto.
+    for sid in list_pty_ids():
+        pty = unregister_pty(sid)
+        if pty is None:
+            continue
+        try:
+            pty.close()
+        except Exception:
+            logger.warning("close_active_websockets_for_shutdown: PTY close failed for %s", sid, exc_info=True)
+    with _sessions_lock:
+        sessions.clear()
 
 
 def _ws_lock(session_id):

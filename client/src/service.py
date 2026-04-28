@@ -3,6 +3,7 @@ setup_logging()
 
 import asyncio
 from fastapi import FastAPI, Request, Depends
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -42,6 +43,32 @@ async def app_exception_handler(request: Request, exc: AppException):
         **exc.extras,
     }
     return JSONResponse(status_code=exc.status_code, content=content)
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    # FastAPI's default 422 returns `detail` as a list of error objects, but
+    # the dashboard expects a string. Without this handler the frontend's
+    # error toast falls back to the generic "Servidor X: erro inesperado"
+    # message, hiding the real validation reason. We collapse to the first
+    # error (most informative for the typical single-field violation) and
+    # ship the translated payload via the same {detail, detail_key,
+    # detail_params} contract used for AppException.
+    errors = exc.errors() or []
+    first = errors[0] if errors else {}
+    loc_parts = [str(p) for p in first.get("loc", []) if p != "body"]
+    loc = ".".join(loc_parts)
+    msg = first.get("msg", "validation error")
+    summary = f"{loc}: {msg}" if loc else msg
+    locale = parse_accept_language(request.headers.get("accept-language"))
+    return JSONResponse(
+        status_code=422,
+        content={
+            "detail": translate("errors.invalid_payload", locale, detail=summary),
+            "detail_key": "errors.invalid_payload",
+            "detail_params": {"detail": summary},
+        },
+    )
 
 
 @app.get("/health", tags=["Health"])

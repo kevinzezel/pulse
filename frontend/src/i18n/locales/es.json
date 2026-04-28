@@ -419,6 +419,8 @@
     "server_timeout": "Servidor {name} tardó demasiado",
     "server_bad_key": "Servidor {name}: API key inválida",
     "server_unknown": "Servidor {name}: error inesperado",
+    "invalid_payload": "Solicitud inválida: {detail}",
+    "session_write_failed": "Error al escribir en la terminal (la sesión puede haber terminado)",
     "group_not_found": "Grupo no encontrado",
     "group_name_required": "El nombre del grupo es obligatorio",
     "group_name_too_long": "El nombre del grupo debe tener como máximo {max} caracteres",
@@ -588,7 +590,8 @@
     "sendEnter": "Enviar + ↵",
     "saveAs": "Guardar como prompt",
     "saveAsConfirm": "Guardar",
-    "promptName": "Nombre del prompt"
+    "promptName": "Nombre del prompt",
+    "charCount": "{length}/{max}"
   },
   "voice": {
     "title": "Entrada por voz",

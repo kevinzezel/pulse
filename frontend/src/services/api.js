@@ -281,7 +281,10 @@ export function getSessionCwd(compositeId) {
 }
 
 const NAME_MAX = 50;
-const PROMPT_BODY_MAX = 10000;
+// Espelha SEND_TEXT_MAX_LENGTH em client/src/routes/terminal.py:37 — prompts
+// são enviados via /send-text quando despachados pra um terminal, então o
+// limite de body do prompt acompanha o cap server-side.
+const PROMPT_BODY_MAX = 50000;
 
 function normalizeGroupName(name) {
   const stripped = String(name ?? '').trim();

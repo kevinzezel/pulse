@@ -30,6 +30,8 @@ CATALOGS = {
         "errors.fs_path_not_found": "Caminho não encontrado",
         "errors.fs_path_denied": "Permissão negada para listar o diretório",
         "errors.fs_path_not_directory": "O caminho não é um diretório",
+        "errors.invalid_payload": "Requisição inválida: {detail}",
+        "errors.session_write_failed": "Falha ao escrever no terminal (sessão pode ter encerrado)",
         "status.ok": "OK",
     },
     "en": {
@@ -63,6 +65,8 @@ CATALOGS = {
         "errors.fs_path_not_found": "Path not found",
         "errors.fs_path_denied": "Permission denied to list directory",
         "errors.fs_path_not_directory": "Path is not a directory",
+        "errors.invalid_payload": "Invalid request: {detail}",
+        "errors.session_write_failed": "Failed to write to terminal (session may have ended)",
         "status.ok": "OK",
     },
     "es": {
@@ -96,6 +100,8 @@ CATALOGS = {
         "errors.fs_path_not_found": "Ruta no encontrada",
         "errors.fs_path_denied": "Permiso denegado para listar el directorio",
         "errors.fs_path_not_directory": "La ruta no es un directorio",
+        "errors.invalid_payload": "Solicitud inválida: {detail}",
+        "errors.session_write_failed": "Error al escribir en la terminal (la sesión puede haber terminado)",
         "status.ok": "OK",
     },
 }

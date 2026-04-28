@@ -30,6 +30,12 @@ ExecStartPre=/bin/sh -c '/usr/bin/systemctl --user import-environment DISPLAY WA
 ExecStart=/bin/sh -c 'set -a; . "$HOME/.config/pulse/client.env"; set +a; if [ "${TLS_ENABLED:-false}" = "true" ]; then exec "$HOME/.local/share/pulse/client/.venv/bin/uvicorn" service:app --host "$API_HOST" --port "$API_PORT" --ssl-keyfile "$TLS_KEY_PATH" --ssl-certfile "$TLS_CERT_PATH"; else exec "$HOME/.local/share/pulse/client/.venv/bin/uvicorn" service:app --host "$API_HOST" --port "$API_PORT"; fi'
 Restart=on-failure
 RestartSec=5
+# Bound the graceful drain of in-flight WebSockets on `systemctl stop` so the
+# installer's stop step (used by `pulse upgrade`) cannot block indefinitely if
+# uvicorn gets stuck waiting for connections to close. After 15s systemd
+# escalates to SIGKILL on the main process and the unit flips to inactive,
+# clearing the way for `enable --now` to actually start the new process.
+TimeoutStopSec=15
 StandardOutput=journal
 StandardError=journal
 

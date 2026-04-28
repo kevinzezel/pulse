@@ -34,7 +34,7 @@ router = APIRouter()
 ws_router = APIRouter()
 NOTIFICATIONS_WS_MAX_MESSAGE_BYTES = 1024
 SESSION_ID_MAX_LENGTH = 64
-SEND_TEXT_MAX_LENGTH = 10000
+SEND_TEXT_MAX_LENGTH = 50000
 
 
 def _cleanup_old_clipboard_files():
@@ -195,7 +195,18 @@ def send_text(
     if send_enter:
         payload += b"\r"
     if payload:
-        pty.write(payload)
+        try:
+            pty.write(payload)
+        except OSError as exc:
+            # PTY can be in `_pty_by_session` but already broken — e.g. shell
+            # exited between the reaper's 30s tick and this call, leaving the
+            # master_fd open but the slave half closed. Without this handler
+            # the OSError bubbles up as an unhandled 500 with no `detail`,
+            # producing the generic "erro inesperado no servidor" toast on
+            # the dashboard. 410 Gone matches the semantics: the resource
+            # existed but is now gone.
+            logger.warning("send_text PTY write failed for %s: %s", session_id, exc)
+            raise AppException(key="errors.session_write_failed", status_code=410) from exc
     # Espelha o handler do WS de input: texto enviado via compose também conta
     # como "atividade" para o watcher de idle. Sem isso, um draft pré-populado
     # sem Enter dispara alerta falso.

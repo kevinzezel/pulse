@@ -153,7 +153,12 @@ function Dashboard() {
   const composeDraftsInFlight = useRef(Promise.resolve());
   const latestLayoutsRef = useRef({});
   const previousLayoutsRef = useRef({});
-  const restoreAttemptedRef = useRef(false);
+  // Per-server tracking: cada serverId entra no Set assim que seu restore
+  // inicial sucede (ou é confirmado como vazio). Antes era um boolean global
+  // — qualquer falha (ex: server B offline) deixava o gate aberto e mudanças
+  // em `sessions[]` re-disparavam o efeito de restore com snapshot stale,
+  // ressuscitando sessões deletadas em outros servers.
+  const restoreAttemptedRef = useRef(new Set());
   const restoreRetryTimerRef = useRef(null);
   // Epoch counter pra descartar respostas obsoletas: se o usuário troca de
   // projeto/server enquanto uma fetch está em curso, comparamos runId no
@@ -203,9 +208,58 @@ function Dashboard() {
     }, 3000);
   }, []);
 
-  const markServerForRestore = useCallback((serverId) => {
+  // Espelha o efeito de persist debounce (linhas ~636-680) para um único
+  // server, mas síncrono. Usado no caminho de restart (markServerForRestore)
+  // e no de delete (handleKill) para garantir que o snapshot reflete o
+  // estado atual de `sessions[]` ANTES do restore poll consumir o snapshot
+  // de disco. Sem isso, mudanças recentes (criação de Y antes do restart,
+  // delete de term-1 enquanto outro server B está offline) ficavam fora do
+  // snapshot e ou eram perdidas (Y) ou ressuscitavam (term-1).
+  //
+  // `sessionsOverride` permite ao caller passar uma lista que ainda não
+  // chegou ao state do hook — necessário em handleKill, onde setSessions
+  // agendou o filter mas a closure de `sessions` aqui ainda enxerga o
+  // estado pré-delete.
+  const persistSnapshotForServer = useCallback(async (serverId, sessionsOverride) => {
+    if (!hydratedSessions || !serverId) return;
+    const sessionsArr = sessionsOverride || sessions;
+    const current = await getSessionsSnapshot().catch(() => null);
+    const mergedServers = { ...(current?.servers || {}) };
+    const liveForServer = sessionsArr
+      .filter((s) => splitSessionId(s.id).serverId === serverId)
+      .map((s) => ({
+        id: splitSessionId(s.id).sessionId,
+        name: s.name,
+        group_id: s.group_id || null,
+        group_name: s.group_name || t('sidebar.noGroup'),
+        notify_on_idle: Boolean(s.notify_on_idle),
+        cwd: s.cwd || null,
+        created_at: s.created_at,
+        project_id: s.project_id || activeProjectId,
+        project_name: s.project_name || activeProject?.name || t('projects.defaultName'),
+      }));
+    const existing = Array.isArray(mergedServers[serverId]) ? mergedServers[serverId] : [];
+    const otherProjects = existing.filter((s) => s && s.project_id && s.project_id !== activeProjectId);
+    mergedServers[serverId] = [...otherProjects, ...liveForServer];
+    await setSessionsSnapshot({ servers: mergedServers });
+  }, [hydratedSessions, sessions, activeProjectId, activeProject, t]);
+
+  const markServerForRestore = useCallback(async (serverId) => {
     if (!serverId) return;
-    restoreAttemptedRef.current = false;
+    // Flush sincronizado: cancela debounce pendente e persiste o snapshot
+    // do server agora, com o estado de `sessions[]` que ainda contém as
+    // sessões recém-criadas. Encadeia atrás de qualquer persist em voo
+    // pra não competir com escrita simultânea.
+    if (snapshotDebounceRef.current) {
+      clearTimeout(snapshotDebounceRef.current);
+      snapshotDebounceRef.current = null;
+    }
+    snapshotInFlight.current = snapshotInFlight.current
+      .catch(() => {})
+      .then(() => persistSnapshotForServer(serverId));
+    await snapshotInFlight.current.catch((err) => console.warn('[markServerForRestore] persist failed', err));
+
+    restoreAttemptedRef.current.delete(serverId);
     setServersNeedingRestore(prev => {
       if (prev.has(serverId)) return prev;
       const next = new Set(prev);
@@ -214,7 +268,7 @@ function Dashboard() {
     });
     setOfflineServerIds(prev => prev.includes(serverId) ? prev : [...prev, serverId]);
     setRestoreRetryKey(k => k + 1);
-  }, []);
+  }, [persistSnapshotForServer]);
 
   useEffect(() => { groupsProjectIdRef.current = groupsProjectId; }, [groupsProjectId]);
   useEffect(() => { activeProjectIdRef.current = activeProjectId; }, [activeProjectId]);
@@ -724,7 +778,6 @@ function Dashboard() {
   }, []);
 
   useEffect(() => {
-    if (restoreAttemptedRef.current) return;
     if (serversLoading) return;
     if (!servers || servers.length === 0) return;
     if (!hydratedSessions) return;
@@ -745,20 +798,28 @@ function Dashboard() {
         (liveByServer[serverId] ||= new Set()).add(sessionId);
       }
 
-      // Don't gate the restore on `offlineServerIds` — on fresh boot, the very
-      // first `fetchSessions` races the client booting up and can mark the
-      // server offline even though the client is seconds from being ready.
-      // The catch below turns a still-offline restore into a no-op; the win
-      // is that users coming back after a reboot see their sessions reappear
-      // at the same cwd as soon as the client is listening.
+      // Per-server gate: each server enters `restoreAttemptedRef` once it has
+      // been successfully restored (or confirmed to have nothing to restore).
+      // Servers in `serversNeedingRestore` (force-restore after a client
+      // restart) bypass the gate and rebuild from snapshot regardless. The
+      // old design used a single global boolean — one offline server kept the
+      // gate open forever, so any `setSessions` (delete, rename, clone) re-ran
+      // the restore against a stale snapshot and could resurrect deleted
+      // terminals on healthy servers.
       const restorePromises = [];
       for (const [serverId, snapList] of Object.entries(snapshot.servers)) {
         if (!servers.some(srv => srv.id === serverId)) continue;
         if (!Array.isArray(snapList)) continue;
         const forceRestore = serversNeedingRestore.has(serverId);
+        if (!forceRestore && restoreAttemptedRef.current.has(serverId)) continue;
         const liveSet = forceRestore ? new Set() : (liveByServer[serverId] || new Set());
         const missing = snapList.filter(s => !liveSet.has(s.id));
-        if (missing.length === 0) continue;
+        if (missing.length === 0) {
+          // Snapshot already aligned with live state — mark attempted so we
+          // don't re-evaluate on the next sessions[] change.
+          restoreAttemptedRef.current.add(serverId);
+          continue;
+        }
         restorePromises.push(
           restoreSessions(serverId, missing)
             .then(res => ({ serverId, res, forceRestore, requested: missing.length }))
@@ -766,8 +827,10 @@ function Dashboard() {
         );
       }
       if (restorePromises.length === 0) {
-        // Nothing to restore — consider the attempt done so we don't keep re-running.
-        restoreAttemptedRef.current = true;
+        // Either every server in snapshot has no missing sessions, or the
+        // snapshot is empty for known servers. Mark all known servers as
+        // attempted so subsequent sessions[] mutations don't re-run this.
+        for (const srv of servers) restoreAttemptedRef.current.add(srv.id);
         return;
       }
 
@@ -775,22 +838,24 @@ function Dashboard() {
       const totalRestored = results.reduce(
         (sum, r) => sum + (r.res?.restored?.length || 0), 0
       );
-      // Only mark the attempt complete when every request actually reached the
-      // client. If any failed (usually because the client was still booting on
-      // fresh reboot), leave the ref false — the effect is gated on deps that
-      // include `offlineServerIds`, so the next successful fetchSessions will
-      // retrigger this and the restore eventually goes through.
-      const anyFailed = results.some(r => r.err);
-      const skippedDuringForcedRestore = results.some((r) => {
-        if (r.err || !r.forceRestore) return false;
-        const restored = r.res?.restored?.length || 0;
-        const skipped = r.res?.skipped?.length || 0;
-        return restored === 0 && skipped > 0 && skipped >= r.requested;
-      });
-      if (!anyFailed && !skippedDuringForcedRestore) {
-        restoreAttemptedRef.current = true;
+      const succeededServerIds = [];
+      let anyFailed = false;
+      let skippedDuringForcedRestore = false;
+      for (const r of results) {
+        if (r.err) { anyFailed = true; continue; }
+        if (r.forceRestore) {
+          const restoredCount = r.res?.restored?.length || 0;
+          const skippedCount = r.res?.skipped?.length || 0;
+          if (restoredCount === 0 && skippedCount > 0 && skippedCount >= r.requested) {
+            skippedDuringForcedRestore = true;
+            continue;
+          }
+        }
+        restoreAttemptedRef.current.add(r.serverId);
+        succeededServerIds.push(r.serverId);
+      }
+      if (succeededServerIds.length > 0) {
         await fetchSessions();
-        const succeededServerIds = results.map(r => r.serverId);
         for (const serverId of succeededServerIds) {
           destroyTerminalsByServerId(serverId);
         }
@@ -803,7 +868,11 @@ function Dashboard() {
           }
           return changed ? next : prev;
         });
-      } else {
+      }
+      if (anyFailed || skippedDuringForcedRestore) {
+        // Servers that failed (still booting / unreachable) keep getting
+        // retried until they come back. Other servers are already marked
+        // attempted above, so they won't re-run on every sessions[] change.
         scheduleRestoreRetry();
       }
       if (totalRestored > 0) {
@@ -937,9 +1006,30 @@ function Dashboard() {
     try {
       await killSession(id);
       if (activeProjectIdRef.current !== scopeProjectId) return;
+      const { serverId } = splitSessionId(id);
+      // Calcula a lista pós-delete agora — `setSessions` é assíncrono e a
+      // closure de `sessions` capturada por `persistSnapshotForServer` ainda
+      // contém o id deletado. Passamos a lista filtrada explicitamente para
+      // o helper como override, garantindo que o snapshot escrito não tenha
+      // a sessão.
+      const remainingSessions = sessions.filter(s => s.id !== id);
       destroyTerminal(id);
-      setSessions(prev => prev.filter(s => s.id !== id));
+      setSessions(remainingSessions);
       setMosaicLayout(prev => prev ? removeFromTree(prev, id) : prev);
+      // Sync prune: remove a sessão deletada do snapshot agora, sem esperar
+      // o debounce de 500ms. Cobre o caso em que outro server está offline
+      // e o efeito de restore re-dispara antes do debounce, lendo snapshot
+      // stale e ressuscitando a sessão recém-deletada via /sessions/restore.
+      if (serverId) {
+        if (snapshotDebounceRef.current) {
+          clearTimeout(snapshotDebounceRef.current);
+          snapshotDebounceRef.current = null;
+        }
+        snapshotInFlight.current = snapshotInFlight.current
+          .catch(() => {})
+          .then(() => persistSnapshotForServer(serverId, remainingSessions))
+          .catch(err => console.warn('[handleKill] snapshot prune failed', err));
+      }
     } catch (err) {
       showError(err);
     }
@@ -1035,7 +1125,12 @@ function Dashboard() {
     if (options.reason === 'client_restart') {
       const { serverId } = splitSessionId(sessionId);
       if (serverId) {
-        markServerForRestore(serverId);
+        // markServerForRestore agora é async (faz flush sync do snapshot
+        // antes de marcar o server). Disparado fire-and-forget porque o
+        // ordering interno (await flush → setStates → effect re-roda com
+        // snapshot fresh) já garante a invariante. handleReconnectServer
+        // só limpa cache xterm e força remount, pode rodar em paralelo.
+        markServerForRestore(serverId).catch(() => {});
         handleReconnectServer(serverId, { silent: true });
       } else {
         handleReconnectAll({ silent: true });

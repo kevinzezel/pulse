@@ -5,6 +5,11 @@ import { X, Send, CornerDownLeft, Save, Check, Loader } from 'lucide-react';
 import { useTranslation } from '@/providers/I18nProvider';
 import { useIsMobile, useVisualViewportHeight } from '@/hooks/layout';
 
+// Espelha SEND_TEXT_MAX_LENGTH em client/src/routes/terminal.py:37 — o backend
+// rejeita payloads acima desse limite com 422, então cortamos no input pra que
+// o usuário veja o limite antes do submit em vez de receber um erro genérico.
+const SEND_TEXT_MAX_LENGTH = 50000;
+
 export default function ComposeModal({
   initialValue = '',
   onSend,
@@ -104,6 +109,8 @@ export default function ComposeModal({
   }
 
   const titleLabel = sessionName ? `${t('compose.title')} — ${sessionName}` : t('compose.title');
+  const overLimit = text.length > SEND_TEXT_MAX_LENGTH;
+  const showCharCount = text.length >= SEND_TEXT_MAX_LENGTH * 0.9;
 
   const footer = savingAs ? (
     <div className="flex items-center gap-2">
@@ -153,7 +160,7 @@ export default function ComposeModal({
       )}
       <button
         onClick={() => submit(false)}
-        disabled={sending}
+        disabled={sending || overLimit}
         className="flex-1 inline-flex items-center justify-center gap-2 py-2.5 rounded-md text-sm font-medium border border-border text-foreground hover:bg-muted/40 transition-colors disabled:opacity-60"
       >
         {sending ? <Loader size={14} className="animate-spin" /> : <Send size={14} />}
@@ -161,7 +168,7 @@ export default function ComposeModal({
       </button>
       <button
         onClick={() => submit(true)}
-        disabled={sending}
+        disabled={sending || overLimit}
         className="flex-1 inline-flex items-center justify-center gap-2 py-2.5 rounded-md text-sm font-medium text-white bg-brand-gradient hover:opacity-90 transition-opacity disabled:opacity-60"
       >
         {sending ? <Loader size={14} className="animate-spin" /> : <CornerDownLeft size={14} />}
@@ -177,6 +184,14 @@ export default function ComposeModal({
         style={{ borderColor: 'hsl(var(--border))' }}
       >
         <span className="text-sm font-medium text-foreground truncate">{titleLabel}</span>
+        {showCharCount && (
+          <span
+            className={`absolute left-2 top-1/2 -translate-y-1/2 text-xs ${overLimit ? 'text-destructive' : 'text-muted-foreground'}`}
+            aria-live="polite"
+          >
+            {t('compose.charCount', { length: text.length, max: SEND_TEXT_MAX_LENGTH })}
+          </span>
+        )}
         {onClose && (
           <button
             onClick={onClose}
@@ -202,6 +217,7 @@ export default function ComposeModal({
       <textarea
         ref={taRef}
         value={text}
+        maxLength={SEND_TEXT_MAX_LENGTH}
         onChange={(e) => {
           const v = e.target.value;
           setText(v);

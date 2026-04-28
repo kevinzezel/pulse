@@ -429,23 +429,20 @@ download_and_extract() {
 stop_services_if_running() {
     case "$PULSE_OS" in
         linux)
-            # Stop only the main process, not the whole cgroup. The client
-            # spawns `tmux new-session -d`, which daemonises but stays in the
-            # unit's cgroup (fork doesn't escape cgroups v2). A regular
-            # `systemctl stop` with the default KillMode=control-group would
-            # also take the tmux daemon with it, wiping every live session on
-            # every upgrade. `kill --kill-who=main` signals only the main PID
-            # regardless of KillMode — works even when the installed unit file
-            # hasn't picked up the newer KillMode=process yet. Ordering matters:
-            # send TERM first, give uvicorn time to exit cleanly, only then
-            # install_files() starts overwriting disk.
+            # `systemctl stop` blocks until the unit is genuinely inactive
+            # (respecting KillMode=process from the installed pulse-client unit
+            # — only the main PID is signalled, leaving any orphan children for
+            # the systemd cgroup to handle). The previous approach used
+            # `systemctl kill` + `sleep 2`, but `kill` does not flip the unit
+            # state, so `enable --now` later in the install became a no-op
+            # whenever uvicorn took longer than 2s to drain its WebSockets,
+            # leaving pulse-client stopped post-upgrade and forcing the user to
+            # run `pulse start` manually.
             for unit in pulse-client.service pulse.service; do
                 if systemctl --user is-active --quiet "$unit" 2>/dev/null; then
-                    systemctl --user kill --kill-who=main --signal=TERM "$unit" 2>/dev/null || true
+                    systemctl --user stop "$unit" 2>/dev/null || true
                 fi
             done
-            # Give uvicorn / next a beat to shut down before we rm -rf the install dir.
-            sleep 2
             ;;
         macos)
             launchctl unload "$HOME/Library/LaunchAgents/sh.pulse.client.plist"    2>/dev/null || true
