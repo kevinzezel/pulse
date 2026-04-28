@@ -6,7 +6,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
-## [3.3.0-pre] — 2026-04-28
+## [3.3.0] — 2026-04-28
 
 ### Changed
 
@@ -1189,8 +1189,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v3.2.10-pre...HEAD
-[3.3.0-pre]: https://github.com/kevinzezel/pulse/releases/tag/v3.3.0-pre
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v3.3.0...HEAD
+[3.3.0]: https://github.com/kevinzezel/pulse/releases/tag/v3.3.0
 [3.2.10-pre]: https://github.com/kevinzezel/pulse/releases/tag/v3.2.10-pre
 [3.2.9-pre]: https://github.com/kevinzezel/pulse/releases/tag/v3.2.9-pre
 [3.2.8-pre]: https://github.com/kevinzezel/pulse/releases/tag/v3.2.8-pre
