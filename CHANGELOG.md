@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [3.2.7-pre] — 2026-04-27
+
+### Fixed
+
+- **Active terminal still vanishing on `pulse restart` — second source of the truncation found.** v3.2.6-pre's gate stopped `markServerForRestore` from flushing an empty snapshot, but the regular debounced persist effect (`useEffect` at `page.js:685`) had its own version of the same bug. After the backend comes back with no PTYs and `fetchSessions` returns `[]`, `setSessions([])` triggers the effect; by then the server is no longer in `offlineSet`/`restoreSet` (`fetchSessions` removed it on success), so the persist runs normally. With `liveByServer[server] = []` and `existing` holding entries from other projects plus the active-project terminal, the merge produced `mergedServers[server] = [...otherProjects, ...empty]` — silently dropping every active-project entry, including the one the user was viewing when restart fired. The restore effect then read the truncated snapshot and never POSTed `/sessions/restore` for the missing terminal, so the backend never recreated it. The fix adds a carve-out symmetric to the one in `markServerForRestore`: if `live.length === 0` *and* the existing snapshot has entries for the active project, leave the entry alone — that combination is the transient "backend just rebooted, restore hasn't run yet" window, never a real "user deleted everything" state (`handleKill` writes through its own `persistSnapshotForServer(serverId, remainingSessions)` sync prune and doesn't depend on this effect).
+
 ## [3.2.6-pre] — 2026-04-27
 
 ### Fixed

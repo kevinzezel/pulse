@@ -732,8 +732,22 @@ function Dashboard() {
           for (const srv of servers) {
             if (offlineSet.has(srv.id) || restoreSet.has(srv.id)) continue;
             const existing = Array.isArray(mergedServers[srv.id]) ? mergedServers[srv.id] : [];
+            const live = liveByServer[srv.id] || [];
+            // Carve-out crítico contra a janela "backend acabou de voltar e
+            // ainda não restaurou". `fetchSessions` zera `sessions[]` para
+            // o server quando o backend retorna [] (caso típico nos primeiros
+            // segundos pós-restart). Sem o carve-out, este efeito escreveria
+            // mergedServers[server] = [otherProjects, ...empty], apagando do
+            // snapshot todas as entries do projeto ativo — incluindo um
+            // terminal recém-criado que ainda nem foi restaurado pelo POST
+            // /sessions/restore. handleKill, que é a fonte legítima de
+            // "vazio agora", faz seu próprio sync prune via
+            // persistSnapshotForServer com sessionsOverride explícito, então
+            // pular este caminho não causa snapshot stale após delete.
+            const activeProjectExisting = existing.filter((s) => s && s.project_id === activeProjectId);
+            if (live.length === 0 && activeProjectExisting.length > 0) continue;
             const otherProjects = existing.filter((s) => s && s.project_id && s.project_id !== activeProjectId);
-            mergedServers[srv.id] = [...otherProjects, ...(liveByServer[srv.id] || [])];
+            mergedServers[srv.id] = [...otherProjects, ...live];
           }
 
           await setSessionsSnapshot({ servers: mergedServers });
