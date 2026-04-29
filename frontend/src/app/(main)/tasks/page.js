@@ -107,10 +107,10 @@ export default function TasksPage() {
   }, [sidebarOpen, sidebarHydrated]);
 
   const fetchBoardGroups = useCallback(async () => {
+    if (!activeProjectId) return;
     try {
-      const data = await getTaskBoardGroups();
-      const list = (data?.groups || []).filter((g) => g.project_id === activeProjectId);
-      setBoardGroups(list);
+      const list = await getTaskBoardGroups(activeProjectId);
+      setBoardGroups(Array.isArray(list) ? list : []);
       // Only mark the project as loaded on a real success — otherwise dataReady
       // would flip true with stale/empty groups and hide the failure.
       setBoardGroupsProjectId(activeProjectId);
@@ -121,21 +121,21 @@ export default function TasksPage() {
 
   useEffect(() => {
     if (!storageHydrated) return;
+    if (!activeProjectId) return;
     let alive = true;
+    const projectId = activeProjectId;
     setLoading(true);
     (async () => {
       try {
-        const [boardsRes, groupsRes] = await Promise.all([
-          listTaskBoards(),
-          getTaskBoardGroups(),
+        const [boardsList, groupsList] = await Promise.all([
+          listTaskBoards(projectId),
+          getTaskBoardGroups(projectId),
         ]);
         if (!alive) return;
-        const all = Array.isArray(boardsRes?.boards) ? boardsRes.boards : [];
-        setBoards(all.filter((b) => b.project_id === activeProjectId));
-        setBoardsProjectId(activeProjectId);
-        const groupsList = Array.isArray(groupsRes?.groups) ? groupsRes.groups : [];
-        setBoardGroups(groupsList.filter((g) => g.project_id === activeProjectId));
-        setBoardGroupsProjectId(activeProjectId);
+        setBoards(Array.isArray(boardsList) ? boardsList : []);
+        setBoardsProjectId(projectId);
+        setBoardGroups(Array.isArray(groupsList) ? groupsList : []);
+        setBoardGroupsProjectId(projectId);
       } catch (err) {
         showError(err);
       } finally {
@@ -197,14 +197,13 @@ export default function TasksPage() {
   const assigneeOptions = useMemo(() => {
     const names = new Map();
     for (const board of boards) {
-      if (board.project_id !== activeProjectId) continue;
       for (const task of board.tasks || []) {
         const name = String(task.assignee || '').trim();
         if (name) names.set(name.toLowerCase(), name);
       }
     }
     return [...names.values()].sort((a, b) => a.localeCompare(b));
-  }, [boards, activeProjectId]);
+  }, [boards]);
 
   const markSaving = useCallback((id, isSaving) => {
     setSavingIds((prev) => {
@@ -227,10 +226,11 @@ export default function TasksPage() {
 
   async function handleNewBoardSubmit(name, groupId) {
     if (creating) return;
+    if (!activeProjectId) return;
     setCreating(true);
     try {
       const targetGroupId = groupId !== undefined ? groupId : selectedBoardGroupId;
-      const created = await createTaskBoard({ name, group_id: targetGroupId });
+      const created = await createTaskBoard(activeProjectId, { name, group_id: targetGroupId });
       setBoards((prev) => [...prev, created]);
       const createdGroupId = created.group_id || null;
       if (createdGroupId !== selectedBoardGroupId) {
@@ -248,9 +248,10 @@ export default function TasksPage() {
   }
 
   async function handleRenameBoard(id, name) {
+    if (!activeProjectId) return;
     markSaving(id, true);
     try {
-      const updated = await patchTaskBoard(id, { action: 'rename_board', name });
+      const updated = await patchTaskBoard(activeProjectId, id, { action: 'rename_board', name });
       setBoards((prev) => prev.map((b) => (b.id === id ? updated : b)));
       toast.success(t('success.task_board_renamed'));
     } catch (err) {
@@ -262,13 +263,14 @@ export default function TasksPage() {
   }
 
   async function handleAssignBoardGroup(boardId, groupId) {
+    if (!activeProjectId) return;
     const prev = boards;
     const target = prev.find((b) => b.id === boardId);
     if (!target) return;
     const nextGroupId = groupId || null;
     setBoards((cur) => cur.map((b) => (b.id === boardId ? { ...b, group_id: nextGroupId } : b)));
     try {
-      const updated = await patchTaskBoard(boardId, { action: 'move_board_group', group_id: nextGroupId });
+      const updated = await patchTaskBoard(activeProjectId, boardId, { action: 'move_board_group', group_id: nextGroupId });
       setBoards((cur) => cur.map((b) => (b.id === boardId ? updated : b)));
       setProjectTaskBoardForGroup(activeProjectId, nextGroupId, boardId);
     } catch (err) {
@@ -278,8 +280,9 @@ export default function TasksPage() {
   }
 
   async function handleCreateBoardGroupInline(name) {
+    if (!activeProjectId) return null;
     try {
-      const data = await createTaskBoardGroup(name);
+      const data = await createTaskBoardGroup(activeProjectId, name);
       setBoardGroups((prev) => [...prev, data.group]);
       return data.group;
     } catch (err) {
@@ -289,10 +292,8 @@ export default function TasksPage() {
   }
 
   async function handleReorderBoardGroups(fromId, toId) {
+    if (!activeProjectId) return;
     const prev = boardGroups;
-    const from = boardGroups.find((g) => g.id === fromId);
-    const to = boardGroups.find((g) => g.id === toId);
-    if (!from || !to) return;
     const fromIndex = boardGroups.findIndex((g) => g.id === fromId);
     const toIndex = boardGroups.findIndex((g) => g.id === toId);
     if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) return;
@@ -301,8 +302,8 @@ export default function TasksPage() {
     optimistic.splice(toIndex, 0, moved);
     setBoardGroups(optimistic);
     try {
-      const res = await reorderTaskBoardGroups(fromId, toId);
-      const list = (res.groups || []).filter((g) => g.project_id === activeProjectId);
+      const res = await reorderTaskBoardGroups(activeProjectId, optimistic);
+      const list = Array.isArray(res?.groups) ? res.groups : optimistic;
       setBoardGroups(list);
     } catch (err) {
       setBoardGroups(prev);
@@ -311,10 +312,11 @@ export default function TasksPage() {
   }
 
   async function handleHideBoardGroup(groupId) {
+    if (!activeProjectId) return;
     const prev = boardGroups;
     setBoardGroups((cur) => cur.map((g) => (g.id === groupId ? { ...g, hidden: true } : g)));
     try {
-      await setTaskBoardGroupHidden(groupId, true);
+      await setTaskBoardGroupHidden(activeProjectId, groupId, true);
       toast.success(t('success.task_board_group_hidden'));
     } catch (err) {
       setBoardGroups(prev);
@@ -324,9 +326,10 @@ export default function TasksPage() {
 
   async function confirmDelete(board) {
     if (deletingBoardId) return;
+    if (!activeProjectId) return;
     setDeletingBoardId(board.id);
     try {
-      await deleteTaskBoard(board.id);
+      await deleteTaskBoard(activeProjectId, board.id);
       setBoards((prev) => prev.filter((b) => b.id !== board.id));
       toast.success(t('success.task_board_deleted'));
       setToDelete(null);
@@ -340,6 +343,26 @@ export default function TasksPage() {
   function handleBoardUpdate(nextBoard) {
     setBoards((prev) => prev.map((b) => (b.id === nextBoard.id ? nextBoard : b)));
   }
+
+  // GroupSelector calls these without knowing about projects, so we bind the
+  // active project id here before handing them down. Memoized to keep stable
+  // references across renders that don't change `activeProjectId`.
+  const createTaskBoardGroupAction = useCallback(
+    (name) => createTaskBoardGroup(activeProjectId, name),
+    [activeProjectId],
+  );
+  const renameTaskBoardGroupAction = useCallback(
+    (id, name) => renameTaskBoardGroup(activeProjectId, id, name),
+    [activeProjectId],
+  );
+  const deleteTaskBoardGroupAction = useCallback(
+    (id) => deleteTaskBoardGroup(activeProjectId, id),
+    [activeProjectId],
+  );
+  const setTaskBoardGroupHiddenAction = useCallback(
+    (id, hidden) => setTaskBoardGroupHidden(activeProjectId, id, hidden),
+    [activeProjectId],
+  );
 
   return (
     <div className="flex flex-col h-full min-h-0">
@@ -384,10 +407,10 @@ export default function TasksPage() {
             onGroupsChanged={fetchBoardGroups}
             isMobile={isMobile}
             showOpenAll={false}
-            createGroupAction={createTaskBoardGroup}
-            renameGroupAction={renameTaskBoardGroup}
-            deleteGroupAction={deleteTaskBoardGroup}
-            setGroupHiddenAction={setTaskBoardGroupHidden}
+            createGroupAction={createTaskBoardGroupAction}
+            renameGroupAction={renameTaskBoardGroupAction}
+            deleteGroupAction={deleteTaskBoardGroupAction}
+            setGroupHiddenAction={setTaskBoardGroupHiddenAction}
             deleteConfirmMessageKey="taskBoardGroups.deleteConfirmMessage"
             deleteConfirmMessageZeroKey="taskBoardGroups.deleteConfirmMessageZero"
             successKeys={TASK_BOARD_GROUP_SUCCESS_KEYS}
@@ -403,6 +426,7 @@ export default function TasksPage() {
               <TaskBoardCanvas
                 key={selectedBoard.id}
                 board={selectedBoard}
+                projectId={activeProjectId}
                 onBoardUpdate={handleBoardUpdate}
                 assigneeOptions={assigneeOptions}
               />

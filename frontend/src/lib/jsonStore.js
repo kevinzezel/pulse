@@ -1,59 +1,105 @@
 import { promises as fs } from 'fs';
-import path from 'path';
-import { randomUUID } from 'crypto';
+import { dirname, join, normalize, isAbsolute } from 'path';
 
-// Resolve the base dir we read/write JSON stores against. `process.cwd()` is
-// fine in dev (we're run from the frontend dir), but under systemd the worker
-// process that actually handles writes can end up with a different cwd than
-// the unit's `WorkingDirectory` — sessions.json silently stops updating even
-// though `fetch('/api/sessions', { method: 'PUT' })` responds 200. The unit
-// and launchd plist now set `PULSE_FRONTEND_ROOT` to the install dir; we
-// prefer that when present. Kept `process.cwd()` as the dev fallback.
-const FRONTEND_ROOT = process.env.PULSE_FRONTEND_ROOT || process.cwd();
+// Default base dir for the singleton facade. `process.cwd()` is fine in dev,
+// but under systemd the worker process that handles writes can drift to a
+// different cwd than the unit's WorkingDirectory — sessions.json silently
+// stops updating even though `fetch('/api/sessions', { method: 'PUT' })`
+// answers 200. The unit and launchd plist set PULSE_FRONTEND_ROOT to the
+// install dir; we prefer that when present and fall back to cwd.
+const DEFAULT_DATA_DIR = process.env.PULSE_FRONTEND_ROOT || process.cwd();
+const _locks = new Map();
+
+export class FileDriver {
+  constructor(config = {}) {
+    this.dataDir = config.dataDir || DEFAULT_DATA_DIR;
+  }
+
+  async init() {
+    await fs.mkdir(this.dataDir, { recursive: true });
+  }
+
+  async close() {
+    // No-op for file driver.
+  }
+
+  _resolvePath(relPath) {
+    const normalized = normalize(relPath);
+    if (isAbsolute(normalized) || normalized.startsWith('..')) {
+      throw new Error(`Invalid relPath: ${relPath}`);
+    }
+    return join(this.dataDir, normalized);
+  }
+
+  async readJsonFile(relPath, fallback) {
+    const full = this._resolvePath(relPath);
+    try {
+      const text = await fs.readFile(full, 'utf-8');
+      if (!text.trim()) return fallback;
+      return JSON.parse(text);
+    } catch (err) {
+      if (err.code === 'ENOENT') return fallback;
+      throw err;
+    }
+  }
+
+  async writeJsonFileAtomic(relPath, data) {
+    const full = this._resolvePath(relPath);
+    await fs.mkdir(dirname(full), { recursive: true });
+    const tmp = `${full}.tmp-${process.pid}-${Date.now()}`;
+    try {
+      await fs.writeFile(tmp, JSON.stringify(data, null, 2), 'utf-8');
+      await fs.rename(tmp, full);
+    } catch (err) {
+      try { await fs.unlink(tmp); } catch {}
+      // Surface the actual filesystem path in the server log so users can
+      // diagnose cwd / permission issues from `pulse logs dashboard`.
+      console.error(`[jsonStore] writeJsonFileAtomic failed for ${full}:`, err);
+      throw err;
+    }
+  }
+
+  async withFileLock(relPath, mutator) {
+    const key = `${this.dataDir}::${relPath}`;
+    const previous = _locks.get(key) || Promise.resolve();
+    const run = (async () => {
+      try { await previous; } catch {}
+      return await mutator();
+    })();
+    _locks.set(key, run);
+    try {
+      return await run;
+    } finally {
+      if (_locks.get(key) === run) _locks.delete(key);
+    }
+  }
+
+  // Returns null — file driver doesn't have a "client" to drain.
+  beginReload() {
+    return null;
+  }
+}
+
+// Backwards-compatible singleton facade. Other code calls these without
+// instantiating a driver. Used by storage.js compat layer until Plan 2
+// migrates callers to the registry.
+let _defaultInstance = null;
+
+function _instance() {
+  if (!_defaultInstance) {
+    _defaultInstance = new FileDriver({});
+  }
+  return _defaultInstance;
+}
 
 export async function readJsonFile(relPath, fallback) {
-  const file = path.join(FRONTEND_ROOT, relPath);
-  try {
-    const txt = await fs.readFile(file, 'utf-8');
-    return JSON.parse(txt);
-  } catch (err) {
-    if (err?.code === 'ENOENT') return fallback;
-    throw err;
-  }
+  return _instance().readJsonFile(relPath, fallback);
 }
 
 export async function writeJsonFileAtomic(relPath, data) {
-  const file = path.join(FRONTEND_ROOT, relPath);
-  await fs.mkdir(path.dirname(file), { recursive: true });
-  const tmp = `${file}.${randomUUID()}.tmp`;
-  try {
-    await fs.writeFile(tmp, JSON.stringify(data, null, 2), 'utf-8');
-    await fs.rename(tmp, file);
-  } catch (err) {
-    try { await fs.unlink(tmp); } catch {}
-    // Surface the actual filesystem path in the server log so users can
-    // diagnose cwd / permission issues from `pulse logs dashboard`.
-    console.error(`[jsonStore] writeJsonFileAtomic failed for ${file}:`, err);
-    throw err;
-  }
+  return _instance().writeJsonFileAtomic(relPath, data);
 }
 
-const fileLocks = new Map();
-
-// Serializes concurrent mutators on the same relPath to prevent
-// read-modify-write races across request handlers.
 export async function withFileLock(relPath, mutator) {
-  const previous = fileLocks.get(relPath) || Promise.resolve();
-  const run = (async () => {
-    try { await previous; } catch {}
-    return await mutator();
-  })();
-  fileLocks.set(relPath, run);
-  try {
-    return await run;
-  } finally {
-    if (fileLocks.get(relPath) === run) {
-      fileLocks.delete(relPath);
-    }
-  }
+  return _instance().withFileLock(relPath, mutator);
 }

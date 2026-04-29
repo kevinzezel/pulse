@@ -15,6 +15,44 @@ import { ssRead, ssWrite } from '@/lib/sessionState';
 
 const STORAGE_KEY = 'rt:activeProjectId';
 
+// ---------- Project lifecycle event bus ----------
+//
+// Module-level EventTarget keyed by event name. Used to coordinate cache
+// invalidation when a project's storage_ref changes (Plan 3 — Move project
+// between backends).
+//
+// Documented events:
+//
+//   project:storage-ref-changed
+//     detail: { projectId, oldRef, newRef }
+//     emitted after a successful Move operation. Subscribers (per-project
+//     fetchers like NotesProvider, flows/page.js, tasks/page.js, prompts
+//     components) should drop their cached state for `projectId` and refetch
+//     from the new backend. Plan 2 wires the bus only — no emitters yet;
+//     Plan 3's MoveProjectModal will fire the event after a successful move.
+//
+// Falls back to a no-op outside the browser (SSR / test env).
+const projectEvents = typeof window !== 'undefined' && typeof EventTarget !== 'undefined'
+  ? new EventTarget()
+  : null;
+
+export function emitProjectEvent(name, detail) {
+  if (!projectEvents) return;
+  projectEvents.dispatchEvent(new CustomEvent(name, { detail }));
+}
+
+// Returns an unsubscribe function. Pattern:
+//   useEffect(() => {
+//     return subscribeToProjectEvent('project:storage-ref-changed', (ev) => {
+//       if (ev.detail.projectId === activeProjectId) refetch();
+//     });
+//   }, [activeProjectId, refetch]);
+export function subscribeToProjectEvent(name, handler) {
+  if (!projectEvents) return () => {};
+  projectEvents.addEventListener(name, handler);
+  return () => projectEvents.removeEventListener(name, handler);
+}
+
 const ProjectsContext = createContext(null);
 
 function readStoredActiveProjectId() {

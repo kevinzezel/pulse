@@ -1,57 +1,104 @@
 import { NextResponse } from 'next/server';
 import { randomUUID } from 'crypto';
 import { withAuth } from '@/lib/auth';
-import { readStore, writeStore, withStoreLock } from '@/lib/storage';
-import { DEFAULT_PROJECT_ID, migrateList } from '@/lib/projectScope';
+import {
+  readProjectFile,
+  writeProjectFile,
+  withProjectLock,
+} from '@/lib/projectStorage';
 
-const REL = 'data/flow-groups.json';
+const FILE = 'flow-groups.json';
 const EMPTY = { groups: [] };
 
-async function readGroups() {
-  const data = await readStore(REL, EMPTY);
-  const list = Array.isArray(data?.groups) ? data.groups : [];
-  const { list: migrated, changed } = migrateList(list);
-  if (changed) {
-    await withStoreLock(REL, async () => {
-      const fresh = await readStore(REL, EMPTY);
-      const freshList = Array.isArray(fresh?.groups) ? fresh.groups : [];
-      const { list: freshMigrated, changed: stillChanged } = migrateList(freshList);
-      if (stillChanged) await writeStore(REL, { groups: freshMigrated });
-    });
+function bad(detailKey, detail, status = 400, params) {
+  const body = { detail, detail_key: detailKey };
+  if (params) body.detail_params = params;
+  return NextResponse.json(body, { status });
+}
+
+function getProjectId(req) {
+  const url = new URL(req.url);
+  return url.searchParams.get('project_id');
+}
+
+export const GET = withAuth(async (req) => {
+  const projectId = getProjectId(req);
+  if (!projectId) {
+    return bad('errors.invalid_body', 'project_id query param is required', 400);
   }
-  return migrated;
-}
-
-function normalize(list) {
-  const now = new Date().toISOString();
-  return list.map((g) => ({
-    id: g.id || `fgid-${randomUUID()}`,
-    name: String(g.name ?? '').trim(),
-    created_at: g.created_at || now,
-    hidden: g.hidden === true,
-    project_id: (typeof g.project_id === 'string' && g.project_id) ? g.project_id : DEFAULT_PROJECT_ID,
-  }));
-}
-
-export const GET = withAuth(async () => {
-  const groups = await readGroups();
-  return NextResponse.json({ groups });
+  const data = await readProjectFile(projectId, FILE, EMPTY);
+  return NextResponse.json({ groups: Array.isArray(data?.groups) ? data.groups : [] });
 });
 
-export const PUT = withAuth(async (req) => {
+export const POST = withAuth(async (req) => {
+  const projectId = getProjectId(req);
+  if (!projectId) {
+    return bad('errors.invalid_body', 'project_id query param is required', 400);
+  }
   let body;
-  try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ detail: 'Invalid JSON', detail_key: 'errors.invalid_body' }, { status: 400 });
+  try { body = await req.json(); } catch { return bad('errors.invalid_body', 'Invalid JSON'); }
+  if (!body || typeof body.name !== 'string' || !body.name.trim()) {
+    return bad('errors.invalid_body', 'name is required');
   }
-  if (!body || !Array.isArray(body.groups)) {
-    return NextResponse.json({ detail: 'Expected { groups: [...] }', detail_key: 'errors.invalid_body' }, { status: 400 });
-  }
-  const groups = await withStoreLock(REL, async () => {
-    const next = normalize(body.groups);
-    await writeStore(REL, { groups: next });
-    return next;
+
+  const created = await withProjectLock(projectId, FILE, async () => {
+    const data = await readProjectFile(projectId, FILE, EMPTY);
+    const groups = Array.isArray(data?.groups) ? data.groups : [];
+    const now = new Date().toISOString();
+    const group = {
+      id: `fgid-${randomUUID()}`,
+      name: body.name.trim(),
+      created_at: now,
+      hidden: false,
+      project_id: projectId,
+    };
+    groups.push(group);
+    await writeProjectFile(projectId, FILE, { groups });
+    return group;
   });
-  return NextResponse.json({ groups });
+
+  return NextResponse.json(created, { status: 201 });
+});
+
+// PUT replaces the whole array — used for reorder. Last-writer-wins.
+export const PUT = withAuth(async (req) => {
+  const projectId = getProjectId(req);
+  if (!projectId) {
+    return bad('errors.invalid_body', 'project_id query param is required', 400);
+  }
+  let body;
+  try { body = await req.json(); } catch { return bad('errors.invalid_body', 'Invalid JSON'); }
+  if (!body || !Array.isArray(body.groups)) {
+    return bad('errors.invalid_body', 'Expected { groups: [...] }');
+  }
+  await withProjectLock(projectId, FILE, async () => {
+    await writeProjectFile(projectId, FILE, { groups: body.groups });
+  });
+  return NextResponse.json({ groups: body.groups });
+});
+
+export const DELETE = withAuth(async (req) => {
+  const projectId = getProjectId(req);
+  const url = new URL(req.url);
+  const id = url.searchParams.get('id');
+  if (!projectId) {
+    return bad('errors.invalid_body', 'project_id query param is required', 400);
+  }
+  if (!id) {
+    return bad('errors.invalid_body', 'id query param is required', 400);
+  }
+
+  let removed = false;
+  await withProjectLock(projectId, FILE, async () => {
+    const data = await readProjectFile(projectId, FILE, EMPTY);
+    const groups = Array.isArray(data?.groups) ? data.groups : [];
+    const next = groups.filter((g) => !(g && g.id === id));
+    if (next.length === groups.length) return;
+    removed = true;
+    await writeProjectFile(projectId, FILE, { groups: next });
+  });
+  if (!removed) {
+    return bad('errors.flow_group_not_found', 'flow group not found', 404, { id });
+  }
+  return NextResponse.json({ id });
 });

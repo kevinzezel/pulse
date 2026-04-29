@@ -1,7 +1,11 @@
 import { NextResponse } from 'next/server';
 import { randomUUID } from 'crypto';
-import { writeStore, withStoreLock } from '@/lib/storage';
 import { withAuth } from '@/lib/auth';
+import {
+  readProjectFile,
+  writeProjectFile,
+  withProjectLock,
+} from '@/lib/projectStorage';
 import {
   BOARD_NAME_MAX,
   COLUMN_TITLE_MAX,
@@ -9,16 +13,24 @@ import {
   TASK_DESCRIPTION_MAX,
   TASK_ASSIGNEE_MAX,
 } from '@/lib/taskBoardsConfig';
-import { TASK_BOARDS_REL, readNormalizedInsideLock } from '@/lib/taskBoardsStore';
+import { normalizeBoards } from '@/lib/taskBoardsStore';
 import { reorderById } from '@/utils/reorder';
+
+const FILE = 'task-boards.json';
+const EMPTY = { boards: [] };
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 function bad(detailKey, detail, status = 400, detailParams) {
   return NextResponse.json(
     { detail, detail_key: detailKey, detail_params: detailParams },
-    { status }
+    { status },
   );
+}
+
+function getProjectId(req) {
+  const url = new URL(req.url);
+  return url.searchParams.get('project_id');
 }
 
 function appErr(key, message, { status = 400, params } = {}) {
@@ -310,44 +322,73 @@ function applyAction(board, action, now) {
   return next;
 }
 
+// Inside-lock read + normalize. Boards on disk may have stale shape; normalize
+// every time so action handlers see a well-formed state.
+async function readNormalizedBoardsInsideLock(projectId) {
+  const data = await readProjectFile(projectId, FILE, EMPTY);
+  const { normalized } = normalizeBoards(data?.boards);
+  return normalized;
+}
+
 export const PATCH = withAuth(async (req, { params }) => {
   const { id } = await params;
+  const projectId = getProjectId(req);
+  if (!projectId) {
+    return bad('errors.invalid_body', 'project_id query param is required', 400);
+  }
   let body;
-  try { body = await req.json(); } catch {
+  try {
+    body = await req.json();
+  } catch {
     return bad('errors.invalid_body', 'Invalid JSON');
   }
 
   try {
-    const updated = await withStoreLock(TASK_BOARDS_REL, async () => {
-      // Normalize on the way in so action handlers never see a board with
-      // missing arrays, stale task ids in columns, or absent project_id.
-      const data = await readNormalizedInsideLock();
-      const boards = [...data.boards];
+    const updated = await withProjectLock(projectId, FILE, async () => {
+      const boards = await readNormalizedBoardsInsideLock(projectId);
       const idx = findBoard(boards, id);
       const now = new Date().toISOString();
       const next = applyAction(boards[idx], body, now);
+      // Force-set project_id from URL so a stale or missing field on disk
+      // never leaks across projects.
+      next.project_id = projectId;
       boards[idx] = next;
-      await writeStore(TASK_BOARDS_REL, { boards, updated_at: now });
+      await writeProjectFile(projectId, FILE, { boards });
       return next;
     });
     return NextResponse.json(updated);
   } catch (err) {
+    if (/unknown project/i.test(err?.message || '')) {
+      return bad('errors.project_not_found', 'project not found', 404, { project_id: projectId });
+    }
     return bad(err.key || 'errors.invalid_body', err.message, err.status || 400, err.params);
   }
 });
 
 export const DELETE = withAuth(async (req, { params }) => {
   const { id } = await params;
+  const projectId = getProjectId(req);
+  if (!projectId) {
+    return bad('errors.invalid_body', 'project_id query param is required', 400);
+  }
+
   try {
-    await withStoreLock(TASK_BOARDS_REL, async () => {
-      const data = await readNormalizedInsideLock();
-      const boards = [...data.boards];
-      const idx = findBoard(boards, id);
-      boards.splice(idx, 1);
-      await writeStore(TASK_BOARDS_REL, { boards, updated_at: new Date().toISOString() });
+    let removed = false;
+    await withProjectLock(projectId, FILE, async () => {
+      const boards = await readNormalizedBoardsInsideLock(projectId);
+      const next = boards.filter((b) => !(b && b.id === id));
+      if (next.length === boards.length) return;
+      removed = true;
+      await writeProjectFile(projectId, FILE, { boards: next });
     });
+    if (!removed) {
+      return bad('errors.task_board_not_found', 'Board not found', 404, { id });
+    }
     return NextResponse.json({ ok: true });
   } catch (err) {
+    if (/unknown project/i.test(err?.message || '')) {
+      return bad('errors.project_not_found', 'project not found', 404, { project_id: projectId });
+    }
     return bad(err.key || 'errors.invalid_body', err.message, err.status || 400, err.params);
   }
 });

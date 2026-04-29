@@ -1,77 +1,96 @@
 import { NextResponse } from 'next/server';
 import { randomUUID } from 'crypto';
-import { readStore, writeStore, withStoreLock } from '@/lib/storage';
 import { withAuth } from '@/lib/auth';
-import { NAME_MAX } from '@/lib/flowsConfig';
-import { DEFAULT_PROJECT_ID, migrateList } from '@/lib/projectScope';
+import {
+  readProjectFile,
+  writeProjectFile,
+  withProjectLock,
+} from '@/lib/projectStorage';
 
-const REL = 'data/flows.json';
-const EMPTY = { flows: [], updated_at: null };
+const FILE = 'flows.json';
+const EMPTY = { flows: [] };
 
-async function readAndMigrate() {
-  const data = await readStore(REL, EMPTY);
-  const list = Array.isArray(data?.flows) ? data.flows : [];
-  const { list: migrated, changed } = migrateList(list);
-  if (changed) {
-    await writeStore(REL, { flows: migrated, updated_at: data?.updated_at ?? new Date().toISOString() });
+function bad(detailKey, detail, status = 400, params) {
+  const body = { detail, detail_key: detailKey };
+  if (params) body.detail_params = params;
+  return NextResponse.json(body, { status });
+}
+
+function getProjectId(req) {
+  const url = new URL(req.url);
+  return url.searchParams.get('project_id');
+}
+
+export const GET = withAuth(async (req) => {
+  const projectId = getProjectId(req);
+  if (!projectId) {
+    return bad('errors.invalid_body', 'project_id query param is required', 400);
   }
-  return { flows: migrated, updated_at: data?.updated_at ?? null };
-}
-
-function bad(detailKey, detail, status = 400, detailParams) {
-  return NextResponse.json(
-    { detail, detail_key: detailKey, detail_params: detailParams },
-    { status }
-  );
-}
-
-function isObject(v) {
-  return typeof v === 'object' && v !== null && !Array.isArray(v);
-}
-
-export const GET = withAuth(async () => {
-  const data = await readAndMigrate();
-  return NextResponse.json(data);
+  try {
+    const data = await readProjectFile(projectId, FILE, EMPTY);
+    return NextResponse.json({ flows: Array.isArray(data?.flows) ? data.flows : [] });
+  } catch (err) {
+    if (/unknown project/i.test(err?.message || '')) {
+      return bad('errors.project_not_found', 'project not found', 404, { project_id: projectId });
+    }
+    throw err;
+  }
 });
 
 export const POST = withAuth(async (req) => {
+  const projectId = getProjectId(req);
+  if (!projectId) {
+    return bad('errors.invalid_body', 'project_id query param is required', 400);
+  }
   let body;
-  try { body = await req.json(); } catch {
-    return bad('errors.invalid_body', 'Invalid JSON');
+  try {
+    body = await req.json();
+  } catch {
+    return bad('errors.invalid_body', 'Invalid JSON', 400);
+  }
+  if (!body || typeof body !== 'object') {
+    return bad('errors.invalid_body', 'Expected object body', 400);
   }
 
-  const name = typeof body?.name === 'string' ? body.name.trim() : '';
-  if (!name) return bad('errors.flow_name_required', 'Flow name is required');
-  if (name.length > NAME_MAX) {
-    return bad(
-      'errors.flow_name_too_long',
-      `Flow name must be at most ${NAME_MAX} characters`,
-      400,
-      { max: NAME_MAX }
-    );
-  }
-
-  const scene = isObject(body?.scene) ? body.scene : { elements: [], appState: {}, files: {} };
-  const projectId = (typeof body?.project_id === 'string' && body.project_id) ? body.project_id : DEFAULT_PROJECT_ID;
-  const groupId = (typeof body?.group_id === 'string' && body.group_id) ? body.group_id : null;
-
-  const flow = await withStoreLock(REL, async () => {
+  const newFlow = await withProjectLock(projectId, FILE, async () => {
+    const data = await readProjectFile(projectId, FILE, EMPTY);
+    const flows = Array.isArray(data?.flows) ? data.flows : [];
     const now = new Date().toISOString();
-    const data = await readAndMigrate();
-    const flows = data.flows;
-    const created = {
+    const flow = {
       id: `flow-${randomUUID()}`,
-      name,
-      scene,
+      name: typeof body.name === 'string' ? body.name : '',
+      scene: body.scene && typeof body.scene === 'object' ? body.scene : { elements: [] },
+      group_id: typeof body.group_id === 'string' ? body.group_id : null,
+      pinned: !!body.pinned,
+      project_id: projectId,
       created_at: now,
       updated_at: now,
-      project_id: projectId,
-      group_id: groupId,
     };
-    flows.push(created);
-    await writeStore(REL, { flows, updated_at: now });
-    return created;
+    flows.push(flow);
+    await writeProjectFile(projectId, FILE, { flows });
+    return flow;
   });
 
-  return NextResponse.json(flow, { status: 201 });
+  return NextResponse.json(newFlow, { status: 201 });
+});
+
+// Reorder via full replace — last-writer-wins, kept for drag-drop UX.
+export const PUT = withAuth(async (req) => {
+  const projectId = getProjectId(req);
+  if (!projectId) {
+    return bad('errors.invalid_body', 'project_id query param is required', 400);
+  }
+  let body;
+  try {
+    body = await req.json();
+  } catch {
+    return bad('errors.invalid_body', 'Invalid JSON', 400);
+  }
+  if (!body || !Array.isArray(body.flows)) {
+    return bad('errors.invalid_body', 'Expected { flows: [...] }', 400);
+  }
+  await withProjectLock(projectId, FILE, async () => {
+    await writeProjectFile(projectId, FILE, { flows: body.flows });
+  });
+  return NextResponse.json({ flows: body.flows });
 });

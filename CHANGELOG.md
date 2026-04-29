@@ -6,6 +6,37 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [4.0.0-pre] — 2026-04-29
+
+Foundation release for the upcoming multi-backend storage feature. The dashboard's storage layer was rewritten internally so a single Pulse can soon route different projects to different remotes (e.g. one S3 for personal projects, one for company A, one for company B). **The collaboration features themselves — sharing a backend via a token, moving a project between backends, manifest sync — ship in 4.1.0-pre. This release is the foundation only; end users see no UI changes.**
+
+### Changed
+
+- **Storage schema bumped to v2.** `data/storage-config.json` now lists named backends (`{ id, name, driver, config }`) under `backends[]` with a `default_backend_id`. The legacy v1 shape is auto-migrated on first boot.
+- **Per-project data is now sharded.** Flows, notes, task-boards, prompts, and their groups live under `data/projects/<project_id>/<file>.json` (or `<bucket>/<prefix>/projects/<project_id>/<file>.json` on S3/Mongo) instead of mixed in flat top-level files. Each project entry in `data/projects.json` carries a `storage_ref` field pointing at its backend.
+- **Global prompts and prompt-groups moved to a dedicated location.** Prompts with no project assignment now live in `data/globals/prompts.json` (and `globals/prompt-groups.json`). Globals never travel to remote backends — they stay on each install.
+- **Per-project API routes now require `project_id` (or `?scope=global` for prompts/prompt-groups).** Calls without it return 400. The frontend services pass the active project id automatically.
+- **Create / patch / delete on per-project resources are atomic.** The server reads, mutates, and writes inside a per-file lock instead of relying on the frontend to send the whole array. Eliminates last-writer-wins races on prompts, flows, notes, and task-boards.
+- **`/api/projects/stats` now reads from sharded shards** so per-project counts (used by the sidebar and `deleteProject` guard) are accurate after the migration.
+
+### Added
+
+- **vitest test infrastructure** (`vitest`, `aws-sdk-client-mock`, `mongodb-memory-server`). 73 tests cover drivers, registry, locks, migration, and route handlers.
+- **`projectStorage` helper** (`frontend/src/lib/projectStorage.js`) that resolves `project_id` to its backend and routes file operations to the correct shard.
+- **Two-phase v3 → v4 migration.** Caso 1 (file local) re-shards local data, creates `data.backup-pre-v4/`, writes the new v2 config. Caso 2 (S3/Mongo active) acquires a migration lock with heartbeat and writes the new sharded layout in parallel without touching the v1 flat files (so v3 readers continue working until cleanup).
+- **Driver-specific migration locks.** S3 uses `IfNoneMatch` + heartbeat (90s timeout). Mongo uses a `_pulse_migrations` collection with TTL-style heartbeat. File driver is in-process.
+- **Project lifecycle event bus** in `ProjectsProvider` — placeholder for the upcoming Move project feature in 4.1.0-pre.
+
+### Removed
+
+- **Destructive sync endpoints.** `/api/storage-sync/local-to-cloud` and `/api/storage-sync/cloud-to-local` were removed. They used `clearStorageCollection()` which would wipe an entire backend prefix — catastrophic in the new sharded layout where multiple projects (and possibly multiple installs) share a backend. The replacement is per-project Move, shipping in 4.1.0-pre.
+
+### Migration notes
+
+- **Backup is automatic.** First boot of 4.0.0-pre creates `data.backup-pre-v4/` (file installs) or leaves the v1 flat files intact alongside the new sharded layout (S3/Mongo installs).
+- **Coexistence with v3.** During a rolling upgrade window, v3 installs pointing at the same S3/Mongo backend continue reading/writing the flat files. v4 installs read/write the sharded shards. The two layouts drift after migration — coordinate the rolling upgrade across machines and run the cleanup command (shipping in 4.1.0-pre) once everyone is on v4.
+- **No new env vars.** The v2 schema lives in the existing `data/storage-config.json`.
+
 ## [3.3.2-pre] — 2026-04-29
 
 ### Fixed
@@ -1208,7 +1239,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v3.3.2-pre...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v4.0.0-pre...HEAD
+[4.0.0-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.0.0-pre
 [3.3.2-pre]: https://github.com/kevinzezel/pulse/releases/tag/v3.3.2-pre
 [3.3.1]: https://github.com/kevinzezel/pulse/releases/tag/v3.3.1
 [3.3.0]: https://github.com/kevinzezel/pulse/releases/tag/v3.3.0

@@ -123,7 +123,7 @@ function applyMoveColumnLocally(board, activeId, overId) {
   return { ...board, columns: cols };
 }
 
-export default function TaskBoardCanvas({ board, onBoardUpdate, assigneeOptions = [] }) {
+export default function TaskBoardCanvas({ board, projectId, onBoardUpdate, assigneeOptions = [] }) {
   const { t } = useTranslation();
   const showError = useErrorToast();
   const [activeDrag, setActiveDrag] = useState(null);
@@ -227,7 +227,7 @@ export default function TaskBoardCanvas({ board, onBoardUpdate, assigneeOptions 
       onBoardUpdate(next);
       boardRef.current = next;
       try {
-        const updated = await patchTaskBoard(currentBoard.id, { action: 'move_column', active_id: a, over_id: o });
+        const updated = await patchTaskBoard(projectId, currentBoard.id, { action: 'move_column', active_id: a, over_id: o });
         onBoardUpdate(updated);
         boardRef.current = updated;
       } catch (err) {
@@ -278,7 +278,7 @@ export default function TaskBoardCanvas({ board, onBoardUpdate, assigneeOptions 
       onBoardUpdate(next);
       boardRef.current = next;
       try {
-        const updated = await patchTaskBoard(currentBoard.id, {
+        const updated = await patchTaskBoard(projectId, currentBoard.id, {
           action: 'move_task',
           task_id: taskId,
           to_column_id: toColumnId,
@@ -314,7 +314,7 @@ export default function TaskBoardCanvas({ board, onBoardUpdate, assigneeOptions 
       const action = columnModal?.mode === 'rename'
         ? { action: 'rename_column', column_id: columnModal.column.id, title: trimmed }
         : { action: 'create_column', title: trimmed };
-      const updated = await patchTaskBoard(boardRef.current.id, action);
+      const updated = await patchTaskBoard(projectId, boardRef.current.id, action);
       onBoardUpdate(updated);
       boardRef.current = updated;
       setColumnModal(null);
@@ -327,7 +327,7 @@ export default function TaskBoardCanvas({ board, onBoardUpdate, assigneeOptions 
 
   async function handleDeleteColumn(columnId) {
     try {
-      const updated = await patchTaskBoard(boardRef.current.id, { action: 'delete_column', column_id: columnId });
+      const updated = await patchTaskBoard(projectId, boardRef.current.id, { action: 'delete_column', column_id: columnId });
       onBoardUpdate(updated);
       boardRef.current = updated;
     } catch (err) {
@@ -350,13 +350,13 @@ export default function TaskBoardCanvas({ board, onBoardUpdate, assigneeOptions 
     try {
       let updated;
       if (editorState.taskId) {
-        updated = await patchTaskBoard(boardRef.current.id, {
+        updated = await patchTaskBoard(projectId, boardRef.current.id, {
           action: 'update_task',
           task_id: editorState.taskId,
           task: payload,
         });
       } else {
-        updated = await patchTaskBoard(boardRef.current.id, {
+        updated = await patchTaskBoard(projectId, boardRef.current.id, {
           action: 'create_task',
           column_id: editorState.columnId,
           task: payload,
@@ -374,7 +374,7 @@ export default function TaskBoardCanvas({ board, onBoardUpdate, assigneeOptions 
 
   async function clearAssigneeBoardWide(name) {
     try {
-      const updated = await patchTaskBoard(boardRef.current.id, {
+      const updated = await patchTaskBoard(projectId, boardRef.current.id, {
         action: 'bulk_clear_assignee',
         assignee: name,
       });
@@ -389,7 +389,7 @@ export default function TaskBoardCanvas({ board, onBoardUpdate, assigneeOptions 
     if (!editorState?.taskId) return;
     setTaskDeleting(true);
     try {
-      const updated = await patchTaskBoard(boardRef.current.id, {
+      const updated = await patchTaskBoard(projectId, boardRef.current.id, {
         action: 'delete_task',
         task_id: editorState.taskId,
       });

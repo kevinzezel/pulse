@@ -20,24 +20,12 @@ export function NotesProvider({ children }) {
   const pathname = usePathname();
   const showError = useErrorToast();
   const { activeProjectId } = useProjects();
-  const [allNotes, setAllNotes] = useState([]);
+  const [notes, setNotes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [managerOpen, setManagerOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [savingIds, setSavingIds] = useState({});
   const [zOrder, setZOrder] = useState({});
-
-  const notes = useMemo(
-    () => allNotes.filter((n) => n.project_id === activeProjectId),
-    [allNotes, activeProjectId]
-  );
-
-  const setNotes = useCallback((updater) => {
-    setAllNotes((prev) => {
-      if (typeof updater !== 'function') return Array.isArray(updater) ? updater : [];
-      return updater(prev);
-    });
-  }, []);
 
   const zCounter = useRef({ top: BASE_Z, pinnedTop: PINNED_BASE_Z });
   const debounceTimers = useRef({});
@@ -47,19 +35,20 @@ export function NotesProvider({ children }) {
   useEffect(() => { notesRef.current = notes; }, [notes]);
 
   const load = useCallback(async () => {
+    if (!activeProjectId) { setLoading(false); return; }
     setLoading(true);
     try {
-      const notesData = await listNotes().catch(() => ({ notes: [] }));
-      setAllNotes(Array.isArray(notesData?.notes) ? notesData.notes : []);
+      const list = await listNotes(activeProjectId).catch(() => []);
+      setNotes(Array.isArray(list) ? list : []);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [activeProjectId]);
 
   useEffect(() => {
     if (pathname === '/login') { setLoading(false); return; }
     load();
-  }, [pathname, load]);
+  }, [pathname, load, activeProjectId]);
 
   useEffect(() => {
     if (managerOpen) load();
@@ -78,7 +67,7 @@ export function NotesProvider({ children }) {
     delete pendingPatches.current[id];
     setSavingIds((s) => ({ ...s, [id]: true }));
     try {
-      const updated = await apiPatchNote(id, patch);
+      const updated = await apiPatchNote(activeProjectId, id, patch);
       setNotes((list) => list.map((n) => {
         if (n.id !== id) return n;
         const stillPending = pendingPatches.current[id];
@@ -94,7 +83,7 @@ export function NotesProvider({ children }) {
         const c = { ...s }; delete c[id]; return c;
       });
     }
-  }, [load, showError]);
+  }, [activeProjectId, load, showError]);
 
   const scheduleDebouncedPatch = useCallback((id, patch) => {
     pendingPatches.current[id] = { ...(pendingPatches.current[id] || {}), ...patch };
@@ -119,7 +108,7 @@ export function NotesProvider({ children }) {
   const patchNoteImmediate = useCallback(async (id, patch) => {
     updateNoteLocal(id, patch);
     try {
-      const updated = await apiPatchNote(id, patch);
+      const updated = await apiPatchNote(activeProjectId, id, patch);
       setNotes((list) => list.map((n) => {
         if (n.id !== id) return n;
         const stillPending = pendingPatches.current[id];
@@ -131,7 +120,7 @@ export function NotesProvider({ children }) {
       showError(err);
       load();
     }
-  }, [updateNoteLocal, load, showError]);
+  }, [activeProjectId, updateNoteLocal, load, showError]);
 
   const bringToFront = useCallback((id) => {
     const note = notesRef.current.find((n) => n.id === id);
@@ -155,7 +144,7 @@ export function NotesProvider({ children }) {
       ...overrides,
     };
     try {
-      const created = await apiCreateNote(payload);
+      const created = await apiCreateNote(activeProjectId, payload);
       setNotes((list) => [...list, created]);
       return created;
     } catch (err) {
@@ -163,7 +152,7 @@ export function NotesProvider({ children }) {
       load();
       return null;
     }
-  }, [load, showError]);
+  }, [activeProjectId, load, showError]);
 
   const deleteNote = useCallback(async (id) => {
     const prev = debounceTimers.current[id];
@@ -174,8 +163,8 @@ export function NotesProvider({ children }) {
       if (!(id in o)) return o;
       const next = { ...o }; delete next[id]; return next;
     });
-    try { await apiDeleteNote(id); } catch (err) { showError(err); load(); }
-  }, [load, showError]);
+    try { await apiDeleteNote(activeProjectId, id); } catch (err) { showError(err); load(); }
+  }, [activeProjectId, load, showError]);
 
   const closeOrDeleteIfEmpty = useCallback((id) => {
     setNotes((currentList) => {

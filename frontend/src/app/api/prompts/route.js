@@ -1,53 +1,119 @@
 import { NextResponse } from 'next/server';
 import { randomUUID } from 'crypto';
 import { withAuth } from '@/lib/auth';
-import { readStore, writeStore, withStoreLock } from '@/lib/storage';
+import {
+  readProjectFile,
+  writeProjectFile,
+  withProjectLock,
+  readGlobalFile,
+  writeGlobalFile,
+  withGlobalLock,
+} from '@/lib/projectStorage';
 
-const REL = 'data/prompts.json';
+const FILE = 'prompts.json';
 const EMPTY = { prompts: [] };
 
-async function readPrompts() {
-  const data = await readStore(REL, EMPTY);
-  return Array.isArray(data?.prompts) ? data.prompts : [];
+function bad(detailKey, detail, status = 400, params) {
+  const body = { detail, detail_key: detailKey };
+  if (params) body.detail_params = params;
+  return NextResponse.json(body, { status });
 }
 
-function normalize(list) {
-  const now = new Date().toISOString();
-  return list.map((p) => {
-    const projectId = (typeof p.project_id === 'string' && p.project_id) ? p.project_id : null;
-    const groupId = (typeof p.group_id === 'string' && p.group_id) ? p.group_id : null;
-    return {
-      id: p.id || `pid-${randomUUID()}`,
-      name: String(p.name ?? '').trim(),
-      body: typeof p.body === 'string' ? p.body : '',
-      created_at: p.created_at || now,
-      updated_at: p.updated_at || now,
-      project_id: projectId,
-      group_id: groupId,
-      pinned: p.pinned === true,
-    };
-  });
+// Returns { kind: 'global' } | { kind: 'project', projectId } | { kind: 'invalid' }.
+// Rejects literal "null" string for project_id (must use ?scope=global instead).
+function getScope(req) {
+  const url = new URL(req.url);
+  const projectId = url.searchParams.get('project_id');
+  const scope = url.searchParams.get('scope');
+  if (scope === 'global') return { kind: 'global' };
+  if (typeof projectId === 'string' && projectId && projectId !== 'null') {
+    return { kind: 'project', projectId };
+  }
+  return { kind: 'invalid' };
 }
 
-export const GET = withAuth(async () => {
-  const prompts = normalize(await readPrompts());
-  return NextResponse.json({ prompts });
-});
+async function readScoped(sc) {
+  if (sc.kind === 'global') return await readGlobalFile(FILE, EMPTY);
+  return await readProjectFile(sc.projectId, FILE, EMPTY);
+}
 
-export const PUT = withAuth(async (req) => {
-  let body;
+async function writeScoped(sc, data) {
+  if (sc.kind === 'global') return await writeGlobalFile(FILE, data);
+  return await writeProjectFile(sc.projectId, FILE, data);
+}
+
+async function withScopedLock(sc, fn) {
+  if (sc.kind === 'global') return await withGlobalLock(FILE, fn);
+  return await withProjectLock(sc.projectId, FILE, fn);
+}
+
+export const GET = withAuth(async (req) => {
+  const sc = getScope(req);
+  if (sc.kind === 'invalid') {
+    return bad('errors.invalid_body', 'project_id query param or scope=global is required', 400);
+  }
   try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ detail: 'Invalid JSON', detail_key: 'errors.invalid_body' }, { status: 400 });
+    const data = await readScoped(sc);
+    return NextResponse.json({ prompts: Array.isArray(data?.prompts) ? data.prompts : [] });
+  } catch (err) {
+    if (/unknown project/i.test(err?.message || '')) {
+      return bad('errors.project_not_found', 'project not found', 404, { project_id: sc.projectId });
+    }
+    throw err;
   }
-  if (!body || !Array.isArray(body.prompts)) {
-    return NextResponse.json({ detail: 'Expected { prompts: [...] }', detail_key: 'errors.invalid_body' }, { status: 400 });
-  }
-  const prompts = await withStoreLock(REL, async () => {
-    const next = normalize(body.prompts);
-    await writeStore(REL, { prompts: next });
-    return next;
-  });
-  return NextResponse.json({ prompts });
 });
+
+export const POST = withAuth(async (req) => {
+  const sc = getScope(req);
+  if (sc.kind === 'invalid') {
+    return bad('errors.invalid_body', 'project_id query param or scope=global is required', 400);
+  }
+  let body;
+  try { body = await req.json(); } catch { return bad('errors.invalid_body', 'Invalid JSON'); }
+  if (!body || typeof body !== 'object') {
+    return bad('errors.invalid_body', 'Expected object body');
+  }
+
+  const created = await withScopedLock(sc, async () => {
+    const data = await readScoped(sc);
+    const prompts = Array.isArray(data?.prompts) ? data.prompts : [];
+    const now = new Date().toISOString();
+    const prompt = {
+      id: `pid-${randomUUID()}`,
+      name: typeof body.name === 'string' ? body.name : '',
+      body: typeof body.body === 'string' ? body.body : '',
+      pinned: !!body.pinned,
+      group_id: typeof body.group_id === 'string' ? body.group_id : null,
+      project_id: sc.kind === 'global' ? null : sc.projectId,
+      created_at: now,
+      updated_at: now,
+    };
+    prompts.push(prompt);
+    await writeScoped(sc, { prompts });
+    return prompt;
+  });
+
+  return NextResponse.json(created, { status: 201 });
+});
+
+// PUT replace: kept for reorder (drag-drop). Last-writer-wins.
+export const PUT = withAuth(async (req) => {
+  const sc = getScope(req);
+  if (sc.kind === 'invalid') {
+    return bad('errors.invalid_body', 'project_id query param or scope=global is required', 400);
+  }
+  let body;
+  try { body = await req.json(); } catch { return bad('errors.invalid_body', 'Invalid JSON'); }
+  if (!body || !Array.isArray(body.prompts)) {
+    return bad('errors.invalid_body', 'Expected { prompts: [...] }');
+  }
+  await withScopedLock(sc, async () => {
+    await writeScoped(sc, { prompts: body.prompts });
+  });
+  return NextResponse.json({ prompts: body.prompts });
+});
+
+// Helpers exported for [id]/route.js — Next.js only treats GET/POST/PUT/PATCH/DELETE
+// as HTTP method handlers; named-export helpers like these are ignored by the
+// route scanner.
+export { getScope as _getScope, readScoped as _readScoped, writeScoped as _writeScoped, withScopedLock as _withScopedLock };

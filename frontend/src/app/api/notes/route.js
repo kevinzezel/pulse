@@ -1,92 +1,94 @@
 import { NextResponse } from 'next/server';
 import { randomUUID } from 'crypto';
-import { readStore, writeStore, withStoreLock } from '@/lib/storage';
 import { withAuth } from '@/lib/auth';
 import {
-  DEFAULT_COLOR, DEFAULT_WIDTH, DEFAULT_HEIGHT,
-  INITIAL_X, INITIAL_Y, isValidColor,
-  TITLE_MAX, CONTENT_MAX, MIN_WIDTH, MIN_HEIGHT, MAX_WIDTH, MAX_HEIGHT, MAX_COORD,
-} from '@/lib/notesConfig';
-import { DEFAULT_PROJECT_ID, migrateList } from '@/lib/projectScope';
+  readProjectFile,
+  writeProjectFile,
+  withProjectLock,
+} from '@/lib/projectStorage';
 
-const REL = 'data/notes.json';
-const EMPTY = { notes: [], updated_at: null };
+const FILE = 'notes.json';
+const EMPTY = { notes: [] };
 
-async function readAndMigrate() {
-  const data = await readStore(REL, EMPTY);
-  const list = Array.isArray(data?.notes) ? data.notes : [];
-  const { list: migrated, changed } = migrateList(list);
-  if (changed) {
-    await withStoreLock(REL, async () => {
-      const fresh = await readStore(REL, EMPTY);
-      const freshList = Array.isArray(fresh?.notes) ? fresh.notes : [];
-      const { list: freshMigrated, changed: stillChanged } = migrateList(freshList);
-      if (stillChanged) {
-        await writeStore(REL, { notes: freshMigrated, updated_at: fresh?.updated_at ?? new Date().toISOString() });
-      }
-    });
-  }
-  return { notes: migrated, updated_at: data?.updated_at ?? null };
-}
-
-function bad(detailKey, detail, status = 400, params = null) {
+function bad(detailKey, detail, status = 400, params) {
   const body = { detail, detail_key: detailKey };
   if (params) body.detail_params = params;
   return NextResponse.json(body, { status });
 }
 
-function inRange(n, min, max) {
-  return Number.isFinite(n) && n >= min && n <= max;
+function getProjectId(req) {
+  const url = new URL(req.url);
+  return url.searchParams.get('project_id');
 }
 
-export const GET = withAuth(async () => {
-  const data = await readAndMigrate();
-  return NextResponse.json(data);
+export const GET = withAuth(async (req) => {
+  const projectId = getProjectId(req);
+  if (!projectId) {
+    return bad('errors.invalid_body', 'project_id query param is required', 400);
+  }
+  try {
+    const data = await readProjectFile(projectId, FILE, EMPTY);
+    return NextResponse.json({ notes: Array.isArray(data?.notes) ? data.notes : [] });
+  } catch (err) {
+    if (/unknown project/i.test(err?.message || '')) {
+      return bad('errors.project_not_found', 'project not found', 404, { project_id: projectId });
+    }
+    throw err;
+  }
 });
 
 export const POST = withAuth(async (req) => {
+  const projectId = getProjectId(req);
+  if (!projectId) {
+    return bad('errors.invalid_body', 'project_id query param is required', 400);
+  }
   let body;
-  try { body = await req.json(); } catch {
-    return bad('errors.invalid_body', 'Invalid JSON');
+  try { body = await req.json(); } catch { return bad('errors.invalid_body', 'Invalid JSON'); }
+  if (!body || typeof body !== 'object') {
+    return bad('errors.invalid_body', 'Expected object body');
   }
 
-  const title = typeof body?.title === 'string' ? body.title : '';
-  const content = typeof body?.content === 'string' ? body.content : '';
-  if (title.length > TITLE_MAX) {
-    return bad('errors.note_title_too_long', 'Title too long', 400, { max: TITLE_MAX });
-  }
-  if (content.length > CONTENT_MAX) {
-    return bad('errors.note_content_too_long', 'Content too long', 400, { max: CONTENT_MAX });
-  }
-
-  const w = Number.isFinite(body?.w) ? body.w : DEFAULT_WIDTH;
-  const h = Number.isFinite(body?.h) ? body.h : DEFAULT_HEIGHT;
-  const x = Number.isFinite(body?.x) ? body.x : INITIAL_X;
-  const y = Number.isFinite(body?.y) ? body.y : INITIAL_Y;
-  if (!inRange(w, MIN_WIDTH, MAX_WIDTH) || !inRange(h, MIN_HEIGHT, MAX_HEIGHT)
-      || !inRange(x, 0, MAX_COORD) || !inRange(y, 0, MAX_COORD)) {
-    return bad('errors.note_invalid_geometry', 'Invalid geometry');
-  }
-
-  const color = isValidColor(body?.color) ? body.color : DEFAULT_COLOR;
-
-  const now = new Date().toISOString();
-  const note = await withStoreLock(REL, async () => {
-    const data = await readAndMigrate();
-    const notes = data.notes;
-    const created = {
+  const created = await withProjectLock(projectId, FILE, async () => {
+    const data = await readProjectFile(projectId, FILE, EMPTY);
+    const notes = Array.isArray(data?.notes) ? data.notes : [];
+    const now = new Date().toISOString();
+    const note = {
       id: `note-${randomUUID()}`,
-      title, content, color,
-      x, y, w, h,
-      pinned: body?.pinned === true,
-      open: body?.open !== false,
+      title: typeof body.title === 'string' ? body.title : '',
+      content: typeof body.content === 'string' ? body.content : '',
+      color: typeof body.color === 'string' ? body.color : 'yellow',
+      x: Number.isFinite(body.x) ? body.x : 120,
+      y: Number.isFinite(body.y) ? body.y : 100,
+      w: Number.isFinite(body.w) ? body.w : 280,
+      h: Number.isFinite(body.h) ? body.h : 220,
+      pinned: !!body.pinned,
+      open: !!body.open,
       created_at: now,
       updated_at: now,
-      project_id: (typeof body?.project_id === 'string' && body.project_id) ? body.project_id : DEFAULT_PROJECT_ID,
+      project_id: projectId,
     };
-    notes.push(created);
-    await writeStore(REL, { notes, updated_at: now });
-    return created;
+    notes.push(note);
+    await writeProjectFile(projectId, FILE, { notes });
+    return note;
   });
-  return NextResponse.json(note, { status: 201 });
+
+  return NextResponse.json(created, { status: 201 });
+});
+
+// PUT replace-array: kept for any existing callers (backwards compat).
+// Last-writer-wins.
+export const PUT = withAuth(async (req) => {
+  const projectId = getProjectId(req);
+  if (!projectId) {
+    return bad('errors.invalid_body', 'project_id query param is required', 400);
+  }
+  let body;
+  try { body = await req.json(); } catch { return bad('errors.invalid_body', 'Invalid JSON'); }
+  if (!body || !Array.isArray(body.notes)) {
+    return bad('errors.invalid_body', 'Expected { notes: [...] }');
+  }
+  await withProjectLock(projectId, FILE, async () => {
+    await writeProjectFile(projectId, FILE, { notes: body.notes });
+  });
+  return NextResponse.json({ notes: body.notes });
 });

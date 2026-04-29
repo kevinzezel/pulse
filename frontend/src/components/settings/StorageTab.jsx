@@ -3,16 +3,15 @@
 import { useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
 import {
-  Database, Loader, Save, AlertTriangle, Upload, Download, Trash2, CheckCircle,
+  Database, Loader, Save, AlertTriangle, Trash2, CheckCircle,
   Copy, HardDrive, Cloud, Eye, EyeOff,
 } from 'lucide-react';
 import {
   getStorageConfig, setStorageConfig, deleteStorageConfig,
-  syncLocalToCloud, syncCloudToLocal,
 } from '@/services/api';
 import { useTranslation, useErrorToast } from '@/providers/I18nProvider';
 
-const CONFIRM_WORD = 'sync';
+const CONFIRM_WORD = 'deactivate';
 
 const DRIVER_ORDER = ['file', 'mongo', 's3'];
 const DRIVER_ICON = { file: HardDrive, mongo: Database, s3: Cloud };
@@ -179,8 +178,6 @@ export default function StorageTab() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const [syncingPush, setSyncingPush] = useState(false);
-  const [syncingPull, setSyncingPull] = useState(false);
 
   const [activeDriver, setActiveDriver] = useState('file');
   const [activeConfig, setActiveConfig] = useState(null);
@@ -199,8 +196,6 @@ export default function StorageTab() {
     force_path_style: false,
   });
 
-  const [confirmPush, setConfirmPush] = useState(false);
-  const [confirmPull, setConfirmPull] = useState(false);
   const [confirmDeactivate, setConfirmDeactivate] = useState(false);
 
   async function refresh() {
@@ -318,32 +313,6 @@ export default function StorageTab() {
     } catch (err) {
       showError(err);
       setDeleting(false);
-    }
-  }
-
-  async function handleSyncPush() {
-    setSyncingPush(true);
-    try {
-      const data = await syncLocalToCloud();
-      toast.success(t('success.storage.sync_local_to_cloud', { count: (data.synced || []).length }));
-      setConfirmPush(false);
-      reloadPage();
-    } catch (err) {
-      showError(err);
-      setSyncingPush(false);
-    }
-  }
-
-  async function handleSyncPull() {
-    setSyncingPull(true);
-    try {
-      const data = await syncCloudToLocal();
-      toast.success(t('success.storage.sync_cloud_to_local', { count: (data.synced || []).length }));
-      setConfirmPull(false);
-      reloadPage();
-    } catch (err) {
-      showError(err);
-      setSyncingPull(false);
     }
   }
 
@@ -590,30 +559,10 @@ export default function StorageTab() {
 
       {tabActiveForSelected && activeDriver !== 'file' && (
         <section className="rounded border p-4 space-y-3" style={{ borderColor: 'hsl(var(--border))' }}>
-          <h3 className="text-sm font-semibold text-foreground">{t('settings.storage.syncTitle')}</h3>
-          <p className="text-xs text-muted-foreground">{t('settings.storage.syncSubtitle')}</p>
-
+          {/* TODO Plan 3: replace with per-project Move buttons. The previous
+              "Sync local <-> cloud" buttons used clearStorageCollection() which
+              would wipe an entire shared backend prefix -- catastrophic in v4. */}
           <div className="flex flex-col gap-2">
-            <button
-              type="button"
-              onClick={() => setConfirmPush(true)}
-              disabled={syncingPush}
-              className="inline-flex items-center gap-2 px-3 py-2 text-sm rounded border text-foreground hover:bg-accent disabled:opacity-50"
-              style={{ borderColor: 'hsl(var(--border))' }}
-            >
-              <Upload size={14} />
-              {t('settings.storage.syncLocalToCloudButton')}
-            </button>
-            <button
-              type="button"
-              onClick={() => setConfirmPull(true)}
-              disabled={syncingPull}
-              className="inline-flex items-center gap-2 px-3 py-2 text-sm rounded border text-foreground hover:bg-accent disabled:opacity-50"
-              style={{ borderColor: 'hsl(var(--border))' }}
-            >
-              <Download size={14} />
-              {t('settings.storage.syncCloudToLocalButton')}
-            </button>
             <button
               type="button"
               onClick={() => setConfirmDeactivate(true)}
@@ -628,24 +577,6 @@ export default function StorageTab() {
         </section>
       )}
 
-      <ConfirmDestructiveModal
-        open={confirmPush}
-        busy={syncingPush}
-        title={t('settings.storage.confirmPush.title')}
-        body={t('settings.storage.confirmPush.body')}
-        confirmLabel={t('settings.storage.confirmPush.confirm')}
-        onConfirm={handleSyncPush}
-        onCancel={() => setConfirmPush(false)}
-      />
-      <ConfirmDestructiveModal
-        open={confirmPull}
-        busy={syncingPull}
-        title={t('settings.storage.confirmPull.title')}
-        body={t('settings.storage.confirmPull.body')}
-        confirmLabel={t('settings.storage.confirmPull.confirm')}
-        onConfirm={handleSyncPull}
-        onCancel={() => setConfirmPull(false)}
-      />
       <ConfirmDestructiveModal
         open={confirmDeactivate}
         busy={deleting}

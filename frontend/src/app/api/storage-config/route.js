@@ -1,5 +1,4 @@
 import { NextResponse } from 'next/server';
-import { MongoClient } from 'mongodb';
 import { withAuth } from '@/lib/auth';
 import {
   readConfigAsync,
@@ -11,6 +10,7 @@ import {
   DRIVERS,
 } from '@/lib/storage';
 import { pingS3 } from '@/lib/s3Store';
+import { pingMongo } from '@/lib/mongoStore';
 
 // Attempt to activate a new config, and if reloadBackend fails, restore the
 // previous on-disk config so the next boot isn't wedged. Ping validation
@@ -32,28 +32,12 @@ async function activateOrRollback(newConfigOrNull) {
   }
 }
 
-const PING_TIMEOUT_MS = 3000;
 const DEFAULT_MONGO_DATABASE = 'pulse';
 
 function bad(detailKey, detail, status = 400, params) {
   const body = { detail, detail_key: detailKey };
   if (params) body.detail_params = params;
   return NextResponse.json(body, { status });
-}
-
-async function pingMongo(uri, database) {
-  const client = new MongoClient(uri, {
-    serverSelectionTimeoutMS: PING_TIMEOUT_MS,
-    connectTimeoutMS: PING_TIMEOUT_MS,
-  });
-  try {
-    await client.connect();
-    const db = client.db(database);
-    await db.command({ ping: 1 });
-    await db.listCollections({}, { nameOnly: true }).toArray();
-  } finally {
-    try { await client.close(); } catch {}
-  }
 }
 
 // User explicitly asked to expose full secrets via GET (plaintext). Access
@@ -106,7 +90,7 @@ export const PUT = withAuth(async (req) => {
       : DEFAULT_MONGO_DATABASE;
 
     try {
-      await pingMongo(uri, database);
+      await pingMongo({ uri, database });
     } catch (err) {
       return bad(
         'errors.mongo.connection_failed',

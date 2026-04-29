@@ -7,5 +7,7 @@ __pycache__
 docs/superpowers
 client/data/*
 frontend/data/*
+client/data.backup-*
+frontend/data.backup-*
 frontend/.env
 client/.env

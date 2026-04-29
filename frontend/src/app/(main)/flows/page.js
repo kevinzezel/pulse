@@ -141,10 +141,10 @@ export default function FlowsPage() {
   }, [sidebarOpen, sidebarHydrated]);
 
   const fetchFlowGroups = useCallback(async () => {
+    if (!activeProjectId) return;
     try {
-      const data = await getFlowGroups();
-      const list = (data?.groups || []).filter((g) => g.project_id === activeProjectId);
-      setFlowGroups(list);
+      const list = await getFlowGroups(activeProjectId);
+      setFlowGroups(Array.isArray(list) ? list : []);
     } catch (err) {
       showError(err);
     } finally {
@@ -155,21 +155,21 @@ export default function FlowsPage() {
   // Fetch data after storage has been hydrated. Re-fetch on project switch.
   useEffect(() => {
     if (!storageHydrated) return;
+    if (!activeProjectId) return;
     let alive = true;
+    const projectId = activeProjectId;
     setLoading(true);
     (async () => {
       try {
-        const [flowsRes, groupsRes] = await Promise.all([
-          listFlows(),
-          getFlowGroups(),
+        const [flowsList, groupsList] = await Promise.all([
+          listFlows(projectId),
+          getFlowGroups(projectId),
         ]);
         if (!alive) return;
-        const all = Array.isArray(flowsRes?.flows) ? flowsRes.flows : [];
-        setFlows(all.filter((f) => f.project_id === activeProjectId));
-        setFlowsProjectId(activeProjectId);
-        const groupsList = Array.isArray(groupsRes?.groups) ? groupsRes.groups : [];
-        setFlowGroups(groupsList.filter((g) => g.project_id === activeProjectId));
-        setFlowGroupsProjectId(activeProjectId);
+        setFlows(Array.isArray(flowsList) ? flowsList : []);
+        setFlowsProjectId(projectId);
+        setFlowGroups(Array.isArray(groupsList) ? groupsList : []);
+        setFlowGroupsProjectId(projectId);
       } catch (err) {
         showError(err);
       } finally {
@@ -179,13 +179,15 @@ export default function FlowsPage() {
     return () => {
       alive = false;
       // Flush any pending scene saves fire-and-forget. The backend file lock
-      // keeps concurrent mutations serialized, so ordering is safe.
+      // keeps concurrent mutations serialized, so ordering is safe. Use the
+      // project id captured at effect start — if the user switched projects
+      // the pending patch belongs to the previous project.
       for (const [id, timer] of Object.entries(saveTimersRef.current)) {
         clearTimeout(timer);
         const patch = pendingSceneRef.current[id];
         if (patch) {
           delete pendingSceneRef.current[id];
-          patchFlow(id, patch).catch((err) =>
+          patchFlow(projectId, id, patch).catch((err) =>
             console.warn('[flows] unmount flush failed', err)
           );
         }
@@ -262,17 +264,18 @@ export default function FlowsPage() {
   const flushPendingScene = useCallback(async (id) => {
     const patch = pendingSceneRef.current[id];
     if (!patch) return;
+    if (!activeProjectId) return;
     delete pendingSceneRef.current[id];
     markSaving(id, true);
     try {
-      const updated = await patchFlow(id, patch);
+      const updated = await patchFlow(activeProjectId, id, patch);
       setFlows((prev) => prev.map((f) => (f.id === id ? updated : f)));
     } catch (err) {
       showError(err);
     } finally {
       markSaving(id, false);
     }
-  }, [markSaving, showError]);
+  }, [activeProjectId, markSaving, showError]);
 
   const scheduleSceneSave = useCallback((id, scene) => {
     pendingSceneRef.current[id] = { scene };
@@ -321,10 +324,11 @@ export default function FlowsPage() {
 
   async function handleModalSubmit(name, groupId) {
     if (creating) return;
+    if (!activeProjectId) return;
     setCreating(true);
     try {
       const targetGroupId = groupId !== undefined ? groupId : selectedFlowGroupId;
-      const created = await createFlow({
+      const created = await createFlow(activeProjectId, {
         name,
         scene: emptyScene(),
         group_id: targetGroupId,
@@ -349,9 +353,10 @@ export default function FlowsPage() {
   }
 
   async function handleRename(id, name) {
+    if (!activeProjectId) return;
     markSaving(id, true);
     try {
-      const updated = await patchFlow(id, { name });
+      const updated = await patchFlow(activeProjectId, id, { name });
       setFlows((prev) => prev.map((f) => (f.id === id ? updated : f)));
     } catch (err) {
       showError(err);
@@ -362,6 +367,7 @@ export default function FlowsPage() {
   }
 
   async function handleDuplicate(source) {
+    if (!activeProjectId) return;
     markSaving(source.id, true);
     try {
       const name = `${source.name} ${t('flows.copySuffix')}`;
@@ -369,7 +375,7 @@ export default function FlowsPage() {
       // is stale (group deleted), the duplicate lands in "No group" — same
       // bucket the user already saw the source in.
       const inheritedGroupId = effectiveGroupOf(source);
-      const created = await createFlow({
+      const created = await createFlow(activeProjectId, {
         name,
         scene: source.scene || emptyScene(),
         group_id: inheritedGroupId,
@@ -387,13 +393,14 @@ export default function FlowsPage() {
   }
 
   async function handleAssignFlowGroup(flowId, groupId) {
+    if (!activeProjectId) return;
     const prev = flows;
     const target = prev.find((f) => f.id === flowId);
     if (!target) return;
     const nextGroupId = groupId || null;
     setFlows((cur) => cur.map((f) => (f.id === flowId ? { ...f, group_id: nextGroupId } : f)));
     try {
-      const updated = await patchFlow(flowId, { group_id: nextGroupId });
+      const updated = await patchFlow(activeProjectId, flowId, { group_id: nextGroupId });
       setFlows((cur) => cur.map((f) => (f.id === flowId ? updated : f)));
       setProjectFlowForGroup(activeProjectId, nextGroupId, flowId);
     } catch (err) {
@@ -403,10 +410,11 @@ export default function FlowsPage() {
   }
 
   async function handleCreateFlowGroupInline(name) {
+    if (!activeProjectId) return null;
     try {
-      const data = await createFlowGroup(name);
-      setFlowGroups((prev) => [...prev, data.group]);
-      return data.group;
+      const created = await createFlowGroup(activeProjectId, name);
+      setFlowGroups((prev) => [...prev, created]);
+      return created;
     } catch (err) {
       showError(err);
       throw err;
@@ -414,10 +422,8 @@ export default function FlowsPage() {
   }
 
   async function handleReorderFlowGroups(fromId, toId) {
+    if (!activeProjectId) return;
     const prev = flowGroups;
-    const from = flowGroups.find((g) => g.id === fromId);
-    const to = flowGroups.find((g) => g.id === toId);
-    if (!from || !to) return;
     const fromIndex = flowGroups.findIndex((g) => g.id === fromId);
     const toIndex = flowGroups.findIndex((g) => g.id === toId);
     if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) return;
@@ -426,8 +432,8 @@ export default function FlowsPage() {
     optimistic.splice(toIndex, 0, moved);
     setFlowGroups(optimistic);
     try {
-      const res = await reorderFlowGroups(fromId, toId);
-      const list = (res.groups || []).filter((g) => g.project_id === activeProjectId);
+      const res = await reorderFlowGroups(activeProjectId, optimistic);
+      const list = Array.isArray(res?.groups) ? res.groups : optimistic;
       setFlowGroups(list);
     } catch (err) {
       setFlowGroups(prev);
@@ -436,10 +442,11 @@ export default function FlowsPage() {
   }
 
   async function handleHideFlowGroup(groupId) {
+    if (!activeProjectId) return;
     const prev = flowGroups;
     setFlowGroups((cur) => cur.map((g) => (g.id === groupId ? { ...g, hidden: true } : g)));
     try {
-      await setFlowGroupHidden(groupId, true);
+      await setFlowGroupHidden(activeProjectId, groupId, true);
       toast.success(t('success.flow_group_hidden'));
     } catch (err) {
       setFlowGroups(prev);
@@ -449,9 +456,10 @@ export default function FlowsPage() {
 
   async function confirmDelete(flow) {
     if (deletingFlowId) return;
+    if (!activeProjectId) return;
     setDeletingFlowId(flow.id);
     try {
-      await deleteFlow(flow.id);
+      await deleteFlow(activeProjectId, flow.id);
       setFlows((prev) => prev.filter((f) => f.id !== flow.id));
       toast.success(t('success.flow_deleted'));
       setToDelete(null);
@@ -461,6 +469,26 @@ export default function FlowsPage() {
       setDeletingFlowId(null);
     }
   }
+
+  // GroupSelector calls these without knowing about projects, so we bind the
+  // active project id here before handing them down. Memoized to keep stable
+  // references across renders that don't change `activeProjectId`.
+  const createFlowGroupAction = useCallback(
+    (name) => createFlowGroup(activeProjectId, name),
+    [activeProjectId],
+  );
+  const renameFlowGroupAction = useCallback(
+    (id, name) => renameFlowGroup(activeProjectId, id, name),
+    [activeProjectId],
+  );
+  const deleteFlowGroupAction = useCallback(
+    (id) => deleteFlowGroup(activeProjectId, id),
+    [activeProjectId],
+  );
+  const setFlowGroupHiddenAction = useCallback(
+    (id, hidden) => setFlowGroupHidden(activeProjectId, id, hidden),
+    [activeProjectId],
+  );
 
   const excalidrawInitialData = useMemo(() => {
     if (!selectedFlow) return null;
@@ -526,10 +554,10 @@ export default function FlowsPage() {
             onGroupsChanged={fetchFlowGroups}
             isMobile={isMobile}
             showOpenAll={false}
-            createGroupAction={createFlowGroup}
-            renameGroupAction={renameFlowGroup}
-            deleteGroupAction={deleteFlowGroup}
-            setGroupHiddenAction={setFlowGroupHidden}
+            createGroupAction={createFlowGroupAction}
+            renameGroupAction={renameFlowGroupAction}
+            deleteGroupAction={deleteFlowGroupAction}
+            setGroupHiddenAction={setFlowGroupHiddenAction}
             deleteConfirmMessageKey="flowGroups.deleteConfirmMessage"
             deleteConfirmMessageZeroKey="flowGroups.deleteConfirmMessageZero"
             successKeys={FLOW_GROUP_SUCCESS_KEYS}

@@ -7,7 +7,7 @@ import {
   X, Search, Settings as SettingsIcon, Pin, Folder, FileText, Loader,
 } from 'lucide-react';
 import {
-  getPrompts, getPromptGroups, sendTextToSession,
+  getCombinedPrompts, getCombinedPromptGroups, sendTextToSession,
 } from '@/services/api';
 import { useTranslation, useErrorToast } from '@/providers/I18nProvider';
 import { useProjects } from '@/providers/ProjectsProvider';
@@ -55,9 +55,12 @@ export default function PromptQuickSelectorModal({ sessionId, open, onClose }) {
   const [sendingKey, setSendingKey] = useState(null);
 
   // Reload data + reset state every time the modal is opened so a stale
-  // search/filter from a previous open doesn't leak in.
+  // search/filter from a previous open doesn't leak in. Refetches when
+  // activeProjectId changes so the project-scoped half of the merged list
+  // stays in sync.
   useEffect(() => {
     if (!open) return;
+    if (!activeProjectId) return;
     setSearchQuery('');
     setGroupToken(PROMPT_GROUP_ALL);
     setSendingKey(null);
@@ -65,13 +68,13 @@ export default function PromptQuickSelectorModal({ sessionId, open, onClose }) {
     setLoading(true);
     (async () => {
       try {
-        const [promptsRes, groupsRes] = await Promise.all([
-          getPrompts(),
-          getPromptGroups(),
+        const [promptsList, groupsList] = await Promise.all([
+          getCombinedPrompts(activeProjectId),
+          getCombinedPromptGroups(activeProjectId),
         ]);
         if (cancelled) return;
-        setPrompts(Array.isArray(promptsRes?.prompts) ? promptsRes.prompts : []);
-        setGroups(Array.isArray(groupsRes?.groups) ? groupsRes.groups : []);
+        setPrompts(Array.isArray(promptsList) ? promptsList : []);
+        setGroups(Array.isArray(groupsList) ? groupsList : []);
       } catch (err) {
         if (!cancelled) showError(err);
       } finally {
@@ -79,7 +82,7 @@ export default function PromptQuickSelectorModal({ sessionId, open, onClose }) {
       }
     })();
     return () => { cancelled = true; };
-  }, [open, showError]);
+  }, [open, activeProjectId, showError]);
 
   const handleClose = useCallback(() => {
     if (sending) return;

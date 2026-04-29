@@ -6,8 +6,8 @@ import {
   Plus, Search, X, Loader, Send, CornerDownLeft, Terminal as TerminalIcon, Menu,
 } from 'lucide-react';
 import {
-  getPrompts, createPrompt, updatePrompt, deletePrompt,
-  getPromptGroups, createPromptGroup, renamePromptGroup, deletePromptGroup,
+  getCombinedPrompts, createPrompt, updatePrompt, deletePrompt,
+  getCombinedPromptGroups, createPromptGroup, renamePromptGroup, deletePromptGroup,
   sendTextToSession, getSessions, composeSessionId,
 } from '@/services/api';
 import { useTranslation, useErrorToast } from '@/providers/I18nProvider';
@@ -92,15 +92,16 @@ export default function PromptsLibrary() {
   // ---------- load -------------------------------------------------------
 
   const fetchAll = useCallback(async () => {
+    if (!activeProjectId) return;
     setLoading(true);
     try {
-      const [promptsRes, groupsRes] = await Promise.all([
-        getPrompts(),
-        getPromptGroups(),
+      const [promptsList, groupsList] = await Promise.all([
+        getCombinedPrompts(activeProjectId),
+        getCombinedPromptGroups(activeProjectId),
       ]);
-      setPrompts(Array.isArray(promptsRes?.prompts) ? promptsRes.prompts : []);
+      setPrompts(Array.isArray(promptsList) ? promptsList : []);
       setPromptsProjectId(activeProjectId);
-      setGroups(Array.isArray(groupsRes?.groups) ? groupsRes.groups : []);
+      setGroups(Array.isArray(groupsList) ? groupsList : []);
       setGroupsLoaded(true);
     } catch (err) {
       showError(err);
@@ -273,14 +274,17 @@ export default function PromptsLibrary() {
     setSavingPrompt(true);
     try {
       if (editorMode === 'create') {
-        const data = await createPrompt({
-          name: payload.name,
-          body: payload.body,
-          isGlobal: payload.isGlobal,
-          groupId: payload.groupId,
-          pinned: payload.pinned,
+        const created = await createPrompt({
+          projectId: payload.isGlobal ? undefined : activeProjectId,
+          scope: payload.isGlobal ? 'global' : undefined,
+          body: {
+            name: payload.name,
+            body: payload.body,
+            group_id: payload.groupId,
+            pinned: payload.pinned,
+          },
         });
-        setPrompts((prev) => [data.prompt, ...prev]);
+        setPrompts((prev) => [created, ...prev]);
         // Switch the visible group to where the prompt landed so the user sees
         // it; respects pinned-first by jumping to "Pinned" filter.
         let nextToken = payload.pinned
@@ -293,18 +297,54 @@ export default function PromptsLibrary() {
         if (nextToken !== groupToken) {
           setGroupToken(nextToken);
         }
-        setProjectPromptForGroup(activeProjectId, nextToken, data.prompt.id);
+        setProjectPromptForGroup(activeProjectId, nextToken, created.id);
         setEditorMode('preview');
-        toast.success(t(data.detail_key));
+        toast.success(t('success.prompt_created'));
       } else if (editorMode === 'edit' && selectedPrompt) {
-        const data = await updatePrompt(selectedPrompt.id, {
-          name: payload.name,
-          body: payload.body,
-          isGlobal: payload.isGlobal,
-          groupId: payload.groupId,
-          pinned: payload.pinned,
-        });
-        setPrompts((prev) => prev.map((p) => (p.id === data.prompt.id ? data.prompt : p)));
+        // The prompt may move scopes (project <-> global). Delete from the old
+        // scope, recreate in the new one — there is no "move scope" endpoint
+        // because each scope's prompts.json is a separate file, possibly on a
+        // different storage backend.
+        const wasGlobal = !selectedPrompt.project_id;
+        const willBeGlobal = !!payload.isGlobal;
+        let updated;
+        if (wasGlobal === willBeGlobal) {
+          updated = await updatePrompt({
+            projectId: wasGlobal ? undefined : selectedPrompt.project_id,
+            scope: wasGlobal ? 'global' : undefined,
+            id: selectedPrompt.id,
+            patch: {
+              name: payload.name,
+              body: payload.body,
+              group_id: payload.groupId,
+              pinned: payload.pinned,
+            },
+          });
+          setPrompts((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
+        } else {
+          // Cross-scope move: delete then create. Order matters — if delete
+          // succeeds and create then fails, the user loses the prompt row,
+          // but the editor still has the body so they can retry without
+          // duplication. Reverse order would risk double-rows on partial
+          // failure. The catch below refetches to surface the post-delete
+          // state so the UI doesn't show a phantom of the deleted row.
+          await deletePrompt({
+            projectId: wasGlobal ? undefined : selectedPrompt.project_id,
+            scope: wasGlobal ? 'global' : undefined,
+            id: selectedPrompt.id,
+          });
+          updated = await createPrompt({
+            projectId: willBeGlobal ? undefined : activeProjectId,
+            scope: willBeGlobal ? 'global' : undefined,
+            body: {
+              name: payload.name,
+              body: payload.body,
+              group_id: payload.groupId,
+              pinned: payload.pinned,
+            },
+          });
+          setPrompts((prev) => [updated, ...prev.filter((p) => p.id !== selectedPrompt.id)]);
+        }
         // Follow the prompt if its new group/pinned state pulls it out of the
         // current filter — otherwise the auto-select effect would yank focus
         // to a sibling and the user would lose what they just edited.
@@ -323,12 +363,17 @@ export default function PromptsLibrary() {
         if (nextToken !== groupToken) {
           setGroupToken(nextToken);
         }
-        setProjectPromptForGroup(activeProjectId, nextToken, data.prompt.id);
+        setProjectPromptForGroup(activeProjectId, nextToken, updated.id);
         setEditorMode('preview');
-        toast.success(t(data.detail_key));
+        toast.success(t('success.prompt_updated'));
       }
     } catch (err) {
       showError(err);
+      // On failure, refetch to ensure the UI matches server state. A
+      // cross-scope move that succeeded the delete but failed the create
+      // would otherwise leave the deleted row in local state until the
+      // next manual refresh.
+      try { await fetchAll(); } catch {}
     } finally {
       setSavingPrompt(false);
     }
@@ -340,9 +385,19 @@ export default function PromptsLibrary() {
 
   async function handleConfirmDeletePrompt() {
     if (!confirmDeletePromptId) return;
+    const target = prompts.find((p) => p.id === confirmDeletePromptId);
+    if (!target) {
+      setConfirmDeletePromptId(null);
+      return;
+    }
     setDeletingPrompt(true);
     try {
-      const data = await deletePrompt(confirmDeletePromptId);
+      const isGlobal = !target.project_id;
+      await deletePrompt({
+        projectId: isGlobal ? undefined : target.project_id,
+        scope: isGlobal ? 'global' : undefined,
+        id: confirmDeletePromptId,
+      });
       setPrompts((prev) => prev.filter((p) => p.id !== confirmDeletePromptId));
       setConfirmDeletePromptId(null);
       if (selectedPromptId === confirmDeletePromptId) {
@@ -357,7 +412,7 @@ export default function PromptsLibrary() {
         }
         setEditorMode('empty');
       }
-      toast.success(t(data.detail_key));
+      toast.success(t('success.prompt_deleted'));
     } catch (err) {
       showError(err);
     } finally {
@@ -395,9 +450,11 @@ export default function PromptsLibrary() {
   async function handleCreateGroup(name) {
     setCreatingGroup(true);
     try {
-      const data = await createPromptGroup(name);
-      setGroups((prev) => [...prev, data.group]);
-      toast.success(t(data.detail_key));
+      // New groups default to global scope to match historical behavior --
+      // groups have always been visible across all projects.
+      const created = await createPromptGroup({ scope: 'global', name });
+      setGroups((prev) => [...prev, created]);
+      toast.success(t('success.prompt_group_created'));
     } catch (err) {
       showError(err);
       throw err;
@@ -407,11 +464,19 @@ export default function PromptsLibrary() {
   }
 
   async function handleRenameGroup(groupId, name) {
+    const target = groups.find((g) => g.id === groupId);
+    if (!target) return;
     setRenamingGroupId(groupId);
     try {
-      const data = await renamePromptGroup(groupId, name);
-      setGroups((prev) => prev.map((g) => (g.id === groupId ? data.group : g)));
-      toast.success(t(data.detail_key));
+      const isGlobal = !target.project_id;
+      const updated = await renamePromptGroup({
+        projectId: isGlobal ? undefined : target.project_id,
+        scope: isGlobal ? 'global' : undefined,
+        id: groupId,
+        name,
+      });
+      setGroups((prev) => prev.map((g) => (g.id === groupId ? updated : g)));
+      toast.success(t('success.prompt_group_renamed'));
     } catch (err) {
       showError(err);
       throw err;
@@ -421,18 +486,45 @@ export default function PromptsLibrary() {
   }
 
   async function handleDeleteGroup(groupId) {
+    const target = groups.find((g) => g.id === groupId);
+    if (!target) return;
     setDeletingGroupId(groupId);
     try {
-      const data = await deletePromptGroup(groupId);
+      // Clear group_id from any prompts pointing at this group BEFORE removing
+      // the group itself. Same pattern as deleteFlowGroup: avoids a window
+      // where the group is gone but prompts still carry an orphan id. Prompts
+      // can be in either scope, so we patch each in its own scope.
+      const orphans = prompts.filter((p) => p.group_id === groupId);
+      const orphanResults = await Promise.allSettled(orphans.map((p) => {
+        const pIsGlobal = !p.project_id;
+        return updatePrompt({
+          projectId: pIsGlobal ? undefined : p.project_id,
+          scope: pIsGlobal ? 'global' : undefined,
+          id: p.id,
+          patch: { group_id: null },
+        });
+      }));
+      for (let i = 0; i < orphanResults.length; i++) {
+        if (orphanResults[i].status === 'rejected') {
+          console.warn('handleDeleteGroup: failed to clear group_id on prompt', orphans[i]?.id, orphanResults[i].reason);
+        }
+      }
+
+      const isGlobal = !target.project_id;
+      await deletePromptGroup({
+        projectId: isGlobal ? undefined : target.project_id,
+        scope: isGlobal ? 'global' : undefined,
+        id: groupId,
+      });
       setGroups((prev) => prev.filter((g) => g.id !== groupId));
-      // Clear group_id from any prompts pointing at this group in local state.
+      // Mirror the orphan cleanup in local state.
       setPrompts((prev) => prev.map((p) =>
         p.group_id === groupId ? { ...p, group_id: null } : p
       ));
       if (groupToken === groupId) {
         setGroupToken(PROMPT_GROUP_ALL);
       }
-      toast.success(t(data.detail_key));
+      toast.success(t('success.prompt_group_deleted'));
     } catch (err) {
       showError(err);
       throw err;

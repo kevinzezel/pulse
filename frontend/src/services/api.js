@@ -281,10 +281,6 @@ export function getSessionCwd(compositeId) {
 }
 
 const NAME_MAX = 50;
-// Espelha SEND_TEXT_MAX_LENGTH em client/src/routes/terminal.py:37 — prompts
-// são enviados via /send-text quando despachados pra um terminal, então o
-// limite de body do prompt acompanha o cap server-side.
-const PROMPT_BODY_MAX = 50000;
 
 function normalizeGroupName(name) {
   const stripped = String(name ?? '').trim();
@@ -405,105 +401,46 @@ export async function setGroupHidden(groupId, hidden) {
 
 // ===== Flow Groups (independent from terminal groups) =====
 
-export async function getFlowGroups() {
-  return localRequest('/api/flow-groups');
+export async function getFlowGroups(projectId) {
+  const data = await localRequest(`/api/flow-groups?project_id=${encodeURIComponent(projectId)}`);
+  return data.groups || [];
 }
 
-export async function saveFlowGroups(groups) {
-  return localRequest('/api/flow-groups', {
-    method: 'PUT',
-    body: JSON.stringify({ groups }),
+export async function createFlowGroup(projectId, name) {
+  return await localRequest(`/api/flow-groups?project_id=${encodeURIComponent(projectId)}`, {
+    method: 'POST',
+    body: JSON.stringify({ name }),
   });
 }
 
-export async function reorderFlowGroups(fromId, toId) {
-  const { groups } = await getFlowGroups();
-  const from = groups.find(g => g.id === fromId);
-  const to = groups.find(g => g.id === toId);
-  if (!from || !to || from.project_id !== to.project_id) {
-    const err = new Error('Flow group not found');
-    err.detail_key = 'errors.flow_group_not_found';
-    throw err;
-  }
-  const scoped = groups.filter(g => g.project_id === from.project_id);
-  const reordered = reorderById(scoped, fromId, toId);
-  if (reordered === scoped) return { groups };
-  let idx = 0;
-  const next = groups.map(g => (
-    g.project_id === from.project_id ? reordered[idx++] : g
-  ));
-  const res = await saveFlowGroups(next);
-  return { groups: res.groups };
-}
-
-export async function createFlowGroup(name) {
-  const clean = normalizeGroupName(name);
-  const { groups } = await getFlowGroups();
-  const pid = getActiveProjectId();
-  const scoped = groups.filter((g) => g.project_id === pid);
-  assertUniqueName(scoped, clean);
-  const draft = { name: clean, project_id: pid };
-  const res = await localRequest('/api/flow-groups', {
-    method: 'PUT',
-    body: JSON.stringify({ groups: [...groups, draft] }),
-  });
-  const created = res.groups[res.groups.length - 1];
-  return { group: created, detail_key: 'success.flow_group_created' };
-}
-
-export async function renameFlowGroup(groupId, name) {
-  const clean = normalizeGroupName(name);
-  const { groups } = await getFlowGroups();
-  const target = groups.find(g => g.id === groupId);
-  if (!target) {
-    const err = new Error('Flow group not found');
-    err.detail_key = 'errors.flow_group_not_found';
-    throw err;
-  }
-  const scoped = groups.filter(g => g.project_id === target.project_id);
-  assertUniqueName(scoped, clean, groupId);
-  const next = groups.map(g => g.id === groupId ? { ...g, name: clean } : g);
-  const res = await localRequest('/api/flow-groups', {
+export async function renameFlowGroup(projectId, id, name) {
+  // Read full list, mutate, replace whole array via PUT (last-writer-wins).
+  const groups = await getFlowGroups(projectId);
+  const next = groups.map(g => g.id === id ? { ...g, name } : g);
+  return await localRequest(`/api/flow-groups?project_id=${encodeURIComponent(projectId)}`, {
     method: 'PUT',
     body: JSON.stringify({ groups: next }),
   });
-  const updated = res.groups.find(g => g.id === groupId);
-  return { group: updated, detail_key: 'success.flow_group_renamed' };
 }
 
-export async function setFlowGroupHidden(groupId, hidden) {
-  const { groups } = await getFlowGroups();
-  if (!groups.some(g => g.id === groupId)) {
-    const err = new Error('Flow group not found');
-    err.detail_key = 'errors.flow_group_not_found';
-    throw err;
-  }
-  const next = groups.map(g => g.id === groupId ? { ...g, hidden: !!hidden } : g);
-  const res = await localRequest('/api/flow-groups', {
+export async function setFlowGroupHidden(projectId, id, hidden) {
+  // Same pattern as rename: read all, mutate one, replace via PUT.
+  const groups = await getFlowGroups(projectId);
+  const next = groups.map(g => g.id === id ? { ...g, hidden: !!hidden } : g);
+  return await localRequest(`/api/flow-groups?project_id=${encodeURIComponent(projectId)}`, {
     method: 'PUT',
     body: JSON.stringify({ groups: next }),
   });
-  const updated = res.groups.find(g => g.id === groupId);
-  return { group: updated, detail_key: hidden ? 'success.flow_group_hidden' : 'success.flow_group_shown' };
 }
 
-export async function deleteFlowGroup(groupId) {
-  const { groups } = await getFlowGroups();
-  if (!groups.some(g => g.id === groupId)) {
-    const err = new Error('Flow group not found');
-    err.detail_key = 'errors.flow_group_not_found';
-    throw err;
-  }
-  // Antes de remover o grupo, limpa group_id dos fluxos que apontavam pra ele.
-  // Sem isso, o flow ficaria com group_id "fantasma" — a UI cai pra "Sem grupo"
-  // por validação, mas o JSON ficaria sujo e poderia ressuscitar se um grupo
-  // novo fosse criado com o mesmo id (improvável dado UUID, mas o cleanup
-  // mantém o store coerente). Falha no cleanup é fire-and-forget mas vai pro
-  // console.warn pra ficar visível em dev.
+export async function deleteFlowGroup(projectId, id) {
+  // Detach orphan flows from the group before removing it. Same rationale as
+  // before: keeps the JSON clean if a future group reuses the id (UUID makes
+  // it improbable, but the cleanup costs nothing).
   try {
-    const data = await listFlows();
-    const orphans = (data?.flows || []).filter((f) => f.group_id === groupId);
-    const results = await Promise.allSettled(orphans.map((f) => patchFlow(f.id, { group_id: null })));
+    const flows = await listFlows(projectId);
+    const orphans = flows.filter((f) => f.group_id === id);
+    const results = await Promise.allSettled(orphans.map((f) => patchFlow(projectId, f.id, { group_id: null })));
     for (let i = 0; i < results.length; i++) {
       if (results[i].status === 'rejected') {
         console.warn('deleteFlowGroup: failed to clear group_id on flow', orphans[i]?.id, results[i].reason);
@@ -513,12 +450,17 @@ export async function deleteFlowGroup(groupId) {
     console.warn('deleteFlowGroup: orphan cleanup failed:', err);
   }
 
-  const nextGroups = groups.filter(g => g.id !== groupId);
-  await localRequest('/api/flow-groups', {
+  return await localRequest(
+    `/api/flow-groups?project_id=${encodeURIComponent(projectId)}&id=${encodeURIComponent(id)}`,
+    { method: 'DELETE' },
+  );
+}
+
+export async function reorderFlowGroups(projectId, groups) {
+  return await localRequest(`/api/flow-groups?project_id=${encodeURIComponent(projectId)}`, {
     method: 'PUT',
-    body: JSON.stringify({ groups: nextGroups }),
+    body: JSON.stringify({ groups }),
   });
-  return { detail_key: 'success.flow_group_deleted' };
 }
 
 export async function deleteGroup(groupId) {
@@ -557,202 +499,89 @@ export async function deleteGroup(groupId) {
   return { detail_key: 'success.group_deleted' };
 }
 
-function normalizePrompt(payload) {
-  const name = String(payload.name ?? '').trim();
-  if (!name) {
-    const err = new Error('Prompt name required');
-    err.detail_key = 'errors.prompt_name_required';
-    throw err;
-  }
-  if (name.length > NAME_MAX) {
-    const err = new Error('Prompt name too long');
-    err.detail_key = 'errors.prompt_name_too_long';
-    err.detail_params = { max: NAME_MAX };
-    throw err;
-  }
-  const body = typeof payload.body === 'string' ? payload.body : '';
-  if (body.length > PROMPT_BODY_MAX) {
-    const err = new Error('Prompt body too long');
-    err.detail_key = 'errors.prompt_body_too_long';
-    err.detail_params = { max: PROMPT_BODY_MAX };
-    throw err;
-  }
-  return { name, body };
+// ===== Prompts =====
+
+function buildScopeQS({ projectId, scope }) {
+  if (scope === 'global') return '?scope=global';
+  return `?project_id=${encodeURIComponent(projectId)}`;
 }
 
-export async function getPrompts() {
-  return localRequest('/api/prompts');
+export async function getPrompts({ projectId, scope } = {}) {
+  const qs = buildScopeQS({ projectId, scope });
+  const data = await localRequest(`/api/prompts${qs}`);
+  return data.prompts || [];
 }
 
-export async function createPrompt({ name, body, isGlobal = false, groupId = null, pinned = false }) {
-  const clean = normalizePrompt({ name, body });
-  const { prompts } = await getPrompts();
-  const draft = {
-    ...clean,
-    project_id: isGlobal ? null : getActiveProjectId(),
-    group_id: typeof groupId === 'string' && groupId ? groupId : null,
-    pinned: pinned === true,
-  };
-  const res = await localRequest('/api/prompts', {
-    method: 'PUT',
-    body: JSON.stringify({ prompts: [...prompts, draft] }),
-  });
-  const created = res.prompts[res.prompts.length - 1];
-  return { prompt: created, detail_key: 'success.prompt_created' };
+// Combined fetch helper — used by PromptsLibrary and PromptQuickSelectorModal
+// for the visible "globals + project-scoped" merged list.
+export async function getCombinedPrompts(projectId) {
+  const [global, scoped] = await Promise.all([
+    getPrompts({ scope: 'global' }),
+    getPrompts({ projectId }),
+  ]);
+  return [...global, ...scoped];
 }
 
-export async function updatePrompt(promptId, payload) {
-  const { prompts } = await getPrompts();
-  const existing = prompts.find(p => p.id === promptId);
-  if (!existing) {
-    const err = new Error('Prompt not found');
-    err.detail_key = 'errors.prompt_not_found';
-    throw err;
-  }
-  // isGlobal flips project_id but keeps group_id intact — groups are global to
-  // the library, not bound to any project.
-  let projectId = existing.project_id ?? null;
-  if ('isGlobal' in payload) {
-    projectId = payload.isGlobal ? null : getActiveProjectId();
-  }
-  let groupId = existing.group_id ?? null;
-  if ('groupId' in payload) {
-    groupId = typeof payload.groupId === 'string' && payload.groupId ? payload.groupId : null;
-  }
-  let pinned = existing.pinned === true;
-  if ('pinned' in payload) {
-    pinned = payload.pinned === true;
-  }
-  const merged = {
-    ...existing,
-    ...('name' in payload ? { name: payload.name } : {}),
-    ...('body' in payload ? { body: payload.body } : {}),
-    project_id: projectId,
-    group_id: groupId,
-    pinned,
-    updated_at: new Date().toISOString(),
-  };
-  const clean = normalizePrompt({
-    name: merged.name,
-    body: merged.body,
-  });
-  const next = prompts.map(p => p.id === promptId ? { ...merged, ...clean } : p);
-  const res = await localRequest('/api/prompts', {
-    method: 'PUT',
-    body: JSON.stringify({ prompts: next }),
-  });
-  const updated = res.prompts.find(p => p.id === promptId);
-  return { prompt: updated, detail_key: 'success.prompt_updated' };
-}
-
-export async function deletePrompt(promptId) {
-  const { prompts } = await getPrompts();
-  if (!prompts.some(p => p.id === promptId)) {
-    const err = new Error('Prompt not found');
-    err.detail_key = 'errors.prompt_not_found';
-    throw err;
-  }
-  await localRequest('/api/prompts', {
-    method: 'PUT',
-    body: JSON.stringify({ prompts: prompts.filter(p => p.id !== promptId) }),
-  });
-  return { detail_key: 'success.prompt_deleted' };
-}
-
-// ===== Prompt groups (global library categories — no project_id) =====
-
-export async function getPromptGroups() {
-  return localRequest('/api/prompt-groups');
-}
-
-export async function savePromptGroups(groups) {
-  return localRequest('/api/prompt-groups', {
-    method: 'PUT',
-    body: JSON.stringify({ groups }),
+export async function createPrompt({ projectId, scope, body }) {
+  const qs = buildScopeQS({ projectId, scope });
+  return await localRequest(`/api/prompts${qs}`, {
+    method: 'POST',
+    body: JSON.stringify(body),
   });
 }
 
-function normalizePromptGroupName(name) {
-  const stripped = String(name ?? '').trim();
-  if (!stripped) {
-    const err = new Error('Prompt group name is required');
-    err.detail_key = 'errors.prompt_group_name_required';
-    throw err;
-  }
-  if (stripped.length > NAME_MAX) {
-    const err = new Error('Prompt group name too long');
-    err.detail_key = 'errors.prompt_group_name_too_long';
-    err.detail_params = { max: NAME_MAX };
-    throw err;
-  }
-  return stripped;
+export async function updatePrompt({ projectId, scope, id, patch }) {
+  const qs = buildScopeQS({ projectId, scope });
+  return await localRequest(`/api/prompts/${encodeURIComponent(id)}${qs}`, {
+    method: 'PATCH',
+    body: JSON.stringify(patch),
+  });
 }
 
-function assertUniquePromptGroupName(groups, name, excludeId = null) {
-  const lowered = name.toLowerCase();
-  if (groups.some(g => g.id !== excludeId && g.name.toLowerCase() === lowered)) {
-    const err = new Error('Prompt group name taken');
-    err.detail_key = 'errors.prompt_group_name_taken';
-    throw err;
-  }
+export async function deletePrompt({ projectId, scope, id }) {
+  const qs = buildScopeQS({ projectId, scope });
+  return await localRequest(`/api/prompts/${encodeURIComponent(id)}${qs}`, {
+    method: 'DELETE',
+  });
 }
 
-export async function createPromptGroup(name) {
-  const clean = normalizePromptGroupName(name);
-  const { groups } = await getPromptGroups();
-  assertUniquePromptGroupName(groups, clean);
-  const draft = { name: clean };
-  const res = await savePromptGroups([...groups, draft]);
-  const created = res.groups[res.groups.length - 1];
-  return { group: created, detail_key: 'success.prompt_group_created' };
+// ===== Prompt groups =====
+
+export async function getPromptGroups({ projectId, scope } = {}) {
+  const qs = buildScopeQS({ projectId, scope });
+  const data = await localRequest(`/api/prompt-groups${qs}`);
+  return data.groups || [];
 }
 
-export async function renamePromptGroup(groupId, name) {
-  const clean = normalizePromptGroupName(name);
-  const { groups } = await getPromptGroups();
-  const target = groups.find(g => g.id === groupId);
-  if (!target) {
-    const err = new Error('Prompt group not found');
-    err.detail_key = 'errors.prompt_group_not_found';
-    throw err;
-  }
-  assertUniquePromptGroupName(groups, clean, groupId);
-  const now = new Date().toISOString();
-  const next = groups.map(g => g.id === groupId ? { ...g, name: clean, updated_at: now } : g);
-  const res = await savePromptGroups(next);
-  const updated = res.groups.find(g => g.id === groupId);
-  return { group: updated, detail_key: 'success.prompt_group_renamed' };
+export async function getCombinedPromptGroups(projectId) {
+  const [global, scoped] = await Promise.all([
+    getPromptGroups({ scope: 'global' }),
+    getPromptGroups({ projectId }),
+  ]);
+  return [...global, ...scoped];
 }
 
-export async function deletePromptGroup(groupId) {
-  const { groups } = await getPromptGroups();
-  if (!groups.some(g => g.id === groupId)) {
-    const err = new Error('Prompt group not found');
-    err.detail_key = 'errors.prompt_group_not_found';
-    throw err;
-  }
-  // Clear `group_id` from any prompts pointing at the group BEFORE removing
-  // the group itself. Same pattern as deleteFlowGroup: avoids a tiny window
-  // where the group is gone but the prompt still carries an orphan id.
-  try {
-    const { prompts } = await getPrompts();
-    const orphans = prompts.filter((p) => p.group_id === groupId);
-    if (orphans.length > 0) {
-      const nextPrompts = prompts.map((p) =>
-        p.group_id === groupId ? { ...p, group_id: null } : p
-      );
-      await localRequest('/api/prompts', {
-        method: 'PUT',
-        body: JSON.stringify({ prompts: nextPrompts }),
-      });
-    }
-  } catch (err) {
-    console.warn('deletePromptGroup: orphan cleanup failed:', err);
-  }
+export async function createPromptGroup({ projectId, scope, name }) {
+  const qs = buildScopeQS({ projectId, scope });
+  return await localRequest(`/api/prompt-groups${qs}`, {
+    method: 'POST',
+    body: JSON.stringify({ name }),
+  });
+}
 
-  const nextGroups = groups.filter(g => g.id !== groupId);
-  await savePromptGroups(nextGroups);
-  return { detail_key: 'success.prompt_group_deleted' };
+export async function renamePromptGroup({ projectId, scope, id, name }) {
+  const qs = buildScopeQS({ projectId, scope });
+  return await localRequest(`/api/prompt-groups/${encodeURIComponent(id)}${qs}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ name }),
+  });
+}
+
+export async function deletePromptGroup({ projectId, scope, id }) {
+  const qs = buildScopeQS({ projectId, scope });
+  return await localRequest(`/api/prompt-groups/${encodeURIComponent(id)}${qs}`, {
+    method: 'DELETE',
+  });
 }
 
 export function getSettings(serverId) {
@@ -848,184 +677,159 @@ export function saveImageToTemp(compositeIdOrServerId, blob) {
 
 // ===== Notes =====
 
-export function listNotes() {
-  return localRequest('/api/notes');
+export async function listNotes(projectId) {
+  const data = await localRequest(`/api/notes?project_id=${encodeURIComponent(projectId)}`);
+  return data.notes || [];
 }
 
-export function createNote(payload) {
-  const body = { ...(payload || {}), project_id: getActiveProjectId() };
-  return localRequest('/api/notes', {
+export async function createNote(projectId, body) {
+  return await localRequest(`/api/notes?project_id=${encodeURIComponent(projectId)}`, {
     method: 'POST',
     body: JSON.stringify(body),
   });
 }
 
-export function patchNote(id, patch) {
-  return localRequest(`/api/notes/${encodeURIComponent(id)}`, {
-    method: 'PATCH',
-    body: JSON.stringify(patch),
-  });
+export async function patchNote(projectId, id, patch) {
+  return await localRequest(
+    `/api/notes/${encodeURIComponent(id)}?project_id=${encodeURIComponent(projectId)}`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    },
+  );
 }
 
-export function deleteNote(id) {
-  return localRequest(`/api/notes/${encodeURIComponent(id)}`, {
-    method: 'DELETE',
-  });
+export async function deleteNote(projectId, id) {
+  return await localRequest(
+    `/api/notes/${encodeURIComponent(id)}?project_id=${encodeURIComponent(projectId)}`,
+    { method: 'DELETE' },
+  );
 }
 
 // ===== Flows =====
 
-export function listFlows() {
-  return localRequest('/api/flows');
+export async function listFlows(projectId) {
+  const data = await localRequest(`/api/flows?project_id=${encodeURIComponent(projectId)}`);
+  return data.flows || [];
 }
 
-export function createFlow(payload) {
-  const body = { ...(payload || {}), project_id: getActiveProjectId() };
-  return localRequest('/api/flows', {
+export async function createFlow(projectId, body) {
+  return await localRequest(`/api/flows?project_id=${encodeURIComponent(projectId)}`, {
     method: 'POST',
     body: JSON.stringify(body),
   });
 }
 
-export function patchFlow(id, patch) {
-  return localRequest(`/api/flows/${encodeURIComponent(id)}`, {
-    method: 'PATCH',
-    body: JSON.stringify(patch),
-  });
+export async function patchFlow(projectId, id, patch) {
+  return await localRequest(
+    `/api/flows/${encodeURIComponent(id)}?project_id=${encodeURIComponent(projectId)}`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    },
+  );
 }
 
-export function deleteFlow(id) {
-  return localRequest(`/api/flows/${encodeURIComponent(id)}`, {
-    method: 'DELETE',
-  });
+export async function deleteFlow(projectId, id) {
+  return await localRequest(
+    `/api/flows/${encodeURIComponent(id)}?project_id=${encodeURIComponent(projectId)}`,
+    { method: 'DELETE' },
+  );
 }
 
 // ===== Task Boards =====
 
-export function listTaskBoards() {
-  return localRequest('/api/task-boards');
+export async function listTaskBoards(projectId) {
+  const data = await localRequest(`/api/task-boards?project_id=${encodeURIComponent(projectId)}`);
+  return data.boards || [];
 }
 
-export function createTaskBoard(payload) {
-  const body = { ...(payload || {}), project_id: getActiveProjectId() };
-  return localRequest('/api/task-boards', {
+export async function createTaskBoard(projectId, payload) {
+  return await localRequest(`/api/task-boards?project_id=${encodeURIComponent(projectId)}`, {
     method: 'POST',
-    body: JSON.stringify(body),
+    body: JSON.stringify(payload || {}),
   });
 }
 
-export function patchTaskBoard(id, actionPayload) {
-  return localRequest(`/api/task-boards/${encodeURIComponent(id)}`, {
-    method: 'PATCH',
-    body: JSON.stringify(actionPayload),
-  });
+export async function patchTaskBoard(projectId, id, actionPayload) {
+  return await localRequest(
+    `/api/task-boards/${encodeURIComponent(id)}?project_id=${encodeURIComponent(projectId)}`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify(actionPayload),
+    },
+  );
 }
 
-export function deleteTaskBoard(id) {
-  return localRequest(`/api/task-boards/${encodeURIComponent(id)}`, {
-    method: 'DELETE',
-  });
+export async function deleteTaskBoard(projectId, id) {
+  return await localRequest(
+    `/api/task-boards/${encodeURIComponent(id)}?project_id=${encodeURIComponent(projectId)}`,
+    { method: 'DELETE' },
+  );
 }
 
 // ===== Task Board Groups =====
 
-export async function getTaskBoardGroups() {
-  return localRequest('/api/task-board-groups');
+export async function getTaskBoardGroups(projectId) {
+  const data = await localRequest(`/api/task-board-groups?project_id=${encodeURIComponent(projectId)}`);
+  return data.groups || [];
 }
 
-export async function saveTaskBoardGroups(groups) {
-  return localRequest('/api/task-board-groups', {
-    method: 'PUT',
-    body: JSON.stringify({ groups }),
-  });
-}
-
-export async function reorderTaskBoardGroups(fromId, toId) {
-  const { groups } = await getTaskBoardGroups();
-  const from = groups.find(g => g.id === fromId);
-  const to = groups.find(g => g.id === toId);
-  if (!from || !to || from.project_id !== to.project_id) {
-    const err = new Error('Task board group not found');
-    err.detail_key = 'errors.task_board_group_not_found';
-    throw err;
-  }
-  const scoped = groups.filter(g => g.project_id === from.project_id);
-  const reordered = reorderById(scoped, fromId, toId);
-  if (reordered === scoped) return { groups };
-  let idx = 0;
-  const next = groups.map(g => (
-    g.project_id === from.project_id ? reordered[idx++] : g
-  ));
-  const res = await saveTaskBoardGroups(next);
-  return { groups: res.groups };
-}
-
-export async function createTaskBoardGroup(name) {
+export async function createTaskBoardGroup(projectId, name) {
   const clean = normalizeGroupName(name);
-  const { groups } = await getTaskBoardGroups();
-  const pid = getActiveProjectId();
-  const scoped = groups.filter((g) => g.project_id === pid);
-  assertUniqueName(scoped, clean);
-  const draft = { name: clean, project_id: pid };
-  const res = await localRequest('/api/task-board-groups', {
-    method: 'PUT',
-    body: JSON.stringify({ groups: [...groups, draft] }),
+  const groups = await getTaskBoardGroups(projectId);
+  assertUniqueName(groups, clean);
+  const created = await localRequest(`/api/task-board-groups?project_id=${encodeURIComponent(projectId)}`, {
+    method: 'POST',
+    body: JSON.stringify({ name: clean }),
   });
-  const created = res.groups[res.groups.length - 1];
   return { group: created, detail_key: 'success.task_board_group_created' };
 }
 
-export async function renameTaskBoardGroup(groupId, name) {
+export async function renameTaskBoardGroup(projectId, id, name) {
   const clean = normalizeGroupName(name);
-  const { groups } = await getTaskBoardGroups();
-  const target = groups.find(g => g.id === groupId);
+  const groups = await getTaskBoardGroups(projectId);
+  const target = groups.find((g) => g.id === id);
   if (!target) {
     const err = new Error('Task board group not found');
     err.detail_key = 'errors.task_board_group_not_found';
     throw err;
   }
-  const scoped = groups.filter(g => g.project_id === target.project_id);
-  assertUniqueName(scoped, clean, groupId);
-  const next = groups.map(g => g.id === groupId ? { ...g, name: clean } : g);
-  const res = await localRequest('/api/task-board-groups', {
+  assertUniqueName(groups, clean, id);
+  const next = groups.map((g) => (g.id === id ? { ...g, name: clean } : g));
+  const res = await localRequest(`/api/task-board-groups?project_id=${encodeURIComponent(projectId)}`, {
     method: 'PUT',
     body: JSON.stringify({ groups: next }),
   });
-  const updated = res.groups.find(g => g.id === groupId);
+  const updated = (res.groups || []).find((g) => g.id === id);
   return { group: updated, detail_key: 'success.task_board_group_renamed' };
 }
 
-export async function setTaskBoardGroupHidden(groupId, hidden) {
-  const { groups } = await getTaskBoardGroups();
-  if (!groups.some(g => g.id === groupId)) {
+export async function setTaskBoardGroupHidden(projectId, id, hidden) {
+  const groups = await getTaskBoardGroups(projectId);
+  if (!groups.some((g) => g.id === id)) {
     const err = new Error('Task board group not found');
     err.detail_key = 'errors.task_board_group_not_found';
     throw err;
   }
-  const next = groups.map(g => g.id === groupId ? { ...g, hidden: !!hidden } : g);
-  const res = await localRequest('/api/task-board-groups', {
+  const next = groups.map((g) => (g.id === id ? { ...g, hidden: !!hidden } : g));
+  const res = await localRequest(`/api/task-board-groups?project_id=${encodeURIComponent(projectId)}`, {
     method: 'PUT',
     body: JSON.stringify({ groups: next }),
   });
-  const updated = res.groups.find(g => g.id === groupId);
+  const updated = (res.groups || []).find((g) => g.id === id);
   return { group: updated, detail_key: hidden ? 'success.task_board_group_hidden' : 'success.task_board_group_shown' };
 }
 
-export async function deleteTaskBoardGroup(groupId) {
-  const { groups } = await getTaskBoardGroups();
-  if (!groups.some(g => g.id === groupId)) {
-    const err = new Error('Task board group not found');
-    err.detail_key = 'errors.task_board_group_not_found';
-    throw err;
-  }
+export async function deleteTaskBoardGroup(projectId, id) {
   // Detach orphan boards from the group before removing it. Same rationale
   // as deleteFlowGroup: keeps the JSON clean even if a future group reuses
   // the id (UUID makes it improbable, but the cleanup costs nothing).
   try {
-    const data = await listTaskBoards();
-    const orphans = (data?.boards || []).filter((b) => b.group_id === groupId);
+    const boards = await listTaskBoards(projectId);
+    const orphans = boards.filter((b) => b.group_id === id);
     const results = await Promise.allSettled(orphans.map((b) =>
-      patchTaskBoard(b.id, { action: 'move_board_group', group_id: null })
+      patchTaskBoard(projectId, b.id, { action: 'move_board_group', group_id: null })
     ));
     for (let i = 0; i < results.length; i++) {
       if (results[i].status === 'rejected') {
@@ -1036,12 +840,18 @@ export async function deleteTaskBoardGroup(groupId) {
     console.warn('deleteTaskBoardGroup: orphan cleanup failed:', err);
   }
 
-  const nextGroups = groups.filter(g => g.id !== groupId);
-  await localRequest('/api/task-board-groups', {
-    method: 'PUT',
-    body: JSON.stringify({ groups: nextGroups }),
-  });
+  await localRequest(
+    `/api/task-board-groups?project_id=${encodeURIComponent(projectId)}&id=${encodeURIComponent(id)}`,
+    { method: 'DELETE' },
+  );
   return { detail_key: 'success.task_board_group_deleted' };
+}
+
+export async function reorderTaskBoardGroups(projectId, groups) {
+  return await localRequest(`/api/task-board-groups?project_id=${encodeURIComponent(projectId)}`, {
+    method: 'PUT',
+    body: JSON.stringify({ groups }),
+  });
 }
 
 // ===== Projects =====
@@ -1183,14 +993,6 @@ export async function setStorageConfig(payload) {
 
 export async function deleteStorageConfig() {
   return localRequest('/api/storage-config', { method: 'DELETE' });
-}
-
-export async function syncLocalToCloud() {
-  return localRequest('/api/storage-sync/local-to-cloud', { method: 'POST' });
-}
-
-export async function syncCloudToLocal() {
-  return localRequest('/api/storage-sync/cloud-to-local', { method: 'POST' });
 }
 
 // ===== Intelligence (AI providers) =====

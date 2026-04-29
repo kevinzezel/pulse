@@ -1,100 +1,78 @@
 import { NextResponse } from 'next/server';
-import { readStore, writeStore, withStoreLock } from '@/lib/storage';
 import { withAuth } from '@/lib/auth';
-import { NAME_MAX } from '@/lib/flowsConfig';
+import {
+  readProjectFile,
+  writeProjectFile,
+  withProjectLock,
+} from '@/lib/projectStorage';
 
-const REL = 'data/flows.json';
-const EMPTY = { flows: [], updated_at: null };
+const FILE = 'flows.json';
+const EMPTY = { flows: [] };
 
-function bad(detailKey, detail, status = 400, detailParams) {
-  return NextResponse.json(
-    { detail, detail_key: detailKey, detail_params: detailParams },
-    { status }
-  );
+function bad(detailKey, detail, status = 400, params) {
+  const body = { detail, detail_key: detailKey };
+  if (params) body.detail_params = params;
+  return NextResponse.json(body, { status });
 }
 
-function isObject(v) {
-  return typeof v === 'object' && v !== null && !Array.isArray(v);
-}
-
-async function applyPatch(flow, patch) {
-  const out = { ...flow };
-  if (patch.name !== undefined) {
-    if (typeof patch.name !== 'string') {
-      throw Object.assign(new Error('Invalid name'), { key: 'errors.invalid_body' });
-    }
-    const trimmed = patch.name.trim();
-    if (!trimmed) {
-      throw Object.assign(new Error('Flow name is required'), { key: 'errors.flow_name_required' });
-    }
-    if (trimmed.length > NAME_MAX) {
-      throw Object.assign(new Error('Flow name too long'), {
-        key: 'errors.flow_name_too_long',
-        params: { max: NAME_MAX },
-      });
-    }
-    out.name = trimmed;
-  }
-  if (patch.scene !== undefined) {
-    if (!isObject(patch.scene)) {
-      throw Object.assign(new Error('Invalid scene'), { key: 'errors.invalid_body' });
-    }
-    out.scene = patch.scene;
-  }
-  if (patch.group_id !== undefined) {
-    if (patch.group_id === null || patch.group_id === '') {
-      out.group_id = null;
-    } else if (typeof patch.group_id === 'string') {
-      out.group_id = patch.group_id;
-    } else {
-      throw Object.assign(new Error('Invalid group_id'), { key: 'errors.invalid_body' });
-    }
-  }
-  out.updated_at = new Date().toISOString();
-  return out;
+function getProjectId(req) {
+  const url = new URL(req.url);
+  return url.searchParams.get('project_id');
 }
 
 export const PATCH = withAuth(async (req, { params }) => {
   const { id } = await params;
-  let body;
-  try { body = await req.json(); } catch {
-    return bad('errors.invalid_body', 'Invalid JSON');
+  const projectId = getProjectId(req);
+  if (!projectId) {
+    return bad('errors.invalid_body', 'project_id query param is required', 400);
+  }
+  let patch;
+  try {
+    patch = await req.json();
+  } catch {
+    return bad('errors.invalid_body', 'Invalid JSON', 400);
+  }
+  if (!patch || typeof patch !== 'object') {
+    return bad('errors.invalid_body', 'Expected object body', 400);
   }
 
-  try {
-    const updated = await withStoreLock(REL, async () => {
-      const data = await readStore(REL, EMPTY);
-      const flows = Array.isArray(data?.flows) ? data.flows : [];
-      const idx = flows.findIndex((f) => f.id === id);
-      if (idx < 0) {
-        throw Object.assign(new Error('Flow not found'), { key: 'errors.flow_not_found', status: 404 });
-      }
-      const next = await applyPatch(flows[idx], body);
-      flows[idx] = next;
-      await writeStore(REL, { flows, updated_at: next.updated_at });
-      return next;
-    });
-    return NextResponse.json(updated);
-  } catch (err) {
-    return bad(err.key || 'errors.invalid_body', err.message, err.status || 400, err.params);
+  let updated = null;
+  await withProjectLock(projectId, FILE, async () => {
+    const data = await readProjectFile(projectId, FILE, EMPTY);
+    const flows = Array.isArray(data?.flows) ? data.flows : [];
+    const idx = flows.findIndex((f) => f && f.id === id);
+    if (idx < 0) return;
+    const now = new Date().toISOString();
+    flows[idx] = { ...flows[idx], ...patch, id, project_id: projectId, updated_at: now };
+    updated = flows[idx];
+    await writeProjectFile(projectId, FILE, { flows });
+  });
+
+  if (!updated) {
+    return bad('errors.flow_not_found', 'flow not found', 404, { id });
   }
+  return NextResponse.json(updated);
 });
 
 export const DELETE = withAuth(async (req, { params }) => {
   const { id } = await params;
-  try {
-    await withStoreLock(REL, async () => {
-      const data = await readStore(REL, EMPTY);
-      const flows = Array.isArray(data?.flows) ? data.flows : [];
-      const idx = flows.findIndex((f) => f.id === id);
-      if (idx < 0) {
-        throw Object.assign(new Error('Flow not found'), { key: 'errors.flow_not_found', status: 404 });
-      }
-      flows.splice(idx, 1);
-      await writeStore(REL, { flows, updated_at: new Date().toISOString() });
-    });
-    return NextResponse.json({ ok: true });
-  } catch (err) {
-    return bad(err.key || 'errors.invalid_body', err.message, err.status || 400, err.params);
+  const projectId = getProjectId(req);
+  if (!projectId) {
+    return bad('errors.invalid_body', 'project_id query param is required', 400);
   }
+
+  let removed = false;
+  await withProjectLock(projectId, FILE, async () => {
+    const data = await readProjectFile(projectId, FILE, EMPTY);
+    const flows = Array.isArray(data?.flows) ? data.flows : [];
+    const next = flows.filter((f) => !(f && f.id === id));
+    if (next.length === flows.length) return;
+    removed = true;
+    await writeProjectFile(projectId, FILE, { flows: next });
+  });
+
+  if (!removed) {
+    return bad('errors.flow_not_found', 'flow not found', 404, { id });
+  }
+  return NextResponse.json({ id });
 });
