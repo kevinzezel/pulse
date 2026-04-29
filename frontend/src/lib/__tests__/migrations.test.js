@@ -124,6 +124,14 @@ describe('v3 -> v4 migration -- Caso 1 (file local)', () => {
 
     // Backup created
     expect(existsSync(join(tmpDir, 'data.backup-pre-v4'))).toBe(true);
+
+    // Auto-cleanup: per-project flat files should be gone post-migration.
+    expect(existsSync(join(dataDir, 'flows.json'))).toBe(false);
+    expect(existsSync(join(dataDir, 'notes.json'))).toBe(false);
+    expect(existsSync(join(dataDir, 'prompts.json'))).toBe(false);
+    expect(existsSync(join(dataDir, 'prompt-groups.json'))).toBe(false);
+    // Per-install files remain (they're still local source of truth in v4).
+    // (The seed didn't include them so we just confirm we didn't blow up.)
   });
 
   it('idempotent: running migration twice produces same state', async () => {
@@ -248,9 +256,27 @@ describe('v3 -> v4 migration -- Caso 2 (S3 active)', () => {
       Body: stringStream(JSON.stringify({ groups: [{ id: 'pg1', name: 'X' }] })),
       ETag: '"e"',
     });
-    // Manifest doesn't exist yet (specific override of the default 404 reject is
-    // a no-op, but kept for clarity).
-    s3Mock.on(GetObjectCommand, { Key: 'projects-manifest.json' }).rejects({ name: 'NoSuchKey', $metadata: { httpStatusCode: 404 } });
+    // Manifest: starts as 404, then echoes back whatever was last PUT. The
+    // migration verifies the manifest after writing it during reshardRemoteData,
+    // so the read path needs to return real data once that PUT has happened.
+    s3Mock.on(GetObjectCommand, { Key: 'projects-manifest.json' }).callsFake(() => {
+      const puts = s3Mock.commandCalls(PutObjectCommand)
+        .filter(c => c.args[0].input.Key === 'projects-manifest.json');
+      if (puts.length === 0) {
+        const err = new Error('NoSuchKey');
+        err.name = 'NoSuchKey';
+        err.$metadata = { httpStatusCode: 404 };
+        throw err;
+      }
+      const lastPut = puts[puts.length - 1];
+      return {
+        Body: stringStream(lastPut.args[0].input.Body),
+        ETag: '"manifest"',
+      };
+    });
+    // After cleanup deletes flows.json from the remote, a verify spot-check
+    // would still try to read projects/p1/flows.json (which was sharded). Make
+    // sure that Get works (returns 404 -> fallback). The default 404 covers it.
     // Release path reads the lock back to verify ownership before deleting.
     // Match-any owner -- the migrator owns it because it acquired it.
     s3Mock.on(GetObjectCommand, { Key: '.migrating-v4' }).callsFake(() => {
@@ -313,6 +339,26 @@ describe('v3 -> v4 migration -- Caso 2 (S3 active)', () => {
     // Lock was released
     const deletes = s3Mock.commandCalls(DeleteObjectCommand);
     expect(deletes.find(c => c.args[0].input.Key === '.migrating-v4')).toBeDefined();
+
+    // Auto-cleanup: assert DeleteObjectCommand was called for each legacy file.
+    const deleteKeys = s3Mock.commandCalls(DeleteObjectCommand).map(c => c.args[0].input.Key);
+    // Per-project flat (now sharded)
+    expect(deleteKeys).toContain('flows.json');
+    expect(deleteKeys).toContain('flow-groups.json');
+    expect(deleteKeys).toContain('notes.json');
+    expect(deleteKeys).toContain('prompts.json');
+    expect(deleteKeys).toContain('prompt-groups.json');
+    expect(deleteKeys).toContain('task-boards.json');
+    expect(deleteKeys).toContain('task-board-groups.json');
+    // projects.json flat (replaced by projects-manifest.json)
+    expect(deleteKeys).toContain('projects.json');
+    // Per-install legacy on remote
+    expect(deleteKeys).toContain('servers.json');
+    expect(deleteKeys).toContain('sessions.json');
+    expect(deleteKeys).toContain('intelligence-config.json');
+    // Migration lock release also calls DeleteObject; that's expected.
+    // Manifest stays untouched.
+    expect(deleteKeys).not.toContain('projects-manifest.json');
   });
 
   it('skips reshard when manifest already exists, just rewrites local config', async () => {
@@ -327,11 +373,14 @@ describe('v3 -> v4 migration -- Caso 2 (S3 active)', () => {
     s3Mock.on(DeleteObjectCommand).resolves({});
     // Specific overrides.
     s3Mock.on(PutObjectCommand, { Key: '.migrating-v4' }).resolves({ ETag: '"l"' });
-    // Manifest EXISTS
-    s3Mock.on(GetObjectCommand, { Key: 'projects-manifest.json' }).resolves({
+    // Manifest EXISTS. Use callsFake to return a fresh stream every call --
+    // the migration reads it twice (once to detect already-sharded, once to
+    // verify the layout for cleanup) and an SDK Body stream can only be
+    // consumed once.
+    s3Mock.on(GetObjectCommand, { Key: 'projects-manifest.json' }).callsFake(() => ({
       Body: stringStream(JSON.stringify({ v: 1, projects: [{ id: 'p1', name: 'X' }] })),
       ETag: '"e"',
-    });
+    }));
 
     // Need to also seed local projects.json so storage_ref can be applied
     writeFileSync(join(dataDir, 'projects.json'), JSON.stringify({

@@ -176,6 +176,18 @@ export class MongoDriver {
     }
   }
 
+  async deleteFile(relPath) {
+    const _id = this._idFromRelPath(relPath);
+    try {
+      const result = await this._getCollection().deleteOne({ _id });
+      return result.deletedCount > 0;
+    } catch (err) {
+      if (err instanceof StorageUnavailableError) throw err;
+      console.error('[mongoStore] deleteFile failed:', err);
+      throw new StorageUnavailableError(err);
+    }
+  }
+
   async withFileLock(relPath, mutator) {
     const key = this._idFromRelPath(relPath);
     const previous = this._locks.get(key) || Promise.resolve();

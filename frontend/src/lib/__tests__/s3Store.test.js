@@ -113,6 +113,25 @@ describe('S3Driver', () => {
     expect(calls.find(c => c.args[0].input.Key === 'team-b/foo.json')).toBeDefined();
   });
 
+  it('deleteFile sends DeleteObjectCommand and returns true', async () => {
+    s3Mock.on(HeadBucketCommand).resolves({});
+    s3Mock.on(DeleteObjectCommand).resolves({});
+    const driver = new S3Driver({ bucket: 'b', region: 'us-east-1', access_key_id: 'k', secret_access_key: 's' });
+    await driver.init();
+    expect(await driver.deleteFile('foo.json')).toBe(true);
+    const calls = s3Mock.commandCalls(DeleteObjectCommand);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].args[0].input.Key).toBe('foo.json');
+  });
+
+  it('deleteFile returns false on 404', async () => {
+    s3Mock.on(HeadBucketCommand).resolves({});
+    s3Mock.on(DeleteObjectCommand).rejects({ name: 'NoSuchKey', $metadata: { httpStatusCode: 404 } });
+    const driver = new S3Driver({ bucket: 'b', region: 'us-east-1', access_key_id: 'k', secret_access_key: 's' });
+    await driver.init();
+    expect(await driver.deleteFile('nonexistent.json')).toBe(false);
+  });
+
   it('listAllKeys returns keys under the prefix across pagination', async () => {
     s3Mock.on(HeadBucketCommand).resolves({});
     s3Mock.on(ListObjectsV2Command)

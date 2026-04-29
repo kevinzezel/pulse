@@ -6,6 +6,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [4.0.1-pre] — 2026-04-29
+
+### Added
+
+- **Auto-cleanup of legacy v3 flat files post-migration.** The v3 → v4 migration now removes the legacy flat layout automatically after a successful reshard. Caso 1 (file local) deletes per-project flat files (`flows.json`, `notes.json`, `prompts.json`, etc.); the backup at `data.backup-pre-v4/` remains as the safety net. Caso 2 (S3/Mongo) deletes per-project flat files plus the legacy `projects.json` and per-install files (`servers.json`, `sessions.json`, etc.) that v3 incorrectly stored on the remote. A verification step (manifest read + spot-check on one shard) runs before any deletes; if anything looks wrong, the legacy files stay in place.
+- **Cleanup also runs on the "remote-already-sharded" short-circuit.** Installs that upgraded under `v4.0.0-pre` got the v4 layout but the legacy flat files were never removed — re-running the migration now picks them up and cleans the remote.
+- **`deleteFile(relPath): Promise<boolean>` on all three storage drivers** (`FileDriver`, `S3Driver`, `MongoDriver`). Returns `false` for missing files (`ENOENT` / `404` / no matching doc), throws on other errors. Used by the cleanup pass.
+
 ## [4.0.0-pre] — 2026-04-29
 
 Foundation release for the upcoming multi-backend storage feature. The dashboard's storage layer was rewritten internally so a single Pulse can soon route different projects to different remotes (e.g. one S3 for personal projects, one for company A, one for company B). **The collaboration features themselves — sharing a backend via a token, moving a project between backends, manifest sync — ship in 4.1.0-pre. This release is the foundation only; end users see no UI changes.**
@@ -1239,7 +1247,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v4.0.0-pre...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v4.0.1-pre...HEAD
+[4.0.1-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.0.1-pre
 [4.0.0-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.0.0-pre
 [3.3.2-pre]: https://github.com/kevinzezel/pulse/releases/tag/v3.3.2-pre
 [3.3.1]: https://github.com/kevinzezel/pulse/releases/tag/v3.3.1

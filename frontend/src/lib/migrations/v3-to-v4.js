@@ -38,6 +38,45 @@ const PROMPT_FILES = [
   { source: 'prompt-groups.json', shard: 'prompt-groups.json', global: 'prompt-groups.json', arrayKey: 'groups' },
 ];
 
+// Files removed automatically after a successful migration verification.
+// Caso 1 (file local) only deletes per-project flat files -- per-install files
+// (servers/sessions/etc) are still the source of truth locally in v4.
+// Caso 2 (S3/Mongo) deletes everything legacy from the remote root, including
+// per-install files that never belonged on a shared backend in the first place.
+const CASO1_CLEANUP_FILES = [
+  'flows.json',
+  'flow-groups.json',
+  'notes.json',
+  'prompts.json',
+  'prompt-groups.json',
+  'task-boards.json',
+  'task-board-groups.json',
+];
+
+const CASO2_CLEANUP_FILES = [
+  // Per-project (now sharded under projects/<id>/)
+  'flows.json',
+  'flow-groups.json',
+  'notes.json',
+  'prompts.json',
+  'prompt-groups.json',
+  'task-boards.json',
+  'task-board-groups.json',
+  // projects.json: in v4 the local one is the source of truth; the remote
+  // version is a v3 leftover. projects-manifest.json is the v4 replacement.
+  'projects.json',
+  // Per-install files that v3 stored on the remote but v4 keeps strictly
+  // local. Safe to remove once the local install has its own copies.
+  'compose-drafts.json',
+  'groups.json',
+  'sessions.json',
+  'servers.json',
+  'recent-cwds.json',
+  'intelligence-config.json',
+  'layouts.json',
+  'view-state.json',
+];
+
 function frontendRoot() {
   return process.env.PULSE_FRONTEND_ROOT || process.cwd();
 }
@@ -304,6 +343,16 @@ async function migrateCase2(v1Config) {
         if (!p.storage_ref) p.storage_ref = importedId;
       }
       await writeJson('projects.json', projectsDoc);
+
+      // Cleanup pass for installs upgraded under v4.0.0-pre: those got the v4
+      // layout but the legacy flat files were never removed. Verify the v4
+      // manifest is healthy before deleting anything; on failure we silently
+      // leave the legacy files in place.
+      const manifestProjects = Array.isArray(projectsDoc.projects) ? projectsDoc.projects : [];
+      const verified = await verifyV4LayoutOnDriver(driver, manifestProjects);
+      if (verified) {
+        await cleanupLegacyOnDriver(driver, CASO2_CLEANUP_FILES, `remote (${driverType})`);
+      }
       return { ran: false, reason: 'remote-already-sharded' };
     }
 
@@ -333,6 +382,12 @@ async function migrateCase2(v1Config) {
     await writeJson('projects.json', localProjectsDoc);
     await writeJson('storage-config.json', newConfig);
 
+    // Verify the new layout on the remote, then remove legacy flat files.
+    const verified = await verifyV4LayoutOnDriver(driver, projects);
+    if (verified) {
+      await cleanupLegacyOnDriver(driver, CASO2_CLEANUP_FILES, `remote (${driverType})`);
+    }
+
     return { ran: true, case: 2 };
   } finally {
     if (heartbeatTimer) clearInterval(heartbeatTimer);
@@ -343,6 +398,68 @@ async function migrateCase2(v1Config) {
     }
     await driver.close();
   }
+}
+
+// Verify the v4 layout is healthy before cleaning up the legacy flat. If
+// anything looks wrong we leave the legacy files in place so the user can
+// recover manually. Returns true on pass, false on suspected corruption.
+async function verifyV4LayoutOnDriver(driver, projects) {
+  const manifest = await driver.readJsonFile('projects-manifest.json', null);
+  if (!manifest || !Array.isArray(manifest.projects)) {
+    console.warn('[migrations:v3-to-v4] cleanup: manifest missing or malformed -- preserving legacy layout');
+    return false;
+  }
+  if (manifest.projects.length !== projects.length) {
+    console.warn(`[migrations:v3-to-v4] cleanup: manifest has ${manifest.projects.length} projects but expected ${projects.length} -- preserving legacy layout`);
+    return false;
+  }
+  // Spot-check the first project's shard exists / is readable. We don't care
+  // whether it's empty -- only that the read path works end to end.
+  if (projects[0]) {
+    try {
+      await driver.readJsonFile(`projects/${projects[0].id}/flows.json`, { flows: [] });
+    } catch (err) {
+      console.warn(`[migrations:v3-to-v4] cleanup: spot-check read failed -- preserving legacy layout: ${err?.message || err}`);
+      return false;
+    }
+  }
+  return true;
+}
+
+async function cleanupLegacyOnDriver(driver, files, label) {
+  let removed = 0;
+  let failed = 0;
+  for (const file of files) {
+    try {
+      const wasRemoved = await driver.deleteFile(file);
+      if (wasRemoved) removed += 1;
+    } catch (err) {
+      failed += 1;
+      console.warn(`[migrations:v3-to-v4] cleanup: failed to delete ${file} from ${label}: ${err?.message || err}`);
+    }
+  }
+  console.log(`[migrations:v3-to-v4] cleanup: removed ${removed} legacy v3 file(s) from ${label}, ${failed} failure(s)`);
+  return { removed, failed };
+}
+
+// File-driver-equivalent for Caso 1 (uses raw fs because the migrator runs
+// before `storage.js` is wired up). Per-install files are NOT touched -- they
+// remain the local source of truth in v4.
+async function cleanupLegacyLocal() {
+  let removed = 0;
+  let failed = 0;
+  for (const file of CASO1_CLEANUP_FILES) {
+    try {
+      await fs.unlink(join(dataDir(), file));
+      removed += 1;
+    } catch (err) {
+      if (err.code === 'ENOENT') continue;
+      failed += 1;
+      console.warn(`[migrations:v3-to-v4] cleanup: failed to delete ${file} from local data/: ${err?.message || err}`);
+    }
+  }
+  console.log(`[migrations:v3-to-v4] cleanup: removed ${removed} legacy v3 file(s) from local data/, ${failed} failure(s)`);
+  return { removed, failed };
 }
 
 export async function migrate() {
@@ -375,5 +492,22 @@ export async function migrate() {
   await backupDataDir();
   await reshardLocalData('local');
   await writeJson('storage-config.json', buildLocalConfig());
+
+  // Caso 1 verification: just check that at least one shard was written. We can
+  // inspect the local filesystem directly. The local backup at data.backup-pre-v4
+  // is the safety net for any pathological corruption, so we proceed even if
+  // projects array was empty (nothing to verify).
+  const projectsDoc = await readJson('projects.json', { projects: [] });
+  const projects = Array.isArray(projectsDoc.projects) ? projectsDoc.projects : [];
+  let verified = true;
+  if (projects[0]) {
+    verified = await exists(join(dataDir(), 'projects', projects[0].id));
+    if (!verified) {
+      console.warn('[migrations:v3-to-v4] cleanup: first project shard missing -- preserving legacy layout');
+    }
+  }
+  if (verified) {
+    await cleanupLegacyLocal();
+  }
   return { ran: true, case: 1 };
 }

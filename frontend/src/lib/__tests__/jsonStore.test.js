@@ -57,6 +57,17 @@ describe('FileDriver', () => {
     expect(data).toEqual({ x: 1 });
   });
 
+  it('deleteFile removes the file and returns true', async () => {
+    await driver.writeJsonFileAtomic('temp.json', { x: 1 });
+    expect(await driver.deleteFile('temp.json')).toBe(true);
+    const data = await driver.readJsonFile('temp.json', null);
+    expect(data).toBe(null);
+  });
+
+  it('deleteFile returns false when file does not exist', async () => {
+    expect(await driver.deleteFile('nonexistent.json')).toBe(false);
+  });
+
   it('withFileLock serializes across two instances on the same dataDir', async () => {
     // Regression guard: if _locks were moved to instance state (this._locks),
     // two drivers on the same dataDir would race. The module-level Map keyed

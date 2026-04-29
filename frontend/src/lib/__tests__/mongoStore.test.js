@@ -75,6 +75,23 @@ describe('MongoDriver', () => {
     await driver.close();
   });
 
+  it('deleteFile removes the document and returns true', async () => {
+    const driver = new MongoDriver({ uri, database: 'pulse_test' });
+    await driver.init();
+    await driver.writeJsonFileAtomic('foo.json', { x: 1 });
+    expect(await driver.deleteFile('foo.json')).toBe(true);
+    const data = await driver.readJsonFile('foo.json', null);
+    expect(data).toBe(null);
+    await driver.close();
+  });
+
+  it('deleteFile returns false when missing', async () => {
+    const driver = new MongoDriver({ uri, database: 'pulse_test' });
+    await driver.init();
+    expect(await driver.deleteFile('nonexistent.json')).toBe(false);
+    await driver.close();
+  });
+
   it('exposes rawDb() for migration lock primitives', async () => {
     const driver = new MongoDriver({ uri, database: 'pulse_test' });
     await driver.init();

@@ -59,6 +59,17 @@ export class FileDriver {
     }
   }
 
+  async deleteFile(relPath) {
+    const full = this._resolvePath(relPath);
+    try {
+      await fs.unlink(full);
+      return true;
+    } catch (err) {
+      if (err.code === 'ENOENT') return false;
+      throw err;
+    }
+  }
+
   async withFileLock(relPath, mutator) {
     const key = `${this.dataDir}::${relPath}`;
     const previous = _locks.get(key) || Promise.resolve();

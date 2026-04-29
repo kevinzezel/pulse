@@ -206,6 +206,18 @@ export class S3Driver {
     }
   }
 
+  async deleteFile(relPath) {
+    const key = this._keyFromRelPath(relPath);
+    const client = this._ensureClient();
+    try {
+      await client.send(new DeleteObjectCommand({ Bucket: this._config.bucket, Key: key }));
+      return true;
+    } catch (err) {
+      if (err?.$metadata?.httpStatusCode === 404 || err?.name === 'NoSuchKey') return false;
+      throw new StorageUnavailableError(err);
+    }
+  }
+
   async withFileLock(relPath, mutator) {
     const key = this._keyFromRelPath(relPath);
     const previous = this._locks.get(key) || Promise.resolve();
