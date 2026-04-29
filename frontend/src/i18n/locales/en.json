@@ -434,6 +434,7 @@
     "invalid_payload": "Invalid request: {detail}",
     "session_write_failed": "Failed to write to terminal (session may have ended)",
     "group_not_found": "Group not found",
+    "group_not_in_project": "That group belongs to a different project — refresh and try again",
     "group_name_required": "Group name is required",
     "group_name_too_long": "Group name must be at most {max} characters",
     "group_name_taken": "A group with this name already exists",

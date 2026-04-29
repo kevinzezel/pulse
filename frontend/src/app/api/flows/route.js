@@ -5,6 +5,7 @@ import {
   readProjectFile,
   writeProjectFile,
   withProjectLock,
+  validateGroupBelongsToProject,
 } from '@/lib/projectStorage';
 
 const FILE = 'flows.json';
@@ -51,6 +52,11 @@ export const POST = withAuth(async (req) => {
   if (!body || typeof body !== 'object') {
     return bad('errors.invalid_body', 'Expected object body', 400);
   }
+
+  // Cross-project group leak guard: a frontend race could submit a
+  // group_id that lives on a sibling project. Reject before write.
+  const groupErr = await validateGroupBelongsToProject(projectId, 'flow-groups.json', body.group_id ?? null);
+  if (groupErr) return bad(groupErr.detailKey, groupErr.detail, 400, groupErr.params);
 
   const newFlow = await withProjectLock(projectId, FILE, async () => {
     const data = await readProjectFile(projectId, FILE, EMPTY);

@@ -124,6 +124,16 @@ export default function TasksPage() {
     if (!activeProjectId) return;
     let alive = true;
     const projectId = activeProjectId;
+    // Clear the previous project's data synchronously so any modal opened
+    // mid-fetch (e.g. NewTaskBoardModal) sees an empty `boardGroups` instead
+    // of stale entries from the project we just switched away from. Without
+    // this, the user could pick a group from project A while creating a
+    // board in project B and the backend would happily accept the orphan
+    // group_id (4.2.1-pre cross-project group leak).
+    setBoards([]);
+    setBoardGroups([]);
+    setBoardsProjectId(null);
+    setBoardGroupsProjectId(null);
     setLoading(true);
     (async () => {
       try {

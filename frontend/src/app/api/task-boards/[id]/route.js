@@ -5,6 +5,7 @@ import {
   readProjectFile,
   writeProjectFile,
   withProjectLock,
+  validateGroupBelongsToProject,
 } from '@/lib/projectStorage';
 import {
   BOARD_NAME_MAX,
@@ -341,6 +342,15 @@ export const PATCH = withAuth(async (req, { params }) => {
     body = await req.json();
   } catch {
     return bad('errors.invalid_body', 'Invalid JSON');
+  }
+
+  // Cross-project group leak guard: when the action is `move_board_group`,
+  // make sure the supplied group_id (if any) lives on this project's
+  // groups file. Done outside the lock since the groups file is a separate
+  // shard and we don't want to nest lock acquisitions.
+  if (body && body.action === 'move_board_group') {
+    const groupErr = await validateGroupBelongsToProject(projectId, 'task-board-groups.json', body.group_id ?? null);
+    if (groupErr) return bad(groupErr.detailKey, groupErr.detail, 400, groupErr.params);
   }
 
   try {

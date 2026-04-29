@@ -4,6 +4,7 @@ import {
   readProjectFile,
   writeProjectFile,
   withProjectLock,
+  validateGroupBelongsToProject,
 } from '@/lib/projectStorage';
 
 const FILE = 'flows.json';
@@ -34,6 +35,15 @@ export const PATCH = withAuth(async (req, { params }) => {
   }
   if (!patch || typeof patch !== 'object') {
     return bad('errors.invalid_body', 'Expected object body', 400);
+  }
+
+  // Cross-project group leak guard: only relevant when the patch touches
+  // group_id. Skipping the check when group_id isn't in the patch keeps
+  // hot paths (scene autosave, rename, pin toggle) from reading the
+  // flow-groups file on every keystroke.
+  if (Object.prototype.hasOwnProperty.call(patch, 'group_id')) {
+    const groupErr = await validateGroupBelongsToProject(projectId, 'flow-groups.json', patch.group_id ?? null);
+    if (groupErr) return bad(groupErr.detailKey, groupErr.detail, 400, groupErr.params);
   }
 
   let updated = null;

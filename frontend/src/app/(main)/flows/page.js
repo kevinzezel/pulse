@@ -158,6 +158,13 @@ export default function FlowsPage() {
     if (!activeProjectId) return;
     let alive = true;
     const projectId = activeProjectId;
+    // Clear stale state synchronously so any modal/dropdown opened mid-fetch
+    // doesn't expose flow-groups from the previous project. Same race that
+    // bit task-boards on 4.2.1-pre — see tasks/page.js for details.
+    setFlows([]);
+    setFlowGroups([]);
+    setFlowsProjectId(null);
+    setFlowGroupsProjectId(null);
     setLoading(true);
     (async () => {
       try {

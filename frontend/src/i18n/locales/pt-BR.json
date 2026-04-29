@@ -434,6 +434,7 @@
     "invalid_payload": "Requisição inválida: {detail}",
     "session_write_failed": "Falha ao escrever no terminal (sessão pode ter encerrado)",
     "group_not_found": "Grupo não encontrado",
+    "group_not_in_project": "Esse grupo pertence a outro projeto — atualize a página e tente de novo",
     "group_name_required": "Nome do grupo é obrigatório",
     "group_name_too_long": "Nome do grupo deve ter no máximo {max} caracteres",
     "group_name_taken": "Já existe um grupo com esse nome",

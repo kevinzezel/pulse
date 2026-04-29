@@ -10,6 +10,7 @@ describe('GET /api/task-boards', () => {
       readProjectFile: vi.fn(),
       writeProjectFile: vi.fn(),
       withProjectLock: vi.fn(async (pid, file, fn) => fn()),
+      validateGroupBelongsToProject: vi.fn(async () => null),
     }));
     vi.doMock('@/lib/auth', () => ({ withAuth: (fn) => fn }));
     projectStorage = await import('@/lib/projectStorage');
@@ -47,6 +48,7 @@ describe('POST /api/task-boards', () => {
       readProjectFile: vi.fn(async () => ({ boards: [] })),
       writeProjectFile: vi.fn(),
       withProjectLock: vi.fn(async (pid, file, fn) => fn()),
+      validateGroupBelongsToProject: vi.fn(async () => null),
     }));
     vi.doMock('@/lib/auth', () => ({ withAuth: (fn) => fn }));
     projectStorage = await import('@/lib/projectStorage');

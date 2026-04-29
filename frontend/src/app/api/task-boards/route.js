@@ -5,6 +5,7 @@ import {
   readProjectFile,
   writeProjectFile,
   withProjectLock,
+  validateGroupBelongsToProject,
 } from '@/lib/projectStorage';
 import {
   BOARD_NAME_MAX,
@@ -83,6 +84,12 @@ export const POST = withAuth(async (req) => {
   }
 
   const groupId = (typeof body.group_id === 'string' && body.group_id) ? body.group_id : null;
+
+  // Reject group_ids that belong to a different project. Catches the
+  // frontend race where the user switches projects with a modal half-open
+  // and the dropdown still lists groups from the previous project.
+  const groupErr = await validateGroupBelongsToProject(projectId, 'task-board-groups.json', groupId);
+  if (groupErr) return bad(groupErr.detailKey, groupErr.detail, 400, groupErr.params);
 
   try {
     const board = await withProjectLock(projectId, FILE, async () => {

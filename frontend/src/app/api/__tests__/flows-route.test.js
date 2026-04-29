@@ -11,6 +11,7 @@ describe('GET /api/flows', () => {
       readProjectFile: vi.fn(),
       writeProjectFile: vi.fn(),
       withProjectLock: vi.fn(async (pid, file, fn) => fn()),
+      validateGroupBelongsToProject: vi.fn(async () => null),
     }));
     vi.doMock('@/lib/auth', () => ({
       withAuth: (fn) => fn,
@@ -55,6 +56,7 @@ describe('POST /api/flows', () => {
       readProjectFile: vi.fn(async () => ({ flows: [] })),
       writeProjectFile: vi.fn(),
       withProjectLock: vi.fn(async (pid, file, fn) => fn()),
+      validateGroupBelongsToProject: vi.fn(async () => null),
     }));
     vi.doMock('@/lib/auth', () => ({ withAuth: (fn) => fn }));
     projectStorage = await import('@/lib/projectStorage');

@@ -31,6 +31,32 @@ function globalPath(file) {
   return `data/globals/${file}`;
 }
 
+// Sanity check used by per-project routes that accept a `group_id` body
+// field: makes sure the supplied id is null/empty OR points at a group
+// inside the project's matching groups file. Without this check the
+// frontend can race a project switch and POST a `group_id` that belongs to
+// the previous project (the dropdown showed stale entries while the new
+// project's data was still in flight). Returns null on success; on
+// mismatch returns a NextResponse-ready { detailKey, detail, params } so
+// callers can stay in their own bad() helper. Pass `groupsFile` matching
+// the route, e.g. `'task-board-groups.json'` or `'flow-groups.json'`.
+export async function validateGroupBelongsToProject(projectId, groupsFile, groupId) {
+  if (groupId === null || groupId === undefined || groupId === '') return null;
+  if (typeof groupId !== 'string') {
+    return { detailKey: 'errors.invalid_body', detail: 'group_id must be a string', params: { group_id: groupId } };
+  }
+  const data = await readProjectFile(projectId, groupsFile, { groups: [] });
+  const groups = Array.isArray(data?.groups) ? data.groups : [];
+  if (!groups.some((g) => g && g.id === groupId)) {
+    return {
+      detailKey: 'errors.group_not_in_project',
+      detail: 'group does not belong to this project',
+      params: { group_id: groupId, project_id: projectId },
+    };
+  }
+  return null;
+}
+
 // ---------- Per-project file operations (route via storage_ref) ----------
 
 export async function readProjectFile(projectId, file, fallback) {

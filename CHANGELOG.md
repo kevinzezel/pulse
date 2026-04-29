@@ -6,6 +6,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [4.2.2-pre] — 2026-04-29
+
+Cross-project group leak fix. After creating two projects on the same install and switching between them, opening "New board" / "New flow" right after the switch could expose groups from the previous project in the dropdown — and the backend would happily accept them, leaving a board in project B pointing at a group that lived in project A. Both ends fixed.
+
+### Fixed
+
+- **Tasks page and Flows page now clear `boards` / `boardGroups` / `flows` / `flowGroups` synchronously when `activeProjectId` changes**, before the new fetch starts. The previous code waited until the fetch resolved to swap state, which left a window where any modal or dropdown saw stale entries from the project the user just switched away from. Mirrors the pattern that the dashboard's terminal-groups effect already had (`fetchGroups` ran `setGroups([])` before the await).
+- **Backend validates `group_id` against the project's groups file in 4 routes:** `POST /api/task-boards`, `PATCH /api/task-boards/[id]` (for the `move_board_group` action only), `POST /api/flows`, and `PATCH /api/flows/[id]` (only when the patch actually touches `group_id`). If the supplied id doesn't exist in `<project>/{task-board,flow}-groups.json`, the route returns `400 errors.group_not_in_project` with `detail_params: { group_id, project_id }`. The skip-if-absent guard on `PATCH /api/flows/[id]` keeps the hot scene-autosave path off the extra read.
+
+### Added
+
+- **`validateGroupBelongsToProject(projectId, groupsFile, groupId)` helper** in `lib/projectStorage.js`. Returns `null` on success, or a `{ detailKey, detail, params }` object that callers can pipe straight into their existing `bad()` helper. Empty / null / undefined `groupId` short-circuits to success — the API contract for "no group" stays unchanged.
+- **`errors.group_not_in_project`** i18n key in en/pt-BR/es: *"That group belongs to a different project — refresh and try again."*
+
+### Notes
+
+- **Test suite stays at 153 / 153** — the four route tests that mock `@/lib/projectStorage` were updated to expose `validateGroupBelongsToProject: vi.fn(async () => null)`. No new positive/negative cases for the validator yet; flag during code review if you want explicit coverage of the 400 path.
+
 ## [4.2.1-pre] — 2026-04-29
 
 Onboarding gate + the long-overdue removal of the `proj-default` fallback chain, plus a handful of follow-up fixes after testing the manifest-as-truth refactor on a fresh install. After this release, the dashboard refuses to mount until the install has at least one project (created on the spot or imported via a backend share token), and every `?? DEFAULT_PROJECT_ID` workaround is gone.
@@ -1354,7 +1372,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v4.2.1-pre...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v4.2.2-pre...HEAD
+[4.2.2-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.2.2-pre
 [4.2.1-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.2.1-pre
 [4.2.0-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.2.0-pre
 [4.1.0-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.1.0-pre
