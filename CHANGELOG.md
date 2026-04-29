@@ -8,32 +8,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [4.2.1-pre] — 2026-04-29
 
-Three follow-up fixes after the v4.2.0-pre / OnboardingGate release went out for testing. None are blockers but they make the on-disk layout match the documented contract and remove the awkward "single project, no default" state on a fresh install.
-
-### Fixed
-
-- **`projects-manifest.json` no longer pollutes the install root on the file driver.** The path is now `data/projects-manifest.json`. The S3 and Mongo drivers strip the leading `data/` on resolution, so the bucket key (`<prefix>/projects-manifest.json`) and the Mongo doc id stay exactly where they were — share tokens minted on v4.2.0-pre keep working without changes. The file driver, which does *not* strip, now writes the manifest inside `<frontend_root>/data/` next to the rest of the dashboard's data instead of at the install root next to `package.json` and `server.js`.
-- **One-shot self-heal for the misplaced legacy file.** First read of the manifest from the local backend checks for the pre-4.2.1 path (`<frontend_root>/projects-manifest.json`), and if found, atomically moves the file to the new location and deletes the legacy copy. Idempotent within the process — flag flips after the first attempt; if the move itself fails (permissions, disk full), the next project write falls back cleanly to the new path so the system still self-corrects on subsequent boots.
-- **First project on a fresh install auto-claims `default_project_id` and `active_project_id` per-install prefs.** Before this fix, a new user who completed the OnboardingGate landed on the dashboard with `data/project-prefs.json` still showing `{ active_project_id: null, default_project_id: null }`. The "Default" star badge on the project card stayed empty until they manually clicked it, and a fresh tab opened with no sessionStorage would fall back to "first project in the list" instead of an explicit user choice. `POST /api/projects` now reads the prefs file and, when either field is null, claims the new project for it. Subsequent project creations leave the existing prefs alone.
-
-### Notes
-
-- **Test suite up to 153 / 153 green** (was 151). New: `projectIndex.test.js > self-heals legacy pre-4.2.1 manifest at <root>/projects-manifest.json` and `projects-route-v4-2.test.js > first-project-on-fresh-install claims default + active prefs`. Existing reconciler test relaxed the manifest path expectation to `data/projects-manifest.json` to match the new layout.
-
-## [4.3.0-pre] — 2026-04-29
-
-Onboarding gate + the long-overdue removal of the `proj-default` fallback chain. After a fresh install, the dashboard now blocks behind a full-screen modal until you either create your first project or paste a backend share token to pick up a colleague's projects automatically. With at-least-one-project guaranteed, every `?? DEFAULT_PROJECT_ID` workaround in the codebase is gone — and the bogus `proj-default` id that orphaned sessions/groups in v4.0–v4.2 stops being silently stamped onto new records.
+Onboarding gate + the long-overdue removal of the `proj-default` fallback chain, plus a handful of follow-up fixes after testing the manifest-as-truth refactor on a fresh install. After this release, the dashboard refuses to mount until the install has at least one project (created on the spot or imported via a backend share token), and every `?? DEFAULT_PROJECT_ID` workaround is gone.
 
 ### Added
 
 - **OnboardingGate component** (`frontend/src/components/onboarding/OnboardingGate.jsx`). Mounts in `InnerLayout` next to `NotesUI`; visible whenever `loaded && projects.length === 0` and the route isn't `/login`. Two CTAs: *Create your first project* (name + backend dropdown — same shape as the project-page modal) or *Add a storage backend* (opens `AddBackendModal`; on token paste, manifest projects appear automatically and the gate dismisses on the next refresh). After either path the dashboard unblocks without further intervention.
-- **DELETE-last-project guard.** `DELETE /api/projects/[id]` now returns `409 errors.project_last_remaining` when the post-delete project list would be empty across every configured backend. The Projects page hides the trash icon under the same condition (`!is_default && projects.length > 1`); even if a stale tab fires the request, the server-side guard preserves the onboarding invariant.
+- **DELETE-last-project guard.** `DELETE /api/projects/[id]` returns `409 errors.project_last_remaining` when the post-delete project list would be empty across every configured backend. The Projects page hides the trash icon under the same condition (`!is_default && projects.length > 1`); even if a stale tab fires the request, the server-side guard preserves the onboarding invariant.
 
 ### Changed
 
 - **`ProjectSelector` falls back to "Loading..." instead of "No project".** With the onboarding gate enforcing at least one project before any UI mounts, the brief flash of `projectSelector.none` between login and the first `/api/projects` response was the only place that string still appeared — replaced by the existing `projectSelector.loading` for a clean transition.
 - **`activeProjectId` defaults to `null` until `refreshProjects()` resolves with at least one project.** `ProjectsProvider` no longer seeds it with `DEFAULT_PROJECT_ID`; the gate covers the empty-list case and downstream code can rely on a non-null value pointing at a real entry.
 - **Sessions/groups/task-boards drop the `project_id` fallback.** `app/api/sessions/route.js`, `app/api/groups/route.js`, and `lib/taskBoardsStore.js` previously stamped `proj-default` on any record missing a `project_id`. They now leave the field absent for legacy rows; new records always carry a real id from the active selector (which the onboarding gate guarantees exists).
+
+### Fixed
+
+- **`projects-manifest.json` no longer pollutes the install root on the file driver.** The path is now `data/projects-manifest.json`. The S3 and Mongo drivers strip the leading `data/` on resolution, so the bucket key (`<prefix>/projects-manifest.json`) and the Mongo doc id stay exactly where they were — share tokens minted on v4.2.0-pre keep working without changes. The file driver, which does *not* strip, now writes the manifest inside `<frontend_root>/data/` next to the rest of the dashboard's data instead of at the install root next to `package.json` and `server.js`.
+- **One-shot self-heal for the misplaced legacy file.** First read of the manifest from the local backend checks for the pre-4.2.1 path (`<frontend_root>/projects-manifest.json`), and if found, atomically moves the file to the new location and deletes the legacy copy. Idempotent within the process; if the move itself fails (permissions, disk full) the next project write falls back cleanly to the new path so the system still self-corrects on subsequent boots.
+- **First project on a fresh install auto-claims `default_project_id` and `active_project_id` per-install prefs.** Before this fix, a new user who completed the OnboardingGate landed on the dashboard with `data/project-prefs.json` still showing `{ active_project_id: null, default_project_id: null }` — the "Default" star badge stayed empty until manually clicked, and a fresh tab without sessionStorage fell back to "first project in the list" instead of an explicit user choice. `POST /api/projects` now reads the prefs file and, when either field is null, claims the new project for it. Subsequent project creations leave the existing prefs alone.
 
 ### Removed
 
@@ -42,7 +34,8 @@ Onboarding gate + the long-overdue removal of the `proj-default` fallback chain.
 
 ### Notes
 
-- **Test suite up to 151 / 151 green** (was 150). New: `projects-route-v4-2.test.js > refuses to delete the only remaining project (onboarding invariant)`. Existing tests around the DELETE path were tightened to mock `listAllProjects` returning a 2-project install by default.
+- **Test suite up to 153 / 153 green** (was 150 at v4.2.0-pre, +3 new). New cases cover the DELETE-last-remaining guard, the legacy-manifest self-heal, and the first-project pref claim. Existing reconciler test was relaxed to expect the manifest at `data/projects-manifest.json`.
+- **A v4.3.0-pre tag was minted briefly during testing for the OnboardingGate work and then withdrawn before this release** — the OnboardingGate code is part of v4.2.1-pre. If `git fetch` shows v4.3.0-pre as a stale local tag, delete it: `git tag -d v4.3.0-pre`.
 
 ## [4.2.0-pre] — 2026-04-29
 
@@ -1363,7 +1356,6 @@ Migration from earlier dev builds: see the README "Self-hosting" section and run
 
 [Unreleased]: https://github.com/kevinzezel/pulse/compare/v4.2.1-pre...HEAD
 [4.2.1-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.2.1-pre
-[4.3.0-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.3.0-pre
 [4.2.0-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.2.0-pre
 [4.1.0-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.1.0-pre
 [4.0.3-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.0.3-pre
