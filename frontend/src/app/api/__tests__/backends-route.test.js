@@ -128,8 +128,8 @@ describe('PATCH/DELETE /api/storage/backends/[id]', () => {
       removeBackend: vi.fn(),
       setDefaultBackend: vi.fn(),
     }));
-    vi.doMock('@/lib/projectStorage', () => ({
-      readLocalStore: vi.fn(async () => ({ projects: [] })),
+    vi.doMock('@/lib/projectIndex', () => ({
+      listAllProjects: vi.fn(async () => []),
     }));
     vi.doMock('@/lib/auth', () => ({ withAuth: (fn) => fn }));
     storage = await import('@/lib/storage');
@@ -157,10 +157,10 @@ describe('PATCH/DELETE /api/storage/backends/[id]', () => {
   });
 
   it('DELETE refuses when projects still use the backend', async () => {
-    const { readLocalStore } = await import('@/lib/projectStorage');
-    readLocalStore.mockResolvedValueOnce({
-      projects: [{ id: 'p1', name: 'X', storage_ref: 'b-1' }],
-    });
+    const { listAllProjects } = await import('@/lib/projectIndex');
+    listAllProjects.mockResolvedValueOnce([
+      { id: 'p1', name: 'X', backend_id: 'b-1' },
+    ]);
     const req = new Request('http://localhost/api/storage/backends/b-1', { method: 'DELETE' });
     const res = await route.DELETE(req, { params: Promise.resolve({ id: 'b-1' }) });
     expect(res.status).toBe(409);

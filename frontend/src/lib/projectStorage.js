@@ -2,31 +2,25 @@ import {
   readStoreFromBackend,
   writeStoreToBackend,
   withStoreLockOnBackend,
-  getDriverFor,
 } from './storage.js';
+import { findProjectBackend } from './projectIndex.js';
 
 const LOCAL_BACKEND_ID = 'local';
 
-// projects.json is always stored on the local backend, even when the default
-// backend is remote (a user with S3 default still has projects.json local).
-// The path follows the existing storage convention: relPaths are anchored at
-// PULSE_FRONTEND_ROOT, so user-data files live under `data/...`.
-const PROJECTS_RELPATH = 'data/projects.json';
-
-// Resolves a `project_id` to its storage backend id by reading the local
-// projects.json. Throws if the project doesn't exist locally.
+// Plan 4 (manifest-as-truth): the projectId -> backendId mapping comes from
+// scanning each backend's `projects-manifest.json` rather than the
+// (now-defunct) local `data/projects.json`. The manifest scan happens
+// inside `findProjectBackend`, which short-circuits as soon as it finds a
+// match.
 export async function resolveProjectStorage(projectId) {
   if (typeof projectId !== 'string' || !projectId) {
     throw new Error('resolveProjectStorage: projectId is required');
   }
-  const driver = await getDriverFor(LOCAL_BACKEND_ID);
-  const projectsDoc = await driver.readJsonFile(PROJECTS_RELPATH, { projects: [] });
-  const projects = Array.isArray(projectsDoc.projects) ? projectsDoc.projects : [];
-  const entry = projects.find((p) => p.id === projectId);
-  if (!entry) {
+  const backendId = await findProjectBackend(projectId);
+  if (!backendId) {
     throw new Error(`unknown project: ${projectId}`);
   }
-  return entry.storage_ref || LOCAL_BACKEND_ID;
+  return backendId;
 }
 
 function projectPath(projectId, file) {

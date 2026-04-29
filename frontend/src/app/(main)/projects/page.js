@@ -3,23 +3,41 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import toast from 'react-hot-toast';
 import {
-  Plus, Search, FolderOpen, Pencil, Trash2, X, Lock, Check, Loader, GripVertical,
+  Plus, Search, FolderOpen, Pencil, Trash2, X, Loader, Star,
 } from 'lucide-react';
-import {
-  DndContext, PointerSensor, KeyboardSensor, useSensor, useSensors, closestCenter,
-} from '@dnd-kit/core';
-import {
-  SortableContext, verticalListSortingStrategy, useSortable, sortableKeyboardCoordinates,
-} from '@dnd-kit/sortable';
-import { CSS } from '@dnd-kit/utilities';
 import { useTranslation, useErrorToast } from '@/providers/I18nProvider';
 import { useProjects } from '@/providers/ProjectsProvider';
-import { getProjectStats } from '@/services/api';
+import { getProjectStats, listBackends } from '@/services/api';
 
-function ProjectModal({ title, initialName = '', submitLabel, submittingLabel, onClose, onSubmit }) {
+// Backend dot — same hue derivation used in ProjectSelector. `local` falls
+// back to a token to stay subtle; remote backend ids hash to a stable hue
+// so two projects on the same backend share a color in the UI.
+function backendColor(backendId) {
+  if (!backendId || backendId === 'local') return 'hsl(var(--muted-foreground))';
+  let hash = 0;
+  for (let i = 0; i < backendId.length; i++) {
+    hash = (hash * 31 + backendId.charCodeAt(i)) | 0;
+  }
+  const hue = Math.abs(hash) % 360;
+  return `hsl(${hue}, 60%, 50%)`;
+}
+
+function NewProjectModal({ onClose, onSubmit }) {
   const { t } = useTranslation();
-  const [name, setName] = useState(initialName);
+  const showError = useErrorToast();
+  const [name, setName] = useState('');
+  const [backendId, setBackendId] = useState('local');
+  const [backends, setBackends] = useState(null);
   const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    listBackends()
+      .then((data) => setBackends(data.backends || []))
+      .catch((err) => {
+        showError(err);
+        setBackends([{ id: 'local', name: 'Local' }]);
+      });
+  }, [showError]);
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -28,7 +46,7 @@ function ProjectModal({ title, initialName = '', submitLabel, submittingLabel, o
     if (!clean) return;
     setSubmitting(true);
     try {
-      await onSubmit(clean);
+      await onSubmit(clean, backendId);
     } finally {
       setSubmitting(false);
     }
@@ -38,7 +56,7 @@ function ProjectModal({ title, initialName = '', submitLabel, submittingLabel, o
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-overlay/60 px-4">
       <div className="bg-card border border-border rounded-lg p-6 w-full max-w-sm">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-foreground font-semibold">{title}</h3>
+          <h3 className="text-foreground font-semibold">{t('projects.newModal.title')}</h3>
           <button
             type="button"
             onClick={onClose}
@@ -61,6 +79,19 @@ function ProjectModal({ title, initialName = '', submitLabel, submittingLabel, o
             placeholder={t('projects.newModal.namePlaceholder')}
             className="w-full px-3 py-2 bg-input border border-border rounded-md text-foreground text-sm focus:outline-none focus:ring-1 focus:ring-ring mb-4 disabled:opacity-50"
           />
+          <label className="block text-sm text-muted-foreground mb-1">
+            {t('projects.newModal.backendLabel')}
+          </label>
+          <select
+            value={backendId}
+            onChange={(e) => setBackendId(e.target.value)}
+            disabled={submitting || !backends}
+            className="w-full px-3 py-2 bg-input border border-border rounded-md text-foreground text-sm focus:outline-none focus:ring-1 focus:ring-ring mb-4 disabled:opacity-50"
+          >
+            {(backends || [{ id: 'local', name: 'Local' }]).map((b) => (
+              <option key={b.id} value={b.id}>{b.name}</option>
+            ))}
+          </select>
           <div className="flex gap-2 justify-end">
             <button
               type="button"
@@ -76,7 +107,75 @@ function ProjectModal({ title, initialName = '', submitLabel, submittingLabel, o
               className="px-4 py-1.5 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 disabled:opacity-50 flex items-center gap-1.5"
             >
               {submitting && <Loader size={13} className="animate-spin" />}
-              {submitting ? submittingLabel : submitLabel}
+              {submitting ? t('projects.newModal.creating') : t('projects.newModal.create')}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function RenameProjectModal({ initialName, onClose, onSubmit }) {
+  const { t } = useTranslation();
+  const [name, setName] = useState(initialName);
+  const [submitting, setSubmitting] = useState(false);
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    if (submitting) return;
+    const clean = name.trim();
+    if (!clean) return;
+    setSubmitting(true);
+    try {
+      await onSubmit(clean);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-overlay/60 px-4">
+      <div className="bg-card border border-border rounded-lg p-6 w-full max-w-sm">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-foreground font-semibold">{t('projects.renameModal.title')}</h3>
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={submitting}
+            className="text-muted-foreground hover:text-foreground disabled:opacity-50"
+          >
+            <X size={18} />
+          </button>
+        </div>
+        <form onSubmit={handleSubmit}>
+          <label className="block text-sm text-muted-foreground mb-1">
+            {t('projects.renameModal.nameLabel')}
+          </label>
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            autoFocus
+            disabled={submitting}
+            className="w-full px-3 py-2 bg-input border border-border rounded-md text-foreground text-sm focus:outline-none focus:ring-1 focus:ring-ring mb-4 disabled:opacity-50"
+          />
+          <div className="flex gap-2 justify-end">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={submitting}
+              className="px-3 py-1.5 rounded-md text-sm hover:bg-muted/40 text-muted-foreground disabled:opacity-50"
+            >
+              {t('projects.renameModal.cancel')}
+            </button>
+            <button
+              type="submit"
+              disabled={submitting || !name.trim()}
+              className="px-4 py-1.5 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 disabled:opacity-50 flex items-center gap-1.5"
+            >
+              {submitting && <Loader size={13} className="animate-spin" />}
+              {submitting ? t('projects.renameModal.saving') : t('projects.renameModal.save')}
             </button>
           </div>
         </form>
@@ -180,21 +279,7 @@ function DeleteConfirmModal({ project, onClose, onConfirm }) {
   );
 }
 
-function SortableProjectCard(props) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: props.project.id });
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.5 : 1,
-  };
-  return (
-    <div ref={setNodeRef} style={style}>
-      <ProjectCard {...props} dragAttributes={attributes} dragListeners={listeners} dragEnabled={props.dragEnabled} />
-    </div>
-  );
-}
-
-function ProjectCard({ project, isActive, stats, loadingStats, onActivate, onRename, onDelete, activating, dragAttributes, dragListeners, dragEnabled }) {
+function ProjectCard({ project, isActive, stats, loadingStats, onActivate, onRename, onDelete, onSetDefault, activating, settingDefault }) {
   const { t, formatDate } = useTranslation();
   const total = stats
     ? stats.groups + stats.terminals + stats.notes + stats.flows + stats.prompts
@@ -212,18 +297,6 @@ function ProjectCard({ project, isActive, stats, loadingStats, onActivate, onRen
     >
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div className="flex items-start gap-3 flex-1 min-w-0">
-          {dragEnabled && (
-            <button
-              type="button"
-              aria-label={t('projects.dragHandle')}
-              title={t('projects.dragHandle')}
-              className="p-1 -ml-1 mt-1.5 rounded text-muted-foreground hover:text-foreground cursor-grab active:cursor-grabbing touch-none shrink-0"
-              {...dragAttributes}
-              {...dragListeners}
-            >
-              <GripVertical size={16} />
-            </button>
-          )}
           <div
             className={`w-10 h-10 rounded-md flex items-center justify-center shrink-0 ${
               isActive ? 'bg-primary/15 text-primary' : 'bg-muted text-muted-foreground'
@@ -233,19 +306,24 @@ function ProjectCard({ project, isActive, stats, loadingStats, onActivate, onRen
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 flex-wrap">
+              <span
+                className="inline-block size-2 rounded-full shrink-0"
+                style={{ background: backendColor(project.storage_ref || 'local') }}
+                title={project.storage_ref || 'local'}
+              />
               <h2 className="font-medium truncate">{project.name}</h2>
               {isActive && (
                 <span className="text-[11px] px-2 py-0.5 rounded-full bg-primary/20 text-primary font-medium">
-                  ★ {t('projects.active')}
+                  {t('projects.active')}
                 </span>
               )}
               {project.is_default && (
                 <span
                   className="text-[11px] px-2 py-0.5 rounded-full bg-muted text-muted-foreground flex items-center gap-1"
-                  title={t('projects.protectedTitle')}
+                  title={t('projects.defaultTitle')}
                 >
-                  <Lock size={11} />
-                  {t('projects.protected')}
+                  <Star size={11} />
+                  {t('projects.defaultLabel')}
                 </span>
               )}
               {!loadingStats && stats && isEmpty && (
@@ -302,6 +380,18 @@ function ProjectCard({ project, isActive, stats, loadingStats, onActivate, onRen
               {t('projects.activate')}
             </button>
           )}
+          {!project.is_default && (
+            <button
+              type="button"
+              onClick={onSetDefault}
+              disabled={settingDefault}
+              className="p-2 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground disabled:opacity-50"
+              title={t('projects.makeDefault')}
+              aria-label={t('projects.makeDefault')}
+            >
+              {settingDefault ? <Loader size={15} className="animate-spin" /> : <Star size={15} />}
+            </button>
+          )}
           <button
             type="button"
             onClick={onRename}
@@ -333,14 +423,9 @@ export default function ProjectsPage() {
   const showError = useErrorToast();
   const {
     projects, activeProjectId,
-    refreshProjects, setActiveProject,
-    createProject, renameProject, deleteProject, reorderProject,
+    setActiveProject,
+    createProject, renameProject, deleteProject, setDefaultProject,
   } = useProjects();
-
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
-  );
 
   const [statsByProject, setStatsByProject] = useState({});
   const [loadingStats, setLoadingStats] = useState(true);
@@ -350,6 +435,7 @@ export default function ProjectsPage() {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleteBlocked, setDeleteBlocked] = useState(null);
   const [activatingId, setActivatingId] = useState(null);
+  const [settingDefaultId, setSettingDefaultId] = useState(null);
 
   const fetchStats = useCallback(async () => {
     if (projects.length === 0) {
@@ -392,14 +478,26 @@ export default function ProjectsPage() {
     }
   }
 
-  async function handleCreate(name) {
+  async function handleCreate(name, targetBackendId) {
     try {
-      await createProject(name);
+      await createProject(name, targetBackendId);
       setCreatingOpen(false);
       await fetchStats();
       toast.success(t('success.project_created'));
     } catch (err) {
       showError(err);
+    }
+  }
+
+  async function handleSetDefault(id) {
+    setSettingDefaultId(id);
+    try {
+      await setDefaultProject(id);
+      toast.success(t('success.project_default_set'));
+    } catch (err) {
+      showError(err);
+    } finally {
+      setSettingDefaultId(null);
     }
   }
 
@@ -443,19 +541,6 @@ export default function ProjectsPage() {
     }
   }
 
-  const dragEnabled = filtered.length === projects.length && projects.length > 1;
-
-  async function handleDragEnd(event) {
-    const { active, over } = event;
-    if (!active || !over) return;
-    if (active.id === over.id) return;
-    try {
-      await reorderProject(active.id, over.id);
-    } catch (err) {
-      showError(err);
-    }
-  }
-
   return (
     <div className="h-full overflow-y-auto bg-background">
       <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
@@ -487,62 +572,34 @@ export default function ProjectsPage() {
           />
         </div>
 
-        {dragEnabled ? (
-          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-            <SortableContext items={filtered.map(p => p.id)} strategy={verticalListSortingStrategy}>
-              <div className="space-y-3">
-                {filtered.map((p) => (
-                  <SortableProjectCard
-                    key={p.id}
-                    project={p}
-                    isActive={p.id === activeProjectId}
-                    stats={statsByProject[p.id]}
-                    loadingStats={loadingStats}
-                    activating={activatingId === p.id}
-                    dragEnabled={true}
-                    onActivate={() => handleActivate(p.id)}
-                    onRename={() => setRenameTarget(p)}
-                    onDelete={() => handleDeleteClick(p)}
-                  />
-                ))}
-              </div>
-            </SortableContext>
-          </DndContext>
-        ) : (
-          <div className="space-y-3">
-            {filtered.map((p) => (
-              <ProjectCard
-                key={p.id}
-                project={p}
-                isActive={p.id === activeProjectId}
-                stats={statsByProject[p.id]}
-                loadingStats={loadingStats}
-                activating={activatingId === p.id}
-                dragEnabled={false}
-                onActivate={() => handleActivate(p.id)}
-                onRename={() => setRenameTarget(p)}
-                onDelete={() => handleDeleteClick(p)}
-              />
-            ))}
-          </div>
-        )}
+        <div className="space-y-3">
+          {filtered.map((p) => (
+            <ProjectCard
+              key={p.id}
+              project={p}
+              isActive={p.id === activeProjectId}
+              stats={statsByProject[p.id]}
+              loadingStats={loadingStats}
+              activating={activatingId === p.id}
+              settingDefault={settingDefaultId === p.id}
+              onActivate={() => handleActivate(p.id)}
+              onRename={() => setRenameTarget(p)}
+              onDelete={() => handleDeleteClick(p)}
+              onSetDefault={() => handleSetDefault(p.id)}
+            />
+          ))}
+        </div>
       </div>
 
       {creatingOpen && (
-        <ProjectModal
-          title={t('projects.newModal.title')}
-          submitLabel={t('projects.newModal.create')}
-          submittingLabel={t('projects.newModal.creating')}
+        <NewProjectModal
           onClose={() => setCreatingOpen(false)}
           onSubmit={handleCreate}
         />
       )}
       {renameTarget && (
-        <ProjectModal
-          title={t('projects.renameModal.title')}
+        <RenameProjectModal
           initialName={renameTarget.name}
-          submitLabel={t('projects.renameModal.save')}
-          submittingLabel={t('projects.renameModal.saving')}
           onClose={() => setRenameTarget(null)}
           onSubmit={handleRename}
         />

@@ -124,7 +124,10 @@ async function _readConfigFromDisk() {
     const text = await fs.readFile(CONFIG_PATH, 'utf-8');
     if (!text.trim()) return emptyV2Config();
     const parsed = JSON.parse(text);
-    if (parsed && parsed.v === 2 && Array.isArray(parsed.backends)) {
+    if (parsed && (parsed.v === 2 || parsed.v === 3) && Array.isArray(parsed.backends)) {
+      // v:3 is the v4.2 reconciler marker -- same v2 shape internally, just
+      // signals "manifest reconciliation has happened". Reader treats them
+      // identically; only the migrator cares about the distinction.
       // Defensive: ensure 'local' backend always exists and default is set.
       if (!parsed.backends.find((b) => b.id === 'local')) {
         parsed.backends.unshift({ ...DEFAULT_LOCAL_BACKEND });

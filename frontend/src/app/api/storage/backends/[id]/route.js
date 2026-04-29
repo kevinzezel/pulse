@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { withAuth } from '@/lib/auth';
-import { getConfig, removeBackend, setDefaultBackend } from '@/lib/storage';
-import { readLocalStore } from '@/lib/projectStorage';
+import { removeBackend, setDefaultBackend } from '@/lib/storage';
+import { listAllProjects } from '@/lib/projectIndex';
 
 function bad(detailKey, detail, status = 400, params) {
   const body = { detail, detail_key: detailKey };
@@ -33,10 +33,11 @@ export const DELETE = withAuth(async (req, { params }) => {
     return bad('errors.backend_local_immutable', 'Cannot remove the local backend', 400);
   }
 
-  // Block removal if any project still routes to this backend.
-  const projectsDoc = await readLocalStore('data/projects.json', { projects: [] });
-  const projects = Array.isArray(projectsDoc?.projects) ? projectsDoc.projects : [];
-  const inUse = projects.filter((p) => p && p.storage_ref === id);
+  // Block removal if any project still routes to this backend. Manifest-as-
+  // truth (v4.2): the project list comes from each backend's own
+  // projects-manifest.json, aggregated by listAllProjects.
+  const all = await listAllProjects();
+  const inUse = all.filter((p) => p.backend_id === id);
   if (inUse.length > 0) {
     return bad('errors.backend_in_use', `Backend has ${inUse.length} project(s) routed to it; move them first.`, 409, {
       count: inUse.length,

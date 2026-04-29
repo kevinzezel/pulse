@@ -1,7 +1,6 @@
 import { getCurrentLocale } from '@/providers/I18nProvider';
 import { getServerById } from '@/providers/ServersProvider';
 import { DEFAULT_PROJECT_ID } from '@/lib/projectScope';
-import { reorderById } from '@/utils/reorder';
 import { SERVER_HEALTH_TIMEOUT_MS, timeoutSignal } from '@/utils/serverHealth';
 
 export const SESSION_ID_SEP = '::';
@@ -887,54 +886,60 @@ export function getProjects() {
   return localRequest('/api/projects');
 }
 
-export async function saveProjects(state) {
-  return localRequest('/api/projects', {
-    method: 'PUT',
-    body: JSON.stringify(state),
-  });
-}
-
-export async function createProject(name) {
+// v4.2 (manifest-as-truth): server is the source of truth for the project
+// list. We hand the server `{ name, target_backend_id }` and trust it to do
+// the manifest write atomically. No more bulk PUT, no more reorder.
+export async function createProject(name, targetBackendId = 'local') {
   const clean = normalizeProjectName(name);
-  const state = await getProjects();
-  assertUniqueProjectName(state.projects, clean);
-  const draft = { name: clean };
-  const next = {
-    projects: [...state.projects, draft],
-    active_project_id: state.active_project_id,
-  };
-  const res = await saveProjects(next);
-  const created = res.projects[res.projects.length - 1];
-  return { project: created, detail_key: 'success.project_created', state: res };
+  const { projects } = await getProjects();
+  assertUniqueProjectName(projects, clean);
+  const created = await localRequest('/api/projects', {
+    method: 'POST',
+    body: JSON.stringify({ name: clean, target_backend_id: targetBackendId || 'local' }),
+  });
+  return { project: created, detail_key: 'success.project_created' };
 }
 
+// PATCH /api/projects/[id] with `{ name }`. The backend writes the new name
+// into the owning manifest; the client still propagates the rename to live
+// session metadata so notification titles refresh without a session restart.
 export async function renameProject(projectId, name) {
   const clean = normalizeProjectName(name);
-  const state = await getProjects();
-  const target = state.projects.find(p => p.id === projectId);
+  const { projects } = await getProjects();
+  const target = projects.find((p) => p.id === projectId);
   if (!target) {
     const err = new Error('Project not found');
     err.detail_key = 'errors.project_not_found';
     throw err;
   }
-  assertUniqueProjectName(state.projects, clean, projectId);
-  const next = {
-    projects: state.projects.map(p => p.id === projectId ? { ...p, name: clean } : p),
-    active_project_id: state.active_project_id,
-  };
-  const res = await saveProjects(next);
-  const updated = res.projects.find(p => p.id === projectId);
+  assertUniqueProjectName(projects, clean, projectId);
+  const updated = await localRequest(`/api/projects/${encodeURIComponent(projectId)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ name: clean }),
+  });
   propagateScopeName((s) => s.project_id === projectId, { projectName: clean });
-  return { project: updated, detail_key: 'success.project_renamed', state: res };
+  return { project: updated, detail_key: 'success.project_renamed' };
 }
 
-export async function reorderProjects(fromId, toId) {
-  const state = await getProjects();
-  const nextProjects = reorderById(state.projects, fromId, toId);
-  if (nextProjects === state.projects) return { state };
-  const next = { ...state, projects: nextProjects };
-  const res = await saveProjects(next);
-  return { detail_key: 'success.project_reordered', state: res };
+// PATCH /api/projects/[id] with `{ set_default: true }`. Default lives in
+// the per-install `data/project-prefs.json`, so flipping it on one tab
+// affects only this install.
+export async function setDefaultProject(projectId) {
+  await localRequest(`/api/projects/${encodeURIComponent(projectId)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ set_default: true }),
+  });
+  return { detail_key: 'success.project_default_set' };
+}
+
+// PUT /api/projects with `{ active_project_id }` updates the per-install
+// active pref. The provider also persists it in sessionStorage so the
+// current tab keeps its choice across reloads even if a peer flips the pref.
+export async function setActiveProjectOnServer(projectId) {
+  return localRequest('/api/projects', {
+    method: 'PUT',
+    body: JSON.stringify({ active_project_id: projectId }),
+  });
 }
 
 export async function getProjectStats(projectId) {
@@ -943,8 +948,8 @@ export async function getProjectStats(projectId) {
 }
 
 export async function deleteProject(projectId) {
-  const state = await getProjects();
-  const target = state.projects.find(p => p.id === projectId);
+  const { projects } = await getProjects();
+  const target = projects.find((p) => p.id === projectId);
   if (!target) {
     const err = new Error('Project not found');
     err.detail_key = 'errors.project_not_found';
@@ -965,14 +970,10 @@ export async function deleteProject(projectId) {
     err.detail_params = stats;
     throw err;
   }
-  const def = state.projects.find(p => p.is_default) || state.projects[0];
-  const nextActive = state.active_project_id === projectId ? def.id : state.active_project_id;
-  const next = {
-    projects: state.projects.filter(p => p.id !== projectId),
-    active_project_id: nextActive,
-  };
-  const res = await saveProjects(next);
-  return { detail_key: 'success.project_deleted', state: res };
+  await localRequest(`/api/projects/${encodeURIComponent(projectId)}`, {
+    method: 'DELETE',
+  });
+  return { detail_key: 'success.project_deleted' };
 }
 
 // ----------------------------------------------------------------------------
@@ -1037,13 +1038,6 @@ export async function importBackendToken({ token, rename }) {
   return localRequest('/api/storage/import-token', {
     method: 'POST',
     body: JSON.stringify({ token, rename }),
-  });
-}
-
-export async function importProjects({ backendId, projects }) {
-  return localRequest('/api/storage/import-projects', {
-    method: 'POST',
-    body: JSON.stringify({ backend_id: backendId, projects }),
   });
 }
 

@@ -6,6 +6,35 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [4.2.0-pre] — 2026-04-29
+
+Manifest-as-truth refactor. Each backend now owns its own `projects-manifest.json` and that file is the source of truth for what projects live on it — the local `data/projects.json` shadow list is gone. A second install pointed at the same shared backend sees the same project list automatically, with no separate "import" step. The default project becomes a per-install preference, so two collaborators on the same backend each pick their own default without stepping on each other.
+
+### Changed
+
+- **Project list is aggregated from per-backend manifests.** `GET /api/projects` no longer reads a local list — it walks every configured backend's `projects-manifest.json`, decorates each entry with `storage_ref` (= backend id), and merges in per-install prefs to expose `is_default` / `active_project_id`. The response shape stays back-compat with the v4.1 contract (`{ projects, active_project_id }`) so the frontend provider keeps working without changes; the addition of `storage_ref` per entry is purely additive.
+- **`POST /api/projects` requires `target_backend_id`.** Creating a project now writes directly into the chosen backend's manifest. There is no implicit "default backend" — callers state which backend the project belongs to. The new project picker modal exposes a Storage backend dropdown (defaults to Local) so the choice is explicit.
+- **Mutations move to `/api/projects/[id]`.** `PATCH` accepts either `{ name }` (writes into the owning backend's manifest) or `{ set_default: true }` (writes the per-install pref). `DELETE` removes the manifest entry and best-effort cleans up the project's seven shard files. The bulk-overwrite `PUT /api/projects` is gone except for one narrow purpose: `{ active_project_id }` updates the per-install active pref.
+- **Default-project semantics are per-install.** Default is no longer a flag baked into the project entry — it lives in `data/project-prefs.json`, alongside the active project. The "Protected" lock badge becomes a "Default" star badge; setting a different project as default is now a one-click action on each card.
+- **Settings → Storage drops the separate "Import token" button.** AddBackendModal handles both flows internally via a "New backend" / "Paste share token" toggle. After pasting a token the backend is registered and its projects appear automatically on the next refresh — no preview-and-checkbox step. The standalone `ImportTokenModal` and `/api/storage/import-projects` route are removed.
+- **Project reorder is gone.** With projects coming from per-backend manifests in config-order (Local first), there is no single ordering to drag — the reorder UI and the corresponding API surface are removed.
+
+### Added
+
+- **`projects-manifest.json` per backend.** Each backend carries its own list of projects (`{ id, name, created_at, updated_at }`) at the storage root, written atomically through the backend's own lock primitive. `addProjectToManifest` is upsert with id-based deduping so reconciler runs cannot duplicate or rewrite existing entries.
+- **`data/project-prefs.json` (per-install).** Captures the two preferences that don't belong in any backend manifest: `active_project_id` (per tab, but tracked on the install too as a fallback for fresh tabs) and `default_project_id` (per install — two collaborators on the same backend each pick their own).
+- **v4.1 → v4.2 reconciler.** The first boot of v4.2 reads the legacy local `data/projects.json` (last-touched in v4.1), pushes each entry into the matching backend's `projects-manifest.json`, extracts `is_default` / `active_project_id` into the new prefs file, renames the legacy file to `data/projects.json.legacy-v4-1` (kept on disk as the safety net), and bumps the storage-config marker to `v: 3`. Idempotent — subsequent boots run zero work. Errors fail soft: the migration promise self-evicts so a second call retries from scratch.
+- **Storage config accepts both `v: 2` and `v: 3`.** The reader treats them identically; the marker only changes when the v4.1 → v4.2 reconciler runs on a fresh empty install (where there is nothing to reconcile but the bump still happens for forward consistency).
+
+### Fixed
+
+- **`DELETE /api/storage/backends/[id]` no longer reads the (now defunct) local projects list.** The "backend in use" guard now walks `listAllProjects()` (manifest aggregator) so the count stays correct after the v4.2 layout takes over.
+- **`/api/projects/[id]/move` resolves the source backend via manifest scan** instead of the local `storage_ref` field. After the move, both source and destination manifests reflect the new state automatically — no shadow-list bookkeeping.
+
+### Notes
+
+- **Test suite up to 150 / 150 green.** The v4.2 route tests (`projects-route-v4-2.test.js`), the new `projectIndex.test.js`, the `projectPrefs.test.js`, and the reconciler tests all pass. Existing storage / migration / per-route tests stay green; assertions that compared `cfg.v === 2` were relaxed to `expect([2, 3]).toContain(cfg.v)` to cover both shapes.
+
 ## [4.1.0-pre] — 2026-04-29
 
 The collaboration layer that the multi-backend foundation (4.0.x) was preparing for. One Pulse install can now host multiple named storage backends at once (personal S3, work S3, MongoDB, etc.), share access to a backend with a colleague via a single base64url token, and move individual projects between backends with redirect markers so other installs see the change cleanly.
@@ -24,6 +53,10 @@ The collaboration layer that the multi-backend foundation (4.0.x) was preparing 
 ### Changed
 
 - **Per-install routes (servers, sessions, recent-cwds, intelligence-config, compose-drafts, groups, projects/stats) now route their reads/writes through `readLocalStore` / `writeLocalStore` from `projectStorage.js`** instead of the legacy `storage.js` compat layer. This was already the fix in 4.0.2-pre — re-mentioned here because the new Settings UI relies on the same routing for `projects.json` reads. Net effect for users: per-install data stays local even when a remote backend is the default, with no further action needed.
+
+### Fixed
+
+- **`projects.json` route preserves `storage_ref` field on read and write.** The pre-existing `normalizeState` and `normalizePut` helpers were dropping `storage_ref` from each project entry — a leftover from before Plan 1 added the field. Net effect of the bug: the Settings UI counted every project as belonging to the local backend even when its data lived in a remote shard, and any edit through `PUT /api/projects` would have silently rewritten the file without `storage_ref`, flipping every project back to the default backend on next read. Caught during the 4.1.0-pre smoke test.
 
 ### Notes
 
@@ -1290,7 +1323,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v4.1.0-pre...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v4.2.0-pre...HEAD
+[4.2.0-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.2.0-pre
 [4.1.0-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.1.0-pre
 [4.0.3-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.0.3-pre
 [4.0.2-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.0.2-pre

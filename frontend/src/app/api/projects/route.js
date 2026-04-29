@@ -1,130 +1,104 @@
 import { NextResponse } from 'next/server';
 import { randomUUID } from 'crypto';
 import { withAuth } from '@/lib/auth';
-import { readLocalStore, writeLocalStore, withLocalStoreLock } from '@/lib/projectStorage';
-import { DEFAULT_PROJECT_ID, DEFAULT_PROJECT_NAME } from '@/lib/projectScope';
-
-const REL = 'data/projects.json';
+import { listAllProjects, addProjectToManifest } from '@/lib/projectIndex';
+import { readProjectPrefs, setActiveProjectPref } from '@/lib/projectPrefs';
+import { getConfig } from '@/lib/storage';
 
 const NAME_MAX = 64;
 
-function makeDefaultState() {
-  const now = new Date().toISOString();
-  return {
-    projects: [
-      { id: DEFAULT_PROJECT_ID, name: DEFAULT_PROJECT_NAME, is_default: true, created_at: now },
-    ],
-    active_project_id: DEFAULT_PROJECT_ID,
-    updated_at: now,
-  };
+function bad(detailKey, detail, status = 400, params) {
+  const body = { detail, detail_key: detailKey };
+  if (params) body.detail_params = params;
+  return NextResponse.json(body, { status });
 }
 
-function normalizeState(parsed) {
-  if (!parsed || typeof parsed !== 'object') return makeDefaultState();
-  const projects = Array.isArray(parsed.projects) ? parsed.projects : [];
-  const hasDefault = projects.some((p) => p && p.is_default === true);
-  const normalized = {
-    projects: projects
-      .map((p) => ({
-        id: (typeof p.id === 'string' && p.id) ? p.id : `proj-${randomUUID()}`,
-        name: String(p?.name ?? '').trim() || DEFAULT_PROJECT_NAME,
-        is_default: p?.is_default === true,
-        created_at: p?.created_at || new Date().toISOString(),
-      }))
-      .filter((p) => p.name.length > 0),
-    active_project_id: (typeof parsed.active_project_id === 'string' && parsed.active_project_id) || DEFAULT_PROJECT_ID,
-    updated_at: parsed.updated_at || new Date().toISOString(),
-  };
-  if (!hasDefault) {
-    const now = new Date().toISOString();
-    normalized.projects.unshift({
-      id: DEFAULT_PROJECT_ID,
-      name: DEFAULT_PROJECT_NAME,
-      is_default: true,
-      created_at: now,
-    });
-  }
-  if (!normalized.projects.some((p) => p.id === normalized.active_project_id)) {
-    const def = normalized.projects.find((p) => p.is_default) || normalized.projects[0];
-    normalized.active_project_id = def.id;
-  }
-  return normalized;
-}
+// GET /api/projects: aggregate every backend's `projects-manifest.json`
+// into a single project list, decorate each entry with the owning
+// `storage_ref` (= backend id), and merge in per-install prefs to expose
+// `is_default` / `active_project_id`. The shape is back-compat with the
+// pre-v4.2 contract (`{ projects, active_project_id }`) so the frontend
+// provider keeps working without changes; the addition of `storage_ref`
+// per entry is purely additive.
+export const GET = withAuth(async () => {
+  const all = await listAllProjects();
+  const prefs = await readProjectPrefs();
 
-async function readState() {
-  const data = await readLocalStore(REL, null);
-  if (!data) {
-    return withLocalStoreLock(REL, async () => {
-      const fresh = await readLocalStore(REL, null);
-      if (fresh) return normalizeState(fresh);
-      const seed = makeDefaultState();
-      await writeLocalStore(REL, seed);
-      return seed;
-    });
-  }
-  return normalizeState(data);
-}
+  const projects = all.map((p) => ({
+    id: p.id,
+    name: p.name,
+    storage_ref: p.backend_id,
+    created_at: p.created_at,
+    updated_at: p.updated_at,
+    is_default: p.id === prefs.default_project_id,
+  }));
 
-function normalizePut(body) {
-  const now = new Date().toISOString();
-  const incoming = Array.isArray(body?.projects) ? body.projects : [];
-  const seen = new Set();
-  const projects = [];
-  for (const p of incoming) {
-    const id = (typeof p?.id === 'string' && p.id) ? p.id : `proj-${randomUUID()}`;
-    if (seen.has(id)) continue;
-    const name = String(p?.name ?? '').trim();
-    if (!name) continue;
-    if (name.length > NAME_MAX) continue;
-    seen.add(id);
-    projects.push({
-      id,
-      name,
-      is_default: p?.is_default === true,
-      created_at: p?.created_at || now,
-    });
-  }
-  const defaults = projects.filter((p) => p.is_default);
-  if (defaults.length === 0) {
-    const first = projects[0];
-    if (first) first.is_default = true;
-    else projects.push({ id: DEFAULT_PROJECT_ID, name: DEFAULT_PROJECT_NAME, is_default: true, created_at: now });
-  } else if (defaults.length > 1) {
-    let kept = false;
-    for (const p of projects) {
-      if (p.is_default) {
-        if (kept) p.is_default = false;
-        else kept = true;
-      }
+  // active_project_id resolution: fall back to default, then first project.
+  const knownIds = new Set(projects.map((p) => p.id));
+  let activeId = prefs.active_project_id;
+  if (!activeId || !knownIds.has(activeId)) {
+    if (prefs.default_project_id && knownIds.has(prefs.default_project_id)) {
+      activeId = prefs.default_project_id;
+    } else {
+      activeId = projects[0]?.id || null;
     }
   }
-  let active_project_id = typeof body?.active_project_id === 'string' ? body.active_project_id : null;
-  if (!projects.some((p) => p.id === active_project_id)) {
-    const def = projects.find((p) => p.is_default) || projects[0];
-    active_project_id = def.id;
-  }
-  return { projects, active_project_id, updated_at: now };
-}
 
-export const GET = withAuth(async () => {
-  const state = await readState();
-  return NextResponse.json(state);
+  return NextResponse.json({ projects, active_project_id: activeId });
 });
 
+// POST /api/projects: create a new project on the chosen backend.
+// `target_backend_id` is required (no implicit "default backend" guesswork
+// to avoid orphan projects when the default flips). Validation rejects
+// missing/oversized names and unknown backend ids.
+export const POST = withAuth(async (req) => {
+  let body;
+  try { body = await req.json(); } catch { return bad('errors.invalid_body', 'Invalid JSON'); }
+
+  const name = String(body?.name ?? '').trim();
+  if (!name || name.length > NAME_MAX) {
+    return bad('errors.invalid_body', `name is required and must be at most ${NAME_MAX} chars`);
+  }
+
+  const targetBackendId = (typeof body?.target_backend_id === 'string' && body.target_backend_id)
+    ? body.target_backend_id
+    : 'local';
+
+  // Reject unknown backend ids up front -- otherwise the manifest write
+  // would fail with a less-friendly error from the driver layer.
+  const cfg = await getConfig();
+  if (!cfg.backends.find((b) => b.id === targetBackendId)) {
+    return bad('errors.backend_unknown', 'Target backend not found', 404, { id: targetBackendId });
+  }
+
+  const id = `proj-${randomUUID()}`;
+  const created_at = new Date().toISOString();
+
+  await addProjectToManifest(targetBackendId, { id, name, created_at });
+
+  return NextResponse.json({
+    id,
+    name,
+    storage_ref: targetBackendId,
+    created_at,
+    updated_at: created_at,
+    is_default: false,
+  }, { status: 201 });
+});
+
+// PUT /api/projects: per-install pref to track which project is active for
+// this dashboard tab. Body: `{ active_project_id }`. Returns the new value.
+// Note: Plan 4 dropped the bulk-overwrite contract that the v4.1 PUT used --
+// callers that want to rename / set-default should hit `/api/projects/[id]`
+// instead.
 export const PUT = withAuth(async (req) => {
   let body;
-  try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ detail: 'Invalid JSON', detail_key: 'errors.invalid_body' }, { status: 400 });
+  try { body = await req.json(); } catch { return bad('errors.invalid_body', 'Invalid JSON'); }
+
+  if (typeof body?.active_project_id !== 'string' || !body.active_project_id) {
+    return bad('errors.invalid_body', 'active_project_id is required');
   }
-  if (!body || !Array.isArray(body.projects)) {
-    return NextResponse.json({ detail: 'Expected { projects: [...] }', detail_key: 'errors.invalid_body' }, { status: 400 });
-  }
-  const state = await withLocalStoreLock(REL, async () => {
-    const next = normalizePut(body);
-    await writeLocalStore(REL, next);
-    return next;
-  });
-  return NextResponse.json(state);
+
+  await setActiveProjectPref(body.active_project_id);
+  return NextResponse.json({ active_project_id: body.active_project_id });
 });

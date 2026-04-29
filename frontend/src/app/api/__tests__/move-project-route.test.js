@@ -17,12 +17,11 @@ describe('POST /api/projects/[id]/move', () => {
         default_backend_id: 'local',
       })),
     }));
-    vi.doMock('@/lib/projectStorage', () => ({
-      readLocalStore: vi.fn(async () => ({
-        projects: [{ id: 'p1', name: 'P1', storage_ref: 'local' }],
-      })),
-      writeLocalStore: vi.fn(),
-      withLocalStoreLock: vi.fn(async (rel, fn) => fn()),
+    vi.doMock('@/lib/projectIndex', () => ({
+      listAllProjects: vi.fn(async () => ([
+        { id: 'p1', name: 'P1', backend_id: 'local', created_at: '2024-01-01T00:00:00Z' },
+      ])),
+      findProjectBackend: vi.fn(async (id) => (id === 'p1' ? 'local' : null)),
     }));
     vi.doMock('@/lib/projectMove', () => ({
       moveProjectShards: vi.fn(async () => ({ copied: 3 })),

@@ -1,22 +1,20 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { Plus, Download } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import { useTranslation, useErrorToast } from '@/providers/I18nProvider';
 import { listBackends } from '@/services/api';
 import { useProjects } from '@/providers/ProjectsProvider';
 import BackendCard from './BackendCard';
 import AddBackendModal from './AddBackendModal';
-import ImportTokenModal from './ImportTokenModal';
 
 export default function StorageTab() {
   const { t } = useTranslation();
   const showError = useErrorToast();
-  const { projects } = useProjects();
+  const { projects, refreshProjects } = useProjects();
   const [data, setData] = useState({ backends: [], default_backend_id: 'local' });
   const [loading, setLoading] = useState(true);
   const [addModalOpen, setAddModalOpen] = useState(false);
-  const [importModalOpen, setImportModalOpen] = useState(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -36,6 +34,15 @@ export default function StorageTab() {
     return projects.filter((p) => (p.storage_ref || 'local') === backendId).length;
   }
 
+  // After Add (form or token), the backend list and the project list both
+  // change -- new backend appears here, and the projects-manifest aggregator
+  // surfaces any projects that came along with a token import.
+  async function handleAdded() {
+    setAddModalOpen(false);
+    await refresh();
+    refreshProjects().catch((err) => console.warn('[StorageTab] project refresh failed:', err));
+  }
+
   return (
     <div className="space-y-4">
       <div>
@@ -50,13 +57,6 @@ export default function StorageTab() {
         >
           <Plus className="size-4" />
           {t('settings.storage.addBackend')}
-        </button>
-        <button
-          onClick={() => setImportModalOpen(true)}
-          className="flex items-center gap-2 px-3 py-2 text-sm rounded border border-border hover:bg-accent"
-        >
-          <Download className="size-4" />
-          {t('settings.storage.importToken')}
         </button>
       </div>
 
@@ -79,13 +79,7 @@ export default function StorageTab() {
       {addModalOpen && (
         <AddBackendModal
           onClose={() => setAddModalOpen(false)}
-          onAdded={() => { setAddModalOpen(false); refresh(); }}
-        />
-      )}
-      {importModalOpen && (
-        <ImportTokenModal
-          onClose={() => setImportModalOpen(false)}
-          onImported={() => { setImportModalOpen(false); refresh(); }}
+          onAdded={handleAdded}
         />
       )}
     </div>

@@ -179,7 +179,10 @@ async function backupDataDir() {
 
 function detectShape(config) {
   if (!config) return 'empty';
-  if (config.v === 2 && Array.isArray(config.backends)) return 'v2';
+  // v:3 is the v4.2 reconciler marker, otherwise v2-shape internally.
+  // Treat both as "already on v4 layout" so the v3-to-v4 migrator doesn't
+  // accidentally regress a post-v4.2 config back to v:2.
+  if ((config.v === 2 || config.v === 3) && Array.isArray(config.backends)) return 'v2';
   if (typeof config.driver === 'string') return 'v1';
   return 'unknown';
 }

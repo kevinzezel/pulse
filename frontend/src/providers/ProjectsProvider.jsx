@@ -6,11 +6,11 @@ import toast from 'react-hot-toast';
 import {
   getProjects,
   createProject as apiCreate, renameProject as apiRename, deleteProject as apiDelete,
-  reorderProjects as apiReorder,
+  setDefaultProject as apiSetDefault,
+  setActiveProjectOnServer,
   setActiveProjectIdInModule,
   listBackends, getBackendManifest,
 } from '@/services/api';
-import { reorderById } from '@/utils/reorder';
 import { useRefetchOnFocus } from '@/utils/useRefetchOnFocus';
 import { DEFAULT_PROJECT_ID } from '@/lib/projectScope';
 import { ssRead, ssWrite } from '@/lib/sessionState';
@@ -85,10 +85,6 @@ export function ProjectsProvider({ children }) {
     setActiveProjectIdInModule(id);
     ssWrite(STORAGE_KEY, id);
     hasTabActiveRef.current = true;
-  }, []);
-
-  const applyState = useCallback((state) => {
-    setProjects(state.projects || []);
   }, []);
 
   const refreshProjects = useCallback(async () => {
@@ -195,41 +191,44 @@ export function ProjectsProvider({ children }) {
 
   const setActiveProject = useCallback(async (id) => {
     persistActive(id);
+    // Best-effort: persist in the per-install pref so a fresh tab without
+    // sessionStorage picks the same active project. Failure is non-fatal --
+    // the tab keeps working with its own sessionStorage choice.
+    setActiveProjectOnServer(id).catch((err) => {
+      console.warn('[ProjectsProvider] active pref sync failed:', err);
+    });
   }, [persistActive]);
 
-  const createProject = useCallback(async (name) => {
-    const res = await apiCreate(name);
-    applyState(res.state);
+  // v4.2: createProject takes (name, targetBackendId). The server returns
+  // the new project entry; we refresh from /api/projects so the manifest
+  // aggregator runs and picks up the new entry alongside the rest.
+  const createProject = useCallback(async (name, targetBackendId = 'local') => {
+    const res = await apiCreate(name, targetBackendId);
+    await refreshProjects();
     return res;
-  }, [applyState]);
+  }, [refreshProjects]);
 
   const renameProject = useCallback(async (id, name) => {
     const res = await apiRename(id, name);
-    applyState(res.state);
+    await refreshProjects();
     return res;
-  }, [applyState]);
+  }, [refreshProjects]);
 
   const deleteProject = useCallback(async (id) => {
     const res = await apiDelete(id);
-    applyState(res.state);
+    const state = await refreshProjects();
     if (id === activeProjectId) {
-      const next = (res.state?.projects || []).find((p) => p.id !== id);
+      const next = (state?.projects || []).find((p) => p.id !== id);
       persistActive(next ? next.id : DEFAULT_PROJECT_ID);
     }
     return res;
-  }, [applyState, activeProjectId, persistActive]);
+  }, [refreshProjects, activeProjectId, persistActive]);
 
-  const reorderProject = useCallback(async (fromId, toId) => {
-    if (fromId === toId) return;
-    setProjects(prev => reorderById(prev, fromId, toId));
-    try {
-      const res = await apiReorder(fromId, toId);
-      applyState(res.state);
-    } catch (err) {
-      await refreshProjects().catch(() => {});
-      throw err;
-    }
-  }, [applyState, refreshProjects]);
+  const setDefaultProject = useCallback(async (id) => {
+    const res = await apiSetDefault(id);
+    await refreshProjects();
+    return res;
+  }, [refreshProjects]);
 
   const activeProject = useMemo(
     () => projects.find((p) => p.id === activeProjectId) || null,
@@ -247,8 +246,8 @@ export function ProjectsProvider({ children }) {
     createProject,
     renameProject,
     deleteProject,
-    reorderProject,
-  }), [projects, activeProjectId, activeProject, loading, loaded, refreshProjects, setActiveProject, createProject, renameProject, deleteProject, reorderProject]);
+    setDefaultProject,
+  }), [projects, activeProjectId, activeProject, loading, loaded, refreshProjects, setActiveProject, createProject, renameProject, deleteProject, setDefaultProject]);
 
   return (
     <ProjectsContext.Provider value={value}>
