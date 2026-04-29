@@ -6,6 +6,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [4.0.3-pre] — 2026-04-29
+
+### Fixed
+
+- **Caso 2 migration now copies per-install files (servers.json, sessions.json, groups.json, recent-cwds.json, intelligence-config.json, compose-drafts.json, layouts.json, view-state.json) from remote to local before cleanup.** v3 stored these on the remote because v3 had a single backend; v4 keeps them strictly local. Without this copy step the v4.0.1-pre auto-cleanup deleted the only copy. The local file is preserved if it already has user data — only empty/missing locals get overwritten by the remote payload.
+- **Cleanup now skips per-install files when the local copy is empty or missing.** Defense in depth against any future bug where the remote→local copy fails: the cleanup will refuse to delete a per-install file from the remote unless the local has populated content. Per-project files (sharded data) are still cleaned unconditionally.
+
 ## [4.0.2-pre] — 2026-04-29
 
 ### Fixed
@@ -15,8 +22,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ### Recovery instructions for users hit by the bug
 
-1. Upgrade to `v4.0.2-pre` (`pulse upgrade --preview`).
-2. Delete the wrongly-created `projects.json`, `servers.json`, `sessions.json`, `recent-cwds.json`, `intelligence-config.json`, `compose-drafts.json`, `groups.json` from the remote backend (S3 console, `gsutil rm`, or `mongo` shell — depending on your driver).
+1. Upgrade to `v4.0.3-pre` (`pulse upgrade --preview`) — also includes the per-install migration fix below.
+2. Delete the wrongly-created `projects.json`, `servers.json`, `sessions.json`, `recent-cwds.json`, `intelligence-config.json`, `compose-drafts.json`, `groups.json` from the remote backend (S3 console, `gsutil rm`, or `mongo` shell — depending on your driver). If your bucket has soft-delete enabled, you may be able to restore the original v3 versions of these files first via the cloud provider's recovery UI.
 3. Restart the dashboard. Routes will now read from the local backend, where your data was always correct.
 
 ## [4.0.1-pre] — 2026-04-29
@@ -1260,7 +1267,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v4.0.2-pre...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v4.0.3-pre...HEAD
+[4.0.3-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.0.3-pre
 [4.0.2-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.0.2-pre
 [4.0.1-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.0.1-pre
 [4.0.0-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.0.0-pre

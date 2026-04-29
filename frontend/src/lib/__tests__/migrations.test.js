@@ -352,10 +352,14 @@ describe('v3 -> v4 migration -- Caso 2 (S3 active)', () => {
     expect(deleteKeys).toContain('task-board-groups.json');
     // projects.json flat (replaced by projects-manifest.json)
     expect(deleteKeys).toContain('projects.json');
-    // Per-install legacy on remote
-    expect(deleteKeys).toContain('servers.json');
-    expect(deleteKeys).toContain('sessions.json');
-    expect(deleteKeys).toContain('intelligence-config.json');
+    // Per-install legacy on remote: this fixture does NOT seed servers.json /
+    // sessions.json / intelligence-config.json on the remote (default 404), so
+    // there is nothing to copy and nothing local. Cleanup MUST skip them --
+    // see the dedicated test "skips deleting per-install files from remote when
+    // local copy is missing" below for the safety guarantee.
+    expect(deleteKeys).not.toContain('servers.json');
+    expect(deleteKeys).not.toContain('sessions.json');
+    expect(deleteKeys).not.toContain('intelligence-config.json');
     // Migration lock release also calls DeleteObject; that's expected.
     // Manifest stays untouched.
     expect(deleteKeys).not.toContain('projects-manifest.json');
@@ -421,5 +425,121 @@ describe('v3 -> v4 migration -- Caso 2 (S3 active)', () => {
 
     const { migrate } = await import('../migrations/v3-to-v4.js');
     await expect(migrate()).rejects.toThrow(/Another install is currently migrating/);
+  });
+
+  it('copies per-install files from remote to local before cleanup', async () => {
+    // Seed v1 config + remote per-install files (full of data) + manifest exists
+    // (so we go down the remote-already-sharded short-circuit path).
+    writeFileSync(join(dataDir, 'storage-config.json'), JSON.stringify({
+      driver: 's3', bucket: 'b', region: 'us-east-1', access_key_id: 'k', secret_access_key: 's',
+    }));
+
+    s3Mock.on(HeadBucketCommand).resolves({});
+    s3Mock.on(PutObjectCommand, { Key: '.migrating-v4' }).resolves({ ETag: '"l"' });
+
+    // Wider matcher first
+    s3Mock.on(GetObjectCommand).callsFake((input) => {
+      const key = input.Key;
+      if (key === 'projects-manifest.json') {
+        return Promise.resolve({
+          Body: stringStream(JSON.stringify({ v: 1, projects: [{ id: 'p1', name: 'X' }] })),
+          ETag: '"e"',
+        });
+      }
+      // Per-install files exist on remote with real data
+      const payloads = {
+        'servers.json': { servers: [{ id: 'srv-1', name: 'localhost', apiKey: 'k' }] },
+        'sessions.json': { servers: { 'srv-1': [{ id: 'term-1', name: 'shell' }] } },
+        'recent-cwds.json': { servers: { 'srv-1': ['/home/user/projects'] } },
+        'intelligence-config.json': { providers: { gemini: { api_key: 'g' } } },
+        'compose-drafts.json': { drafts: { 'srv-1::term-1': { text: 'echo hi' } } },
+        'groups.json': { groups: [{ id: 'g-1', name: 'Team' }] },
+        'layouts.json': { default: 'mosaic-config' },
+        'view-state.json': { sidebar: 'open' },
+      };
+      if (payloads[key]) {
+        return Promise.resolve({ Body: stringStream(JSON.stringify(payloads[key])), ETag: '"e"' });
+      }
+      return Promise.reject({ name: 'NoSuchKey', $metadata: { httpStatusCode: 404 } });
+    });
+    s3Mock.on(PutObjectCommand).resolves({ ETag: '"e"' });
+    s3Mock.on(DeleteObjectCommand).resolves({});
+
+    // Local projects.json must be seeded so the migration can finish.
+    writeFileSync(join(dataDir, 'projects.json'), JSON.stringify({
+      projects: [{ id: 'p1', name: 'X' }],
+      active_project_id: 'p1',
+    }));
+
+    const { migrate } = await import('../migrations/v3-to-v4.js');
+    const result = await migrate();
+
+    expect(result.ran).toBe(false);
+    expect(result.reason).toBe('remote-already-sharded');
+
+    // All 8 per-install files should now exist locally with the remote payloads.
+    const local = (rel) => JSON.parse(readFileSync(join(dataDir, rel), 'utf-8'));
+    expect(local('servers.json').servers[0].id).toBe('srv-1');
+    expect(local('sessions.json').servers['srv-1'][0].id).toBe('term-1');
+    expect(local('groups.json').groups[0].id).toBe('g-1');
+    expect(local('intelligence-config.json').providers.gemini.api_key).toBe('g');
+
+    // And cleanup should have deleted them from the remote (now that local has copies).
+    const deletedKeys = s3Mock.commandCalls(DeleteObjectCommand).map(c => c.args[0].input.Key);
+    expect(deletedKeys).toContain('servers.json');
+    expect(deletedKeys).toContain('sessions.json');
+    expect(deletedKeys).toContain('groups.json');
+    expect(deletedKeys).toContain('intelligence-config.json');
+  });
+
+  it('skips deleting per-install files from remote when local copy is missing', async () => {
+    // Same setup but local folder is "empty" (no per-install files seeded
+    // before migration, AND we'll fail the copy step by making remote returns
+    // empty payloads -- copy step would write empty data, isLocalFileEmpty
+    // would still report empty, cleanup must NOT delete from remote.
+    writeFileSync(join(dataDir, 'storage-config.json'), JSON.stringify({
+      driver: 's3', bucket: 'b', region: 'us-east-1', access_key_id: 'k', secret_access_key: 's',
+    }));
+    s3Mock.on(HeadBucketCommand).resolves({});
+    s3Mock.on(PutObjectCommand, { Key: '.migrating-v4' }).resolves({ ETag: '"l"' });
+
+    s3Mock.on(GetObjectCommand).callsFake((input) => {
+      const key = input.Key;
+      if (key === 'projects-manifest.json') {
+        return Promise.resolve({
+          Body: stringStream(JSON.stringify({ v: 1, projects: [] })),
+          ETag: '"e"',
+        });
+      }
+      // Per-install: remote has populated servers.json, but ALL OTHERS are empty/missing.
+      if (key === 'servers.json') {
+        return Promise.resolve({
+          Body: stringStream(JSON.stringify({ servers: [{ id: 'srv-x' }] })),
+          ETag: '"e"',
+        });
+      }
+      // Empty payload for sessions/groups/etc -- copy will write {empty}, cleanup
+      // should preserve the remote because local stays empty.
+      if (key === 'sessions.json') {
+        return Promise.resolve({
+          Body: stringStream(JSON.stringify({ servers: {} })),
+          ETag: '"e"',
+        });
+      }
+      return Promise.reject({ name: 'NoSuchKey', $metadata: { httpStatusCode: 404 } });
+    });
+    s3Mock.on(PutObjectCommand).resolves({ ETag: '"e"' });
+    s3Mock.on(DeleteObjectCommand).resolves({});
+
+    writeFileSync(join(dataDir, 'projects.json'), JSON.stringify({ projects: [], active_project_id: null }));
+
+    const { migrate } = await import('../migrations/v3-to-v4.js');
+    await migrate();
+
+    // servers.json had data -- copied + remote deleted.
+    const deletedKeys = s3Mock.commandCalls(DeleteObjectCommand).map(c => c.args[0].input.Key);
+    expect(deletedKeys).toContain('servers.json');
+    // sessions.json was empty payload -- local stays empty, remote delete skipped.
+    expect(deletedKeys).not.toContain('sessions.json');
   });
 });

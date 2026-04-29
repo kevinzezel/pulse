@@ -41,8 +41,10 @@ const PROMPT_FILES = [
 // Files removed automatically after a successful migration verification.
 // Caso 1 (file local) only deletes per-project flat files -- per-install files
 // (servers/sessions/etc) are still the source of truth locally in v4.
-// Caso 2 (S3/Mongo) deletes everything legacy from the remote root, including
-// per-install files that never belonged on a shared backend in the first place.
+// Caso 2 (S3/Mongo) deletes the per-project legacy files unconditionally, plus
+// per-install files but ONLY when a populated local copy exists (defense in
+// depth -- per-install files in v3 lived on the remote and v4 keeps them
+// strictly local; we copy them to local first, then guard the delete).
 const CASO1_CLEANUP_FILES = [
   'flows.json',
   'flow-groups.json',
@@ -53,8 +55,9 @@ const CASO1_CLEANUP_FILES = [
   'task-board-groups.json',
 ];
 
-const CASO2_CLEANUP_FILES = [
-  // Per-project (now sharded under projects/<id>/)
+// Per-project legacy files on the remote. Always safe to delete after a
+// verified reshard -- their data is now in `projects/<id>/` shards.
+const CASO2_PER_PROJECT_LEGACY = [
   'flows.json',
   'flow-groups.json',
   'notes.json',
@@ -65,14 +68,20 @@ const CASO2_CLEANUP_FILES = [
   // projects.json: in v4 the local one is the source of truth; the remote
   // version is a v3 leftover. projects-manifest.json is the v4 replacement.
   'projects.json',
-  // Per-install files that v3 stored on the remote but v4 keeps strictly
-  // local. Safe to remove once the local install has its own copies.
-  'compose-drafts.json',
-  'groups.json',
-  'sessions.json',
+];
+
+// Per-install files. In v3, S3/Mongo installs stored these on the remote
+// (because v3 had a single backend, no per-file routing). v4 keeps them
+// strictly local. Migration must copy remote -> local BEFORE cleaning up the
+// remote, and cleanup must refuse to delete the remote copy if the local file
+// is empty/missing (defense in depth).
+const PER_INSTALL_FILES = [
   'servers.json',
+  'sessions.json',
   'recent-cwds.json',
   'intelligence-config.json',
+  'compose-drafts.json',
+  'groups.json',
   'layouts.json',
   'view-state.json',
 ];
@@ -109,6 +118,52 @@ async function exists(absPath) {
   } catch {
     return false;
   }
+}
+
+// "Empty" means: missing, null, or a JSON object whose keys are all empty
+// arrays/objects. This avoids the case where a fresh local file (created by
+// the dashboard mid-development) shadows a populated remote copy. We only
+// SKIP the remote copy when the local file genuinely has user data.
+function isLocalFileEmpty(data) {
+  if (data === null || data === undefined) return true;
+  if (typeof data !== 'object') return false;
+  for (const value of Object.values(data)) {
+    if (Array.isArray(value)) {
+      if (value.length > 0) return false;
+    } else if (value && typeof value === 'object') {
+      if (Object.keys(value).length > 0) return false;
+    } else if (value !== null && value !== undefined) {
+      // primitive (string/number/etc) -- treat as data
+      return false;
+    }
+  }
+  return true;
+}
+
+// In v3, S3/Mongo installs stored per-install files (servers.json, etc.) on
+// the remote. v4 keeps these strictly local. This pass copies anything the
+// remote still has into the local data dir IFF the local file is missing or
+// empty -- a populated local copy always wins. Runs BEFORE cleanup so the
+// auto-cleanup can safely remove the remote copy.
+async function copyPerInstallFromRemote(driver) {
+  let copied = 0;
+  let skipped = 0;
+  for (const file of PER_INSTALL_FILES) {
+    try {
+      const remoteData = await driver.readJsonFile(file, null);
+      if (remoteData === null) continue; // not on remote, nothing to copy
+      const localData = await readJson(file, null);
+      if (!isLocalFileEmpty(localData)) {
+        skipped += 1;
+        continue;
+      }
+      await writeJson(file, remoteData);
+      copied += 1;
+    } catch (err) {
+      console.warn(`[migrations:v3-to-v4] per-install copy: failed for ${file}: ${err?.message || err}`);
+    }
+  }
+  console.log(`[migrations:v3-to-v4] per-install copy: ${copied} file(s) remote -> local, ${skipped} skipped (local already populated)`);
 }
 
 // Snapshot `data/` to a sibling `data.backup-pre-v4/` directory before any
@@ -351,7 +406,12 @@ async function migrateCase2(v1Config) {
       const manifestProjects = Array.isArray(projectsDoc.projects) ? projectsDoc.projects : [];
       const verified = await verifyV4LayoutOnDriver(driver, manifestProjects);
       if (verified) {
-        await cleanupLegacyOnDriver(driver, CASO2_CLEANUP_FILES, `remote (${driverType})`);
+        // Copy per-install files from remote BEFORE cleanup: v3 installs
+        // upgraded under v4.0.0-pre never got these copied, and v4.0.1-pre's
+        // unconditional cleanup deleted the only copy. This recovers any
+        // remote per-install file as long as local hasn't been populated yet.
+        await copyPerInstallFromRemote(driver);
+        await cleanupLegacyOnDriverSafe(driver, `remote (${driverType})`);
       }
       return { ran: false, reason: 'remote-already-sharded' };
     }
@@ -385,7 +445,11 @@ async function migrateCase2(v1Config) {
     // Verify the new layout on the remote, then remove legacy flat files.
     const verified = await verifyV4LayoutOnDriver(driver, projects);
     if (verified) {
-      await cleanupLegacyOnDriver(driver, CASO2_CLEANUP_FILES, `remote (${driverType})`);
+      // Copy per-install files from remote BEFORE cleanup. In v3 these lived
+      // on the remote because there was no per-file routing; v4 keeps them
+      // local. Without this step the cleanup pass would delete the only copy.
+      await copyPerInstallFromRemote(driver);
+      await cleanupLegacyOnDriverSafe(driver, `remote (${driverType})`);
     }
 
     return { ran: true, case: 2 };
@@ -426,10 +490,20 @@ async function verifyV4LayoutOnDriver(driver, projects) {
   return true;
 }
 
-async function cleanupLegacyOnDriver(driver, files, label) {
+// Two-pass cleanup for Caso 2:
+//   1) Per-project legacy files (the data is already in `projects/<id>/`
+//      shards, so deletion is unconditionally safe).
+//   2) Per-install files -- delete from the remote ONLY when the local copy
+//      is populated. This is defense in depth: even if the preceding
+//      `copyPerInstallFromRemote` pass failed for some reason, cleanup will
+//      not blow away the only copy.
+async function cleanupLegacyOnDriverSafe(driver, label) {
   let removed = 0;
   let failed = 0;
-  for (const file of files) {
+  let skipped = 0;
+
+  // Pass 1: per-project legacy (always safe to delete after a verified reshard).
+  for (const file of CASO2_PER_PROJECT_LEGACY) {
     try {
       const wasRemoved = await driver.deleteFile(file);
       if (wasRemoved) removed += 1;
@@ -438,8 +512,26 @@ async function cleanupLegacyOnDriver(driver, files, label) {
       console.warn(`[migrations:v3-to-v4] cleanup: failed to delete ${file} from ${label}: ${err?.message || err}`);
     }
   }
-  console.log(`[migrations:v3-to-v4] cleanup: removed ${removed} legacy v3 file(s) from ${label}, ${failed} failure(s)`);
-  return { removed, failed };
+
+  // Pass 2: per-install (only delete if local has populated content).
+  for (const file of PER_INSTALL_FILES) {
+    try {
+      const localData = await readJson(file, null);
+      if (isLocalFileEmpty(localData)) {
+        skipped += 1;
+        console.warn(`[migrations:v3-to-v4] cleanup: skipping ${file} on ${label} (local copy is empty/missing -- preserving remote)`);
+        continue;
+      }
+      const wasRemoved = await driver.deleteFile(file);
+      if (wasRemoved) removed += 1;
+    } catch (err) {
+      failed += 1;
+      console.warn(`[migrations:v3-to-v4] cleanup: failed to delete ${file} from ${label}: ${err?.message || err}`);
+    }
+  }
+
+  console.log(`[migrations:v3-to-v4] cleanup: removed ${removed} legacy v3 file(s) from ${label}, ${skipped} skipped (no local copy), ${failed} failure(s)`);
+  return { removed, skipped, failed };
 }
 
 // File-driver-equivalent for Caso 1 (uses raw fs because the migrator runs
