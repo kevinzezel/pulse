@@ -3,10 +3,13 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 
+const MANIFEST_REL = 'data/projects-manifest.json';
+
 describe('moveProjectShards', () => {
   let tmpDir;
   let storage;
   let projectMove;
+  let projectIndex;
 
   beforeEach(async () => {
     tmpDir = mkdtempSync(join(tmpdir(), 'pulse-move-'));
@@ -16,6 +19,7 @@ describe('moveProjectShards', () => {
 
     storage = await import('../storage.js');
     projectMove = await import('../projectMove.js');
+    projectIndex = await import('../projectIndex.js');
     await storage.resetForTests();
 
     // v2 config with two file backends — `local` (default dataDir) and
@@ -50,38 +54,65 @@ describe('moveProjectShards', () => {
     expect(destNotes).toEqual({ notes: [{ id: 'n1' }] });
   });
 
-  it('writes .moved.json redirect marker on the source after copy', async () => {
+  it('does NOT write a .moved.json marker on the source', async () => {
     await storage.writeStoreToBackend('local', 'data/projects/p1/flows.json', { flows: [] });
     await projectMove.moveProjectShards('p1', 'local', 'b-second', { toBackendName: 'Second' });
 
     const marker = await storage.readStoreFromBackend('local', 'data/projects/p1/.moved.json', null);
-    expect(marker).toBeDefined();
-    expect(marker.moved_to_backend_id).toBe('b-second');
-    expect(marker.moved_to_backend_name).toBe('Second');
-    expect(typeof marker.moved_at).toBe('string');
+    expect(marker).toBeNull();
   });
 
-  it('deletes the source shards (but keeps the .moved.json marker)', async () => {
+  it('deletes the source shards', async () => {
     await storage.writeStoreToBackend('local', 'data/projects/p1/flows.json', { flows: [] });
     await projectMove.moveProjectShards('p1', 'local', 'b-second');
 
     const sourceFlows = await storage.readStoreFromBackend('local', 'data/projects/p1/flows.json', null);
     expect(sourceFlows).toBeNull();
-    const marker = await storage.readStoreFromBackend('local', 'data/projects/p1/.moved.json', null);
-    expect(marker).not.toBeNull();
   });
 
-  it('updates manifests on both backends', async () => {
-    await storage.writeStoreToBackend('local', 'projects-manifest.json', { v: 1, projects: [{ id: 'p1', name: 'X' }] });
-    await storage.writeStoreToBackend('b-second', 'projects-manifest.json', { v: 1, projects: [] });
+  it('cleans up a pre-existing legacy .moved.json marker', async () => {
+    await storage.writeStoreToBackend('local', 'data/projects/p1/flows.json', { flows: [] });
+    // Simulate a 4.2.x install that left a marker behind.
+    await storage.writeStoreToBackend('local', 'data/projects/p1/.moved.json', {
+      v: 1,
+      project_id: 'p1',
+      moved_to_backend_id: 'somewhere',
+    });
+
+    await projectMove.moveProjectShards('p1', 'local', 'b-second');
+
+    const marker = await storage.readStoreFromBackend('local', 'data/projects/p1/.moved.json', null);
+    expect(marker).toBeNull();
+  });
+
+  it('updates the canonical data/projects-manifest.json on both backends', async () => {
+    await storage.writeStoreToBackend('local', MANIFEST_REL, { v: 1, projects: [{ id: 'p1', name: 'X' }] });
+    await storage.writeStoreToBackend('b-second', MANIFEST_REL, { v: 1, projects: [] });
     await storage.writeStoreToBackend('local', 'data/projects/p1/flows.json', { flows: [] });
 
     await projectMove.moveProjectShards('p1', 'local', 'b-second', { name: 'X' });
 
-    const sourceManifest = await storage.readStoreFromBackend('local', 'projects-manifest.json', null);
+    const sourceManifest = await storage.readStoreFromBackend('local', MANIFEST_REL, null);
     expect(sourceManifest.projects).toHaveLength(0);
-    const destManifest = await storage.readStoreFromBackend('b-second', 'projects-manifest.json', null);
+    const destManifest = await storage.readStoreFromBackend('b-second', MANIFEST_REL, null);
     expect(destManifest.projects).toHaveLength(1);
     expect(destManifest.projects[0].id).toBe('p1');
+  });
+
+  it('regression: after a local -> file-backed move, listAllProjects returns exactly one entry on the destination', async () => {
+    // Seed the canonical manifest on `local` and one shard so the move has
+    // something to copy. The destination starts empty.
+    await storage.writeStoreToBackend('local', MANIFEST_REL, {
+      v: 1,
+      projects: [{ id: 'p1', name: 'P1', created_at: '2024-01-01T00:00:00Z' }],
+    });
+    await storage.writeStoreToBackend('local', 'data/projects/p1/flows.json', { flows: [] });
+
+    await projectMove.moveProjectShards('p1', 'local', 'b-second', { name: 'P1' });
+
+    const all = await projectIndex.listAllProjects();
+    const matches = all.filter((p) => p.id === 'p1');
+    expect(matches).toHaveLength(1);
+    expect(matches[0].backend_id).toBe('b-second');
   });
 });

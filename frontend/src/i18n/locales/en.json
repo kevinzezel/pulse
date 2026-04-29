@@ -901,7 +901,7 @@
   "moveProject": {
     "title": "Move project",
     "description": "Move \"{name}\" from {from} to:",
-    "warning": "Other Pulse installs reading from \"{from}\" will see a redirect notice and need to import the new backend's token to keep accessing this project.",
+    "warning": "After the copy, this project will be removed from \"{from}\" and live only on the destination backend. Other Pulse installs that only had \"{from}\" configured will need to import the destination backend's token to keep accessing this project.",
     "confirmCheckbox": "I understand the consequences",
     "confirm": "Move",
     "moving": "Moving...",

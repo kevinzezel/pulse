@@ -6,6 +6,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [4.2.7-pre] — 2026-04-29
+
+Fixes a manifest path mismatch in project move that left the project visible on both the source and the destination backend. The mover wrote to the legacy pre-4.2.1 path (`projects-manifest.json`) while every other code path reads the canonical `data/projects-manifest.json`, so the entry on the source was never actually removed. Move now reuses the canonical helpers, drops the source entry for real, and stops writing the `.moved.json` redirect marker.
+
+### Fixed
+
+- **Move project leaves exactly one entry, on the destination backend.** `moveProjectShards` now updates the canonical `data/projects-manifest.json` via `addProjectToManifest` / `removeProjectFromManifest` from `projectIndex`, so `listAllProjects()` sees the project only on the destination after a move. The previous code wrote to the legacy `projects-manifest.json` path and silently no-op'd against the real manifest, so the project remained listed on the source.
+- **`/api/storage/backends/[id]/manifest` reads the canonical manifest path.** The route now reads `data/projects-manifest.json` instead of the legacy `projects-manifest.json`, matching `/api/projects`, `/api/storage/import-token`, and the aggregator. S3/Mongo drivers strip the `data/` prefix on resolution, so the bucket key is unchanged.
+
+### Changed
+
+- **Move no longer writes a `.moved.json` redirect marker on the source.** The marker was only used by 4.2.x to surface a "this project moved" notice to other installs, and it has been removed alongside the manifest path fix. The cleanup pass now also deletes any pre-existing legacy `.moved.json` left behind by older 4.2.x moves.
+- **Move modal warning text updated.** The "redirect notice" promise was removed in en, pt-BR, and es. The warning now states clearly that the project is removed from the source after the copy and that other installs that only had the source backend configured need the destination token to keep accessing it.
+
+### Tests
+
+- Updated `projectMove.test.js`: now seeds and asserts against `data/projects-manifest.json`, verifies that no `.moved.json` is written, verifies the cleanup pass removes a pre-existing legacy marker, and adds a regression covering the local → file-backed move flow that asserts `listAllProjects()` returns exactly one entry on the destination.
+- Added `backend-manifest-route.test.js`: covers the canonical path read and the 404 response when the backend id is unknown.
+- Verified `npm test` for the targeted suite: 5 files / 29 tests passed.
+- Verified `npm run build`.
+
 ## [4.2.6-pre] — 2026-04-29
 
 Closes the flow-only project bleed that could survive the group isolation fix. Flow autosave is the risky path because Excalidraw saves are debounced and can flush after a project switch.
@@ -1421,7 +1442,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v4.2.6-pre...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v4.2.7-pre...HEAD
+[4.2.7-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.2.7-pre
 [4.2.6-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.2.6-pre
 [4.2.5-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.2.5-pre
 [4.2.3-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.2.3-pre

@@ -47,7 +47,6 @@ export const POST = withAuth(async (req, { params }) => {
   await moveProjectShards(projectId, sourceId, targetId, {
     name: project.name,
     created_at: project.created_at,
-    toBackendName: targetBackend.name,
   });
 
   return NextResponse.json({

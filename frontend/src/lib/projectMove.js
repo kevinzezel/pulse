@@ -1,9 +1,9 @@
 import {
   readStoreFromBackend,
   writeStoreToBackend,
-  withStoreLockOnBackend,
   getDriverFor,
 } from './storage.js';
+import { addProjectToManifest, removeProjectFromManifest } from './projectIndex.js';
 
 const SHARD_FILES = [
   'flows.json',
@@ -15,28 +15,26 @@ const SHARD_FILES = [
   'task-board-groups.json',
 ];
 
+// Legacy 4.2.x marker. We no longer write it — but old installs may still have
+// one lying around, so the cleanup pass tries to delete it best-effort.
+const LEGACY_MOVED_MARKER = '.moved.json';
+
 function projectShardPath(projectId, file) {
   return `data/projects/${projectId}/${file}`;
 }
 
-function projectMarkerPath(projectId) {
-  return `data/projects/${projectId}/.moved.json`;
-}
-
-const MANIFEST_REL = 'projects-manifest.json';
-
-// Move a project's shards from `fromBackendId` to `toBackendId`. Order:
+// Move a project's shards from `fromBackendId` to `toBackendId`. After this
+// returns successfully, exactly one manifest entry remains: on the dest. Order:
 // 1. Read each shard from source.
 // 2. Write to dest (idempotent — partial run can be retried).
-// 3. Update dest manifest (add project entry).
-// 4. Write `.moved.json` redirect marker on source.
-// 5. Update source manifest (remove project entry).
-// 6. Best-effort delete source shards (the marker stays — other installs can
-//    detect it and prompt for the new backend's token).
+// 3. Add the project to the dest manifest (canonical `data/projects-manifest.json`).
+// 4. Remove the project from the source manifest.
+// 5. Best-effort delete source shards + any legacy `.moved.json` marker.
 //
-// Steps 3-5 are the cutover; once they're committed, dest owns the project.
-// Step 6 failures don't roll back — the project is on dest, the marker on
-// source guides the cleanup, and a future operation can finish.
+// Steps 3-4 are the cutover; once they're committed, dest owns the project.
+// Step 5 failures don't roll back — the project is already on dest, the source
+// manifest no longer lists it, so listAllProjects() reports a single entry on
+// the destination regardless of leftover shard files.
 export async function moveProjectShards(projectId, fromBackendId, toBackendId, opts = {}) {
   if (fromBackendId === toBackendId) {
     return { copied: 0, skipped: SHARD_FILES.length };
@@ -51,52 +49,33 @@ export async function moveProjectShards(projectId, fromBackendId, toBackendId, o
     copied += 1;
   }
 
-  // 3: dest manifest add
-  await withStoreLockOnBackend(toBackendId, MANIFEST_REL, async () => {
-    const manifest = await readStoreFromBackend(toBackendId, MANIFEST_REL, { v: 1, projects: [] });
-    const projects = Array.isArray(manifest.projects) ? manifest.projects : [];
-    if (!projects.some((p) => p.id === projectId)) {
-      projects.push({
-        id: projectId,
-        name: opts.name || projectId,
-        created_at: opts.created_at || new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      });
-      await writeStoreToBackend(toBackendId, MANIFEST_REL, { v: 1, projects });
-    }
+  // 3: dest manifest add (uses the canonical helper — same path the rest of
+  // the app reads from, so listAllProjects sees the entry immediately).
+  await addProjectToManifest(toBackendId, {
+    id: projectId,
+    name: opts.name,
+    created_at: opts.created_at,
   });
 
-  // 4: write redirect marker on source BEFORE removing manifest entry — other
-  // installs that lose the manifest entry but find the marker know where to
-  // look for the new token.
-  await writeStoreToBackend(fromBackendId, projectMarkerPath(projectId), {
-    v: 1,
-    project_id: projectId,
-    moved_to_backend_id: toBackendId,
-    moved_to_backend_name: opts.toBackendName || toBackendId,
-    moved_at: new Date().toISOString(),
-    note: 'This project was moved to a different backend. Import the new token to continue accessing it.',
-  });
+  // 4: source manifest remove
+  await removeProjectFromManifest(fromBackendId, projectId);
 
-  // 5: source manifest remove
-  await withStoreLockOnBackend(fromBackendId, MANIFEST_REL, async () => {
-    const manifest = await readStoreFromBackend(fromBackendId, MANIFEST_REL, { v: 1, projects: [] });
-    const projects = Array.isArray(manifest.projects) ? manifest.projects : [];
-    const next = projects.filter((p) => p.id !== projectId);
-    if (next.length !== projects.length) {
-      await writeStoreToBackend(fromBackendId, MANIFEST_REL, { v: 1, projects: next });
-    }
-  });
-
-  // 6: best-effort delete of source shards (NOT the marker)
-  for (const file of SHARD_FILES) {
-    try {
-      const driver = await getDriverFor(fromBackendId);
-      if (typeof driver.deleteFile === 'function') {
+  // 5: best-effort delete of source shards + legacy `.moved.json` marker that
+  // older installs may have written. Failures are logged but do not roll back
+  // the manifest changes above — the cutover is the source of truth.
+  const driver = await getDriverFor(fromBackendId);
+  if (typeof driver.deleteFile === 'function') {
+    for (const file of SHARD_FILES) {
+      try {
         await driver.deleteFile(projectShardPath(projectId, file));
+      } catch (err) {
+        console.warn(`[projectMove] failed to delete source shard ${file}: ${err?.message || err}`);
       }
+    }
+    try {
+      await driver.deleteFile(projectShardPath(projectId, LEGACY_MOVED_MARKER));
     } catch (err) {
-      console.warn(`[projectMove] failed to delete source shard ${file}: ${err?.message || err}`);
+      console.warn(`[projectMove] failed to delete legacy ${LEGACY_MOVED_MARKER}: ${err?.message || err}`);
     }
   }
 
