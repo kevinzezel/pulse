@@ -5,6 +5,7 @@ import {
   writeProjectFile,
   withProjectLock,
   validateGroupBelongsToProject,
+  recordBelongsToProject,
 } from '@/lib/projectStorage';
 
 const FILE = 'flows.json';
@@ -50,7 +51,7 @@ export const PATCH = withAuth(async (req, { params }) => {
   await withProjectLock(projectId, FILE, async () => {
     const data = await readProjectFile(projectId, FILE, EMPTY);
     const flows = Array.isArray(data?.flows) ? data.flows : [];
-    const idx = flows.findIndex((f) => f && f.id === id);
+    const idx = flows.findIndex((f) => f && f.id === id && recordBelongsToProject(f, projectId));
     if (idx < 0) return;
     const now = new Date().toISOString();
     flows[idx] = { ...flows[idx], ...patch, id, project_id: projectId, updated_at: now };
@@ -75,7 +76,7 @@ export const DELETE = withAuth(async (req, { params }) => {
   await withProjectLock(projectId, FILE, async () => {
     const data = await readProjectFile(projectId, FILE, EMPTY);
     const flows = Array.isArray(data?.flows) ? data.flows : [];
-    const next = flows.filter((f) => !(f && f.id === id));
+    const next = flows.filter((f) => !(f && f.id === id && recordBelongsToProject(f, projectId)));
     if (next.length === flows.length) return;
     removed = true;
     await writeProjectFile(projectId, FILE, { flows: next });

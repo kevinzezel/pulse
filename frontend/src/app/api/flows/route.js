@@ -6,6 +6,7 @@ import {
   writeProjectFile,
   withProjectLock,
   validateGroupBelongsToProject,
+  stampProjectRecords,
 } from '@/lib/projectStorage';
 
 const FILE = 'flows.json';
@@ -29,8 +30,7 @@ export const GET = withAuth(async (req) => {
   }
   try {
     const data = await readProjectFile(projectId, FILE, EMPTY);
-    const flows = (Array.isArray(data?.flows) ? data.flows : [])
-      .map((flow) => ({ ...flow, project_id: projectId }));
+    const flows = stampProjectRecords(data?.flows, projectId);
     return NextResponse.json({ flows });
   } catch (err) {
     if (/unknown project/i.test(err?.message || '')) {
@@ -97,8 +97,9 @@ export const PUT = withAuth(async (req) => {
   if (!body || !Array.isArray(body.flows)) {
     return bad('errors.invalid_body', 'Expected { flows: [...] }', 400);
   }
+  const flows = stampProjectRecords(body.flows, projectId);
   await withProjectLock(projectId, FILE, async () => {
-    await writeProjectFile(projectId, FILE, { flows: body.flows });
+    await writeProjectFile(projectId, FILE, { flows });
   });
-  return NextResponse.json({ flows: body.flows });
+  return NextResponse.json({ flows });
 });

@@ -31,6 +31,23 @@ function globalPath(file) {
   return `data/globals/${file}`;
 }
 
+export function recordBelongsToProject(record, projectId) {
+  return Boolean(
+    record
+    && (
+      typeof record.project_id !== 'string'
+      || !record.project_id
+      || record.project_id === projectId
+    ),
+  );
+}
+
+export function stampProjectRecords(records, projectId) {
+  return (Array.isArray(records) ? records : [])
+    .filter((record) => recordBelongsToProject(record, projectId))
+    .map((record) => ({ ...record, project_id: projectId }));
+}
+
 // Sanity check used by per-project routes that accept a `group_id` body
 // field: makes sure the supplied id is null/empty OR points at a group
 // inside the project's matching groups file. Without this check the
@@ -47,15 +64,7 @@ export async function validateGroupBelongsToProject(projectId, groupsFile, group
   }
   const data = await readProjectFile(projectId, groupsFile, { groups: [] });
   const groups = Array.isArray(data?.groups) ? data.groups : [];
-  if (!groups.some((g) => (
-    g
-    && g.id === groupId
-    && (
-      typeof g.project_id !== 'string'
-      || !g.project_id
-      || g.project_id === projectId
-    )
-  ))) {
+  if (!groups.some((g) => g && g.id === groupId && recordBelongsToProject(g, projectId))) {
     return {
       detailKey: 'errors.group_not_in_project',
       detail: 'group does not belong to this project',

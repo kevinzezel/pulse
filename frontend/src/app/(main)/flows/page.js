@@ -137,7 +137,12 @@ export default function FlowsPage() {
 
   const pendingSceneRef = useRef({});
   const saveTimersRef = useRef({});
+  const activeProjectIdRef = useRef(activeProjectId);
   const lastSceneRef = useRef({ id: null, elementsLen: 0, elementsVersion: 0, bgColor: null, filesCount: 0 });
+
+  useEffect(() => {
+    activeProjectIdRef.current = activeProjectId;
+  }, [activeProjectId]);
 
   useEffect(() => {
     const storedSidebar = (() => {
@@ -206,10 +211,11 @@ export default function FlowsPage() {
       // the pending patch belongs to the previous project.
       for (const [id, timer] of Object.entries(saveTimersRef.current)) {
         clearTimeout(timer);
-        const patch = pendingSceneRef.current[id];
+        const pending = pendingSceneRef.current[id];
+        const patch = pending?.patch;
         if (patch) {
           delete pendingSceneRef.current[id];
-          patchFlow(projectId, id, patch).catch((err) =>
+          patchFlow(pending.projectId || projectId, id, patch).catch((err) =>
             console.warn('[flows] unmount flush failed', err)
           );
         }
@@ -284,23 +290,32 @@ export default function FlowsPage() {
   }, []);
 
   const flushPendingScene = useCallback(async (id) => {
-    const patch = pendingSceneRef.current[id];
-    if (!patch) return;
-    if (!activeProjectId) return;
+    const pending = pendingSceneRef.current[id];
+    if (!pending) return;
+    const projectId = pending.projectId;
+    const patch = pending.patch;
+    if (!projectId || !patch) return;
     delete pendingSceneRef.current[id];
     markSaving(id, true);
     try {
-      const updated = await patchFlow(activeProjectId, id, patch);
-      setFlows((prev) => prev.map((f) => (f.id === id ? updated : f)));
+      const updated = await patchFlow(projectId, id, patch);
+      if (activeProjectIdRef.current === projectId) {
+        setFlows((prev) => prev.map((f) => (f.id === id ? updated : f)));
+      }
     } catch (err) {
-      showError(err);
+      if (activeProjectIdRef.current === projectId) {
+        showError(err);
+      } else {
+        console.warn('[flows] stale autosave failed after project switch', err);
+      }
     } finally {
       markSaving(id, false);
     }
-  }, [activeProjectId, markSaving, showError]);
+  }, [markSaving, showError]);
 
-  const scheduleSceneSave = useCallback((id, scene) => {
-    pendingSceneRef.current[id] = { scene };
+  const scheduleSceneSave = useCallback((id, projectId, scene) => {
+    if (!projectId) return;
+    pendingSceneRef.current[id] = { projectId, patch: { scene } };
     if (saveTimersRef.current[id]) clearTimeout(saveTimersRef.current[id]);
     saveTimersRef.current[id] = setTimeout(() => {
       delete saveTimersRef.current[id];
@@ -309,7 +324,7 @@ export default function FlowsPage() {
   }, [flushPendingScene]);
 
   function handleExcalidrawChange(elements, appState, files) {
-    if (!selectedFlowId) return;
+    if (!selectedFlowId || !selectedFlow?.project_id) return;
     const prev = lastSceneRef.current;
     const elementsLen = elements.length;
     const versionSum = elements.reduce((acc, el) => acc + (el.version || 0), 0);
@@ -325,7 +340,7 @@ export default function FlowsPage() {
       return;
     }
     lastSceneRef.current = { id: selectedFlowId, elementsLen, elementsVersion: versionSum, bgColor, filesCount };
-    scheduleSceneSave(selectedFlowId, { elements, appState, files });
+    scheduleSceneSave(selectedFlowId, selectedFlow.project_id, { elements, appState, files });
   }
 
   function handleSelect(id) {

@@ -6,6 +6,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [4.2.6-pre] — 2026-04-29
+
+Closes the flow-only project bleed that could survive the group isolation fix. Flow autosave is the risky path because Excalidraw saves are debounced and can flush after a project switch.
+
+### Fixed
+
+- **Flows no longer appear in another project's "No group" bucket.** `/api/flows` now drops rows explicitly stamped for a different project instead of restamping them from the URL project id, while preserving legacy rows without `project_id`.
+- **Flow PATCH/DELETE refuses mismatched project rows.** Autosave, rename, delete, and group reassignment now return `flow_not_found` instead of mutating a flow whose stored `project_id` belongs to another project.
+- **Excalidraw autosave is bound to the originating project.** Pending canvas saves capture the project id when scheduled, so a delayed flush after switching projects does not use the new active project id or show stale "Fluxo não encontrado" toasts.
+
+### Tests
+
+- Added route coverage for flow project filtering and mismatched-project PATCH/DELETE rejection.
+- Verified focused project-isolation tests for flows, flow groups, prompt groups, task board groups, and project storage.
+- Verified `npm test` outside the sandbox: 25 files / 166 tests passed.
+- Verified `npm run build`.
+
 ## [4.2.5-pre] — 2026-04-29
 
 Finishes the project-isolation fix for prompt groups and hardens all per-project group APIs against cross-project rows. Prompt text can still be global, but prompt groups are now always owned by the active project.
@@ -1404,7 +1421,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v4.2.5-pre...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v4.2.6-pre...HEAD
+[4.2.6-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.2.6-pre
 [4.2.5-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.2.5-pre
 [4.2.3-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.2.3-pre
 [4.2.2-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.2.2-pre
