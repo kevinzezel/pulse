@@ -175,8 +175,7 @@ export default function FlowsPage() {
     let alive = true;
     const projectId = activeProjectId;
     // Clear stale state synchronously so any modal/dropdown opened mid-fetch
-    // doesn't expose flow-groups from the previous project. Same race that
-    // bit task-boards on 4.2.1-pre — see tasks/page.js for details.
+    // doesn't expose flow-groups from the previous project.
     setFlows([]);
     setFlowGroups([]);
     setFlowsProjectId(null);
@@ -351,10 +350,11 @@ export default function FlowsPage() {
     setCreating(true);
     try {
       const targetGroupId = groupId !== undefined ? groupId : selectedFlowGroupId;
+      const safeGroupId = targetGroupId && allFlowGroupIds.has(targetGroupId) ? targetGroupId : null;
       const created = await createFlow(activeProjectId, {
         name,
         scene: emptyScene(),
-        group_id: targetGroupId,
+        group_id: safeGroupId,
       });
       setFlows((prev) => [...prev, created]);
       // If user picked a different group than the current one, switch the bar
@@ -569,6 +569,7 @@ export default function FlowsPage() {
 
         <div className="flex-1 flex flex-col min-h-0 min-w-0">
           <GroupSelector
+            key={activeProjectId}
             groups={flowGroupsCur}
             items={groupSelectorItems}
             getItemGroupId={effectiveGroupOf}
@@ -615,6 +616,7 @@ export default function FlowsPage() {
 
       {showModal && (
         <NewFlowModal
+          key={activeProjectId}
           onClose={() => setShowModal(false)}
           onSubmit={handleModalSubmit}
           loading={creating}

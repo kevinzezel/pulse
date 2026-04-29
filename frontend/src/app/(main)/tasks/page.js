@@ -140,10 +140,7 @@ export default function TasksPage() {
     const projectId = activeProjectId;
     // Clear the previous project's data synchronously so any modal opened
     // mid-fetch (e.g. NewTaskBoardModal) sees an empty `boardGroups` instead
-    // of stale entries from the project we just switched away from. Without
-    // this, the user could pick a group from project A while creating a
-    // board in project B and the backend would happily accept the orphan
-    // group_id (4.2.1-pre cross-project group leak).
+    // of stale entries from the project we just switched away from.
     setBoards([]);
     setBoardGroups([]);
     setBoardsProjectId(null);
@@ -254,7 +251,8 @@ export default function TasksPage() {
     setCreating(true);
     try {
       const targetGroupId = groupId !== undefined ? groupId : selectedBoardGroupId;
-      const created = await createTaskBoard(activeProjectId, { name, group_id: targetGroupId });
+      const safeGroupId = targetGroupId && allBoardGroupIds.has(targetGroupId) ? targetGroupId : null;
+      const created = await createTaskBoard(activeProjectId, { name, group_id: safeGroupId });
       setBoards((prev) => [...prev, created]);
       const createdGroupId = created.group_id || null;
       if (createdGroupId !== selectedBoardGroupId) {
@@ -423,6 +421,7 @@ export default function TasksPage() {
 
         <div className="flex-1 flex flex-col min-h-0 min-w-0">
           <GroupSelector
+            key={activeProjectId}
             groups={boardGroupsCur}
             items={groupSelectorItems}
             getItemGroupId={effectiveGroupOf}
@@ -463,6 +462,7 @@ export default function TasksPage() {
 
       {showNewBoardModal && (
         <NewTaskBoardModal
+          key={activeProjectId}
           onClose={() => setShowNewBoardModal(false)}
           onSubmit={handleNewBoardSubmit}
           loading={creating}

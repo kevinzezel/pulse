@@ -29,13 +29,22 @@ function getProjectId(req) {
 
 function normalizeGroups(list, projectId) {
   const now = new Date().toISOString();
-  return (Array.isArray(list) ? list : []).map((g) => ({
-    id: (typeof g?.id === 'string' && g.id) ? g.id : `pgid-${randomUUID()}`,
-    name: String(g?.name ?? '').trim(),
-    project_id: projectId,
-    created_at: g?.created_at || now,
-    updated_at: g?.updated_at || now,
-  }));
+  return (Array.isArray(list) ? list : [])
+    .filter((g) => (
+      g
+      && (
+        typeof g.project_id !== 'string'
+        || !g.project_id
+        || g.project_id === projectId
+      )
+    ))
+    .map((g) => ({
+      id: (typeof g?.id === 'string' && g.id) ? g.id : `pgid-${randomUUID()}`,
+      name: String(g?.name ?? '').trim(),
+      project_id: projectId,
+      created_at: g?.created_at || now,
+      updated_at: g?.updated_at || now,
+    }));
 }
 
 async function readProjectGroups(projectId) {

@@ -47,7 +47,15 @@ export async function validateGroupBelongsToProject(projectId, groupsFile, group
   }
   const data = await readProjectFile(projectId, groupsFile, { groups: [] });
   const groups = Array.isArray(data?.groups) ? data.groups : [];
-  if (!groups.some((g) => g && g.id === groupId)) {
+  if (!groups.some((g) => (
+    g
+    && g.id === groupId
+    && (
+      typeof g.project_id !== 'string'
+      || !g.project_id
+      || g.project_id === projectId
+    )
+  ))) {
     return {
       detailKey: 'errors.group_not_in_project',
       detail: 'group does not belong to this project',

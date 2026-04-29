@@ -8,7 +8,11 @@ describe('GET /api/prompt-groups', () => {
     vi.resetModules();
     vi.doMock('@/lib/projectStorage', () => ({
       readProjectFile: vi.fn(async () => ({
-        groups: [{ id: 'pgid-1', name: 'A', project_id: 'stale-project' }],
+        groups: [
+          { id: 'pgid-legacy', name: 'Legacy' },
+          { id: 'pgid-other', name: 'Other', project_id: 'stale-project' },
+          { id: 'pgid-1', name: 'A', project_id: 'p1' },
+        ],
       })),
       writeProjectFile: vi.fn(),
       withProjectLock: vi.fn(async (pid, file, fn) => fn()),
@@ -35,14 +39,13 @@ describe('GET /api/prompt-groups', () => {
     expect(projectStorage.readProjectFile).not.toHaveBeenCalled();
   });
 
-  it('returns project-scoped groups stamped with the requested project', async () => {
+  it('returns only project-scoped groups for the requested project', async () => {
     const req = new Request('http://localhost/api/prompt-groups?project_id=p1');
     const res = await route.GET(req);
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.groups).toEqual([
-      expect.objectContaining({ id: 'pgid-1', project_id: 'p1' }),
-    ]);
+    expect(body.groups.map((g) => g.id)).toEqual(['pgid-legacy', 'pgid-1']);
+    expect(body.groups.every((g) => g.project_id === 'p1')).toBe(true);
     expect(projectStorage.readProjectFile).toHaveBeenCalledWith('p1', 'prompt-groups.json', expect.anything());
   });
 });

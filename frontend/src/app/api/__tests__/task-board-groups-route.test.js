@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
-describe('GET /api/flow-groups', () => {
+describe('GET /api/task-board-groups', () => {
   let route;
   let projectStorage;
 
@@ -9,9 +9,9 @@ describe('GET /api/flow-groups', () => {
     vi.doMock('@/lib/projectStorage', () => ({
       readProjectFile: vi.fn(async () => ({
         groups: [
-          { id: 'fgid-legacy', name: 'Legacy' },
-          { id: 'fgid-other', name: 'Other', project_id: 'other-project' },
-          { id: 'fgid-1', name: 'A', project_id: 'p1' },
+          { id: 'tbg-legacy', name: 'Legacy' },
+          { id: 'tbg-other', name: 'Other', project_id: 'other-project' },
+          { id: 'tbg-1', name: 'A', project_id: 'p1' },
         ],
       })),
       writeProjectFile: vi.fn(),
@@ -19,7 +19,7 @@ describe('GET /api/flow-groups', () => {
     }));
     vi.doMock('@/lib/auth', () => ({ withAuth: (fn) => fn }));
     projectStorage = await import('@/lib/projectStorage');
-    route = await import('@/app/api/flow-groups/route');
+    route = await import('@/app/api/task-board-groups/route');
   });
 
   afterEach(() => {
@@ -27,17 +27,17 @@ describe('GET /api/flow-groups', () => {
   });
 
   it('returns only groups that belong to the requested project', async () => {
-    const req = new Request('http://localhost/api/flow-groups?project_id=p1');
+    const req = new Request('http://localhost/api/task-board-groups?project_id=p1');
     const res = await route.GET(req);
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.groups.map((g) => g.id)).toEqual(['fgid-legacy', 'fgid-1']);
+    expect(body.groups.map((g) => g.id)).toEqual(['tbg-legacy', 'tbg-1']);
     expect(body.groups.every((g) => g.project_id === 'p1')).toBe(true);
-    expect(projectStorage.readProjectFile).toHaveBeenCalledWith('p1', 'flow-groups.json', expect.anything());
+    expect(projectStorage.readProjectFile).toHaveBeenCalledWith('p1', 'task-board-groups.json', expect.anything());
   });
 });
 
-describe('PUT /api/flow-groups', () => {
+describe('PUT /api/task-board-groups', () => {
   let route;
   let projectStorage;
 
@@ -50,7 +50,7 @@ describe('PUT /api/flow-groups', () => {
     }));
     vi.doMock('@/lib/auth', () => ({ withAuth: (fn) => fn }));
     projectStorage = await import('@/lib/projectStorage');
-    route = await import('@/app/api/flow-groups/route');
+    route = await import('@/app/api/task-board-groups/route');
   });
 
   afterEach(() => {
@@ -58,26 +58,26 @@ describe('PUT /api/flow-groups', () => {
   });
 
   it('drops replaced groups from other projects and stamps legacy groups', async () => {
-    const req = new Request('http://localhost/api/flow-groups?project_id=p1', {
+    const req = new Request('http://localhost/api/task-board-groups?project_id=p1', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         groups: [
-          { id: 'fgid-legacy', name: 'Legacy' },
-          { id: 'fgid-other', name: 'Other', project_id: 'other-project' },
-          { id: 'fgid-1', name: 'A', project_id: 'p1' },
+          { id: 'tbg-legacy', name: 'Legacy' },
+          { id: 'tbg-other', name: 'Other', project_id: 'other-project' },
+          { id: 'tbg-1', name: 'A', project_id: 'p1' },
         ],
       }),
     });
     const res = await route.PUT(req);
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.groups.map((g) => g.id)).toEqual(['fgid-legacy', 'fgid-1']);
+    expect(body.groups.map((g) => g.id)).toEqual(['tbg-legacy', 'tbg-1']);
     expect(body.groups.every((g) => g.project_id === 'p1')).toBe(true);
-    expect(projectStorage.writeProjectFile).toHaveBeenCalledWith('p1', 'flow-groups.json', {
+    expect(projectStorage.writeProjectFile).toHaveBeenCalledWith('p1', 'task-board-groups.json', {
       groups: [
-        expect.objectContaining({ id: 'fgid-legacy', project_id: 'p1' }),
-        expect.objectContaining({ id: 'fgid-1', project_id: 'p1' }),
+        expect.objectContaining({ id: 'tbg-legacy', project_id: 'p1' }),
+        expect.objectContaining({ id: 'tbg-1', project_id: 'p1' }),
       ],
     });
   });

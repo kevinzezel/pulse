@@ -6,21 +6,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
-## [4.2.4-pre] — 2026-04-29
+## [4.2.5-pre] — 2026-04-29
 
-Finishes the project-isolation fix for prompt groups and adds a backend stamp guard for flow groups. Prompt text can still be global, but prompt groups are now always owned by the active project.
+Finishes the project-isolation fix for prompt groups and hardens all per-project group APIs against cross-project rows. Prompt text can still be global, but prompt groups are now always owned by the active project.
 
 ### Fixed
 
 - **Prompt groups are project-scoped only.** `/api/prompt-groups` no longer reads or writes the global prompt-groups file and now requires `project_id` for GET/POST/PUT/PATCH/DELETE. Legacy global prompt groups remain untouched on disk, but the UI and API ignore them.
 - **Global prompts cannot carry a project group.** `/api/prompts` rejects non-empty `group_id` for `scope=global`, clears group ids when a prompt is saved as global, and validates project prompt groups against that project's `prompt-groups.json`.
 - **Prompts UI no longer leaks group categories across projects.** The library and quick selector render only the active project's prompt groups, clear stale fetches, hide the group selector for global prompts, and treat any legacy global prompt `group_id` as ungrouped.
-- **Flow and task group handling now fails closed on stale ids.** Flow groups are force-stamped from the requested project on read/write, flows are stamped on read, and the Flows/Tasks pages ignore assignments or reorder actions for groups outside the active project.
+- **Flow and task group handling now fails closed on stale ids.** Legacy groups without `project_id` are stamped from the requested project, explicit mismatched groups are dropped, flows are stamped on read, and the Flows/Tasks pages ignore assignments or reorder actions for groups outside the active project.
+- **Per-project group APIs filter contaminated shard rows instead of restamping them.** `flow-groups`, `task-board-groups`, and `prompt-groups` now drop rows whose stored `project_id` belongs to another project, and `validateGroupBelongsToProject` rejects those ids even if they appear in the current shard file.
 
 ### Tests
 
-- Added route coverage for project-only prompt groups, prompt group validation on prompts, and flow-group project stamping.
-- Verified `npm test` outside the sandbox: 24 files / 161 tests passed.
+- Added route coverage for project-only prompt groups, prompt group validation on prompts, flow/task group project filtering, and group validation against mismatched `project_id`.
+- Verified `npm test` outside the sandbox: 25 files / 164 tests passed.
 - Verified `npm run build`.
 
 ## [4.2.3-pre] — 2026-04-29
@@ -1403,8 +1404,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v4.2.4-pre...HEAD
-[4.2.4-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.2.4-pre
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v4.2.5-pre...HEAD
+[4.2.5-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.2.5-pre
 [4.2.3-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.2.3-pre
 [4.2.2-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.2.2-pre
 [4.2.1-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.2.1-pre

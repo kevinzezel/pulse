@@ -82,6 +82,23 @@ describe('projectStorage', () => {
     expect(b.project).toBe('p2');
   });
 
+  it('validateGroupBelongsToProject rejects groups stamped for another project', async () => {
+    await projectStorage.writeProjectFile('p1', 'task-board-groups.json', {
+      groups: [
+        { id: 'same-project', project_id: 'p1' },
+        { id: 'legacy-no-project' },
+        { id: 'other-project', project_id: 'p2' },
+      ],
+    });
+
+    await expect(projectStorage.validateGroupBelongsToProject('p1', 'task-board-groups.json', 'same-project'))
+      .resolves.toBe(null);
+    await expect(projectStorage.validateGroupBelongsToProject('p1', 'task-board-groups.json', 'legacy-no-project'))
+      .resolves.toBe(null);
+    const err = await projectStorage.validateGroupBelongsToProject('p1', 'task-board-groups.json', 'other-project');
+    expect(err.detailKey).toBe('errors.group_not_in_project');
+  });
+
   it('readGlobalFile reads from local backend at globals/<file>', async () => {
     await projectStorage.writeGlobalFile('prompts.json', { prompts: [{ id: 'g1' }] });
     const data = await projectStorage.readGlobalFile('prompts.json', null);

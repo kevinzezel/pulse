@@ -23,14 +23,23 @@ function getProjectId(req) {
 
 function normalizeGroups(list, projectId) {
   const now = new Date().toISOString();
-  return (Array.isArray(list) ? list : []).map((g) => ({
-    id: (typeof g?.id === 'string' && g.id) ? g.id : `fgid-${randomUUID()}`,
-    name: String(g?.name ?? '').trim(),
-    created_at: g?.created_at || now,
-    updated_at: g?.updated_at || now,
-    hidden: g?.hidden === true,
-    project_id: projectId,
-  }));
+  return (Array.isArray(list) ? list : [])
+    .filter((g) => (
+      g
+      && (
+        typeof g.project_id !== 'string'
+        || !g.project_id
+        || g.project_id === projectId
+      )
+    ))
+    .map((g) => ({
+      id: (typeof g?.id === 'string' && g.id) ? g.id : `fgid-${randomUUID()}`,
+      name: String(g?.name ?? '').trim(),
+      created_at: g?.created_at || now,
+      updated_at: g?.updated_at || now,
+      hidden: g?.hidden === true,
+      project_id: projectId,
+    }));
 }
 
 export const GET = withAuth(async (req) => {
