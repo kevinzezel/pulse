@@ -1,17 +1,18 @@
 import { NextResponse } from 'next/server';
 import { withAuth } from '@/lib/auth';
-import { readStore } from '@/lib/storage';
-import { readProjectFile } from '@/lib/projectStorage';
+import { readProjectFile, readLocalStore } from '@/lib/projectStorage';
 
 // Local (per-install) reads — terminals + their groups, plus session metadata.
 // Stay on the flat layout because they reference per-install state (serverIds).
+// Routed through readLocalStore so they always hit the local backend, not the
+// default backend (which may be S3/Mongo for users with remote-default setups).
 async function readLocalArray(relPath, key) {
-  const data = await readStore(relPath, null);
+  const data = await readLocalStore(relPath, null);
   return Array.isArray(data?.[key]) ? data[key] : [];
 }
 
 async function readSessions() {
-  const data = await readStore('data/sessions.json', null);
+  const data = await readLocalStore('data/sessions.json', null);
   if (!data || typeof data.servers !== 'object') return [];
   const out = [];
   for (const list of Object.values(data.servers)) {

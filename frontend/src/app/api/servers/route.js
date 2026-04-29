@@ -1,14 +1,14 @@
 import { NextResponse } from 'next/server';
 import { randomUUID } from 'crypto';
 import { withAuth } from '@/lib/auth';
-import { readStore, writeStore, withStoreLock } from '@/lib/storage';
+import { readLocalStore, writeLocalStore, withLocalStoreLock } from '@/lib/projectStorage';
 
 const REL = 'data/servers.json';
 const RECENT_CWDS_REL = 'data/recent-cwds.json';
 const EMPTY = { servers: [] };
 
 async function readServers() {
-  const data = await readStore(REL, EMPTY);
+  const data = await readLocalStore(REL, EMPTY);
   return Array.isArray(data?.servers) ? data.servers : [];
 }
 
@@ -51,9 +51,9 @@ export const PUT = withAuth(async (req) => {
   if (!body || !Array.isArray(body.servers)) {
     return NextResponse.json({ detail: 'Expected { servers: [...] }', detail_key: 'errors.invalid_body' }, { status: 400 });
   }
-  const servers = await withStoreLock(REL, async () => {
+  const servers = await withLocalStoreLock(REL, async () => {
     const next = normalize(body.servers);
-    await writeStore(REL, { servers: next });
+    await writeLocalStore(REL, { servers: next });
     return next;
   });
 
@@ -63,8 +63,8 @@ export const PUT = withAuth(async (req) => {
   // garante coerência com POST /api/recent-cwds que possa rodar concorrente.
   try {
     const aliveIds = new Set(servers.map((s) => s.id));
-    await withStoreLock(RECENT_CWDS_REL, async () => {
-      const data = await readStore(RECENT_CWDS_REL, { servers: {} });
+    await withLocalStoreLock(RECENT_CWDS_REL, async () => {
+      const data = await readLocalStore(RECENT_CWDS_REL, { servers: {} });
       const cur = data.servers;
       const ids = Object.keys(cur);
       const stale = ids.filter((id) => !aliveIds.has(id));
@@ -73,7 +73,7 @@ export const PUT = withAuth(async (req) => {
       for (const id of ids) {
         if (aliveIds.has(id)) next[id] = cur[id];
       }
-      await writeStore(RECENT_CWDS_REL, { servers: next });
+      await writeLocalStore(RECENT_CWDS_REL, { servers: next });
     });
   } catch (err) {
     console.warn('[servers PUT] recent-cwds cleanup failed:', err);

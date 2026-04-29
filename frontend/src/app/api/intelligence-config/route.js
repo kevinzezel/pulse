@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { readStore, writeStore, withStoreLock } from '@/lib/storage';
+import { readLocalStore, writeLocalStore, withLocalStoreLock } from '@/lib/projectStorage';
 import { withAuth } from '@/lib/auth';
 
 const REL = 'data/intelligence-config.json';
@@ -44,7 +44,7 @@ function publicShape(stored) {
 }
 
 export const GET = withAuth(async () => {
-  const data = await readStore(REL, EMPTY);
+  const data = await readLocalStore(REL, EMPTY);
   return NextResponse.json(publicShape(data));
 });
 
@@ -64,7 +64,7 @@ export const PUT = withAuth(async (req) => {
   const requestedModel = typeof geminiIn.model === 'string' ? geminiIn.model.trim() : '';
   const model = GEMINI_MODELS.includes(requestedModel) ? requestedModel : DEFAULT_GEMINI_MODEL;
 
-  const existing = await readStore(REL, EMPTY);
+  const existing = await readLocalStore(REL, EMPTY);
   const existingGemini = existing?.providers?.gemini && typeof existing.providers.gemini === 'object'
     ? existing.providers.gemini
     : null;
@@ -74,8 +74,8 @@ export const PUT = withAuth(async (req) => {
   }
 
   const now = new Date().toISOString();
-  const next = await withStoreLock(REL, async () => {
-    const current = await readStore(REL, EMPTY);
+  const next = await withLocalStoreLock(REL, async () => {
+    const current = await readLocalStore(REL, EMPTY);
     const providers = (current && typeof current === 'object' && current.providers) || {};
     const currentGemini = providers.gemini && typeof providers.gemini === 'object' ? providers.gemini : null;
     const currentApiKey = typeof currentGemini?.api_key === 'string' ? currentGemini.api_key.trim() : '';
@@ -90,7 +90,7 @@ export const PUT = withAuth(async (req) => {
       },
       updated_at: now,
     };
-    await writeStore(REL, merged);
+    await writeLocalStore(REL, merged);
     return merged;
   });
 
@@ -105,8 +105,8 @@ export const DELETE = withAuth(async (req) => {
   const provider = url.searchParams.get('provider');
   const now = new Date().toISOString();
 
-  const next = await withStoreLock(REL, async () => {
-    const current = await readStore(REL, EMPTY);
+  const next = await withLocalStoreLock(REL, async () => {
+    const current = await readLocalStore(REL, EMPTY);
     const providers = (current && typeof current === 'object' && current.providers) || {};
     const cleaned = { ...providers };
     if (provider) {
@@ -115,7 +115,7 @@ export const DELETE = withAuth(async (req) => {
       for (const key of Object.keys(cleaned)) delete cleaned[key];
     }
     const merged = { providers: cleaned, updated_at: now };
-    await writeStore(REL, merged);
+    await writeLocalStore(REL, merged);
     return merged;
   });
 

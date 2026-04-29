@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { withAuth } from '@/lib/auth';
-import { readStore, writeStore, withStoreLock } from '@/lib/storage';
+import { readLocalStore, writeLocalStore, withLocalStoreLock } from '@/lib/projectStorage';
 
 const REL = 'data/recent-cwds.json';
 const EMPTY = { servers: {} };
@@ -30,7 +30,7 @@ export const GET = withAuth(async (req) => {
       { status: 400 }
     );
   }
-  const data = await readStore(REL, EMPTY);
+  const data = await readLocalStore(REL, EMPTY);
   const paths = readServerEntry(data, serverId);
   return NextResponse.json({ paths: sortAlphaPaths(paths).map((p) => p.path) });
 });
@@ -55,8 +55,8 @@ export const POST = withAuth(async (req) => {
   }
 
   const now = new Date().toISOString();
-  const updated = await withStoreLock(REL, async () => {
-    const data = await readStore(REL, EMPTY);
+  const updated = await withLocalStoreLock(REL, async () => {
+    const data = await readLocalStore(REL, EMPTY);
     const servers = { ...data.servers };
     const existing = readServerEntry(data, serverId);
     // Dedupe by path; refresh last_used_at if it already exists.
@@ -72,7 +72,7 @@ export const POST = withAuth(async (req) => {
       next.length = RECENT_CWDS_MAX;
     }
     servers[serverId] = { paths: next };
-    await writeStore(REL, { servers });
+    await writeLocalStore(REL, { servers });
     return next;
   });
 
@@ -90,14 +90,14 @@ export const DELETE = withAuth(async (req) => {
     );
   }
 
-  const updated = await withStoreLock(REL, async () => {
-    const data = await readStore(REL, EMPTY);
+  const updated = await withLocalStoreLock(REL, async () => {
+    const data = await readLocalStore(REL, EMPTY);
     const servers = { ...data.servers };
     const existing = readServerEntry(data, serverId);
     const next = existing.filter((p) => p.path !== path);
     if (next.length === existing.length) return next; // No-op: not found.
     servers[serverId] = { paths: next };
-    await writeStore(REL, { servers });
+    await writeLocalStore(REL, { servers });
     return next;
   });
 

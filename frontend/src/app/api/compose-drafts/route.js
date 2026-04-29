@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { readStore, writeStore, withStoreLock } from '@/lib/storage';
+import { readLocalStore, writeLocalStore, withLocalStoreLock } from '@/lib/projectStorage';
 import { withAuth } from '@/lib/auth';
 
 const REL = 'data/compose-drafts.json';
@@ -30,15 +30,15 @@ function normalizePayload(raw) {
 }
 
 export const GET = withAuth(async () => {
-  const data = await readStore(REL, EMPTY);
+  const data = await readLocalStore(REL, EMPTY);
   return NextResponse.json(data);
 });
 
 export const PUT = withAuth(async (req) => {
   const body = await req.json();
   const cleaned = normalizePayload(body);
-  await withStoreLock(REL, async () => {
-    await writeStore(REL, cleaned);
+  await withLocalStoreLock(REL, async () => {
+    await writeLocalStore(REL, cleaned);
   });
   return NextResponse.json(cleaned);
 });

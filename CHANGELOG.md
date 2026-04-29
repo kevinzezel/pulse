@@ -6,6 +6,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [4.0.2-pre] — 2026-04-29
+
+### Fixed
+
+- **Per-install data was being routed to the default backend instead of LOCAL.** Routes for `projects`, `servers`, `sessions`, `recent-cwds`, `intelligence-config`, `compose-drafts`, and `groups` (terminal groups) still used the legacy `storage.js` compat layer, which routes to `default_backend_id`. For installs with S3 or MongoDB as default, this caused per-install data (project list, server creds, session metadata, etc.) to be (incorrectly) read from and written to the remote backend. After the v3 → v4 migration deleted the legacy flat files from the remote, those routes started seeing 404s, falling back to defaults, and creating fresh "Default"-only state on the remote — overwriting the user's actual project list every time the dashboard opened. Local install state stayed correct throughout, but the dashboard was reading the wrong source.
+- **Fix:** added `readLocalStore` / `writeLocalStore` / `withLocalStoreLock` helpers in `projectStorage.js` that always route to backend `'local'`, and converted the affected routes (plus `intelligence/transcribe` and `projects/stats`, which read the same per-install files) to use them.
+
+### Recovery instructions for users hit by the bug
+
+1. Upgrade to `v4.0.2-pre` (`pulse upgrade --preview`).
+2. Delete the wrongly-created `projects.json`, `servers.json`, `sessions.json`, `recent-cwds.json`, `intelligence-config.json`, `compose-drafts.json`, `groups.json` from the remote backend (S3 console, `gsutil rm`, or `mongo` shell — depending on your driver).
+3. Restart the dashboard. Routes will now read from the local backend, where your data was always correct.
+
 ## [4.0.1-pre] — 2026-04-29
 
 ### Added
@@ -1247,7 +1260,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v4.0.1-pre...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v4.0.2-pre...HEAD
+[4.0.2-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.0.2-pre
 [4.0.1-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.0.1-pre
 [4.0.0-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.0.0-pre
 [3.3.2-pre]: https://github.com/kevinzezel/pulse/releases/tag/v3.3.2-pre

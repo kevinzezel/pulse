@@ -1,22 +1,22 @@
 import { NextResponse } from 'next/server';
 import { randomUUID } from 'crypto';
 import { withAuth } from '@/lib/auth';
-import { readStore, writeStore, withStoreLock } from '@/lib/storage';
+import { readLocalStore, writeLocalStore, withLocalStoreLock } from '@/lib/projectStorage';
 import { DEFAULT_PROJECT_ID, migrateList } from '@/lib/projectScope';
 
 const REL = 'data/groups.json';
 const EMPTY = { groups: [] };
 
 async function readGroups() {
-  const data = await readStore(REL, EMPTY);
+  const data = await readLocalStore(REL, EMPTY);
   const list = Array.isArray(data?.groups) ? data.groups : [];
   const { list: migrated, changed } = migrateList(list);
   if (changed) {
-    await withStoreLock(REL, async () => {
-      const fresh = await readStore(REL, EMPTY);
+    await withLocalStoreLock(REL, async () => {
+      const fresh = await readLocalStore(REL, EMPTY);
       const freshList = Array.isArray(fresh?.groups) ? fresh.groups : [];
       const { list: freshMigrated, changed: stillChanged } = migrateList(freshList);
-      if (stillChanged) await writeStore(REL, { groups: freshMigrated });
+      if (stillChanged) await writeLocalStore(REL, { groups: freshMigrated });
     });
   }
   return migrated;
@@ -48,9 +48,9 @@ export const PUT = withAuth(async (req) => {
   if (!body || !Array.isArray(body.groups)) {
     return NextResponse.json({ detail: 'Expected { groups: [...] }', detail_key: 'errors.invalid_body' }, { status: 400 });
   }
-  const groups = await withStoreLock(REL, async () => {
+  const groups = await withLocalStoreLock(REL, async () => {
     const next = normalize(body.groups);
-    await writeStore(REL, { groups: next });
+    await writeLocalStore(REL, { groups: next });
     return next;
   });
   return NextResponse.json({ groups });

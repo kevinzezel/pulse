@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { randomUUID } from 'crypto';
 import { withAuth } from '@/lib/auth';
-import { readStore, writeStore, withStoreLock } from '@/lib/storage';
+import { readLocalStore, writeLocalStore, withLocalStoreLock } from '@/lib/projectStorage';
 import { DEFAULT_PROJECT_ID, DEFAULT_PROJECT_NAME } from '@/lib/projectScope';
 
 const REL = 'data/projects.json';
@@ -52,13 +52,13 @@ function normalizeState(parsed) {
 }
 
 async function readState() {
-  const data = await readStore(REL, null);
+  const data = await readLocalStore(REL, null);
   if (!data) {
-    return withStoreLock(REL, async () => {
-      const fresh = await readStore(REL, null);
+    return withLocalStoreLock(REL, async () => {
+      const fresh = await readLocalStore(REL, null);
       if (fresh) return normalizeState(fresh);
       const seed = makeDefaultState();
-      await writeStore(REL, seed);
+      await writeLocalStore(REL, seed);
       return seed;
     });
   }
@@ -121,9 +121,9 @@ export const PUT = withAuth(async (req) => {
   if (!body || !Array.isArray(body.projects)) {
     return NextResponse.json({ detail: 'Expected { projects: [...] }', detail_key: 'errors.invalid_body' }, { status: 400 });
   }
-  const state = await withStoreLock(REL, async () => {
+  const state = await withLocalStoreLock(REL, async () => {
     const next = normalizePut(body);
-    await writeStore(REL, next);
+    await writeLocalStore(REL, next);
     return next;
   });
   return NextResponse.json(state);

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { readStore } from '@/lib/storage';
+import { readLocalStore } from '@/lib/projectStorage';
 import { withAuth } from '@/lib/auth';
 
 const REL = 'data/intelligence-config.json';
@@ -130,7 +130,7 @@ export const POST = withAuth(async (req) => {
     });
   }
 
-  const stored = await readStore(REL, EMPTY);
+  const stored = await readLocalStore(REL, EMPTY);
   const gemini = stored?.providers?.gemini;
   const apiKey = gemini && typeof gemini.api_key === 'string' ? gemini.api_key.trim() : '';
   if (!apiKey) {
