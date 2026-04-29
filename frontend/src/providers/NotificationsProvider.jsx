@@ -3,6 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import { useServers } from '@/providers/ServersProvider';
+import { SERVER_HEALTH_STATUS, useServerHealth } from '@/providers/ServerHealthProvider';
 import { useTranslation } from '@/providers/I18nProvider';
 import { composeSessionId, splitSessionId } from '@/services/api';
 
@@ -30,6 +31,7 @@ const EVENT_DEDUPE_PREFIX = 'rt:notify-event:';
 const EVENT_DEDUPE_TTL_MS = 10 * 60 * 1000;
 const EVENT_DEDUPE_CHANNEL = 'rt:notify-dedupe';
 const BACKOFF_MS = [1000, 2000, 4000, 8000, 15000, 30000];
+const MAX_RECONNECT_ATTEMPTS = 3;
 const CONNECTION_LOST_TOAST_DELAY_MS = 5000;
 const NOTIFICATIONS_WS_PING_INTERVAL_MS = 30000;
 const NOTIFICATIONS_WS_PONG_TIMEOUT_MS = 5000;
@@ -199,6 +201,7 @@ function connectionFields(server) {
 
 export function NotificationsProvider({ children }) {
   const { servers } = useServers();
+  const { health: serverHealth } = useServerHealth();
   const { t } = useTranslation();
   const tRef = useRef(t);
   tRef.current = t;
@@ -475,6 +478,7 @@ export function NotificationsProvider({ children }) {
       reconnectTimer: null,
       disconnectedAt: 0,
       lostToastShownId: null,
+      manualRetryRequired: false,
       pingTimer: null,
       pongTimer: null,
       lastPingTs: 0,
@@ -484,6 +488,10 @@ export function NotificationsProvider({ children }) {
     const scheduleReconnect = () => {
       if (ctrl.closed) return;
       if (ctrl.reconnectTimer) return;
+      if (ctrl.attempt >= MAX_RECONNECT_ATTEMPTS) {
+        ctrl.manualRetryRequired = true;
+        return;
+      }
       const delay = BACKOFF_MS[Math.min(ctrl.attempt, BACKOFF_MS.length - 1)];
       ctrl.attempt += 1;
       ctrl.reconnectTimer = setTimeout(() => {
@@ -539,6 +547,7 @@ export function NotificationsProvider({ children }) {
       ctrl.ws = ws;
       ws.onopen = () => {
         ctrl.attempt = 0;
+        ctrl.manualRetryRequired = false;
         ctrl.lastPongTs = Date.now();
         startHealthProbe(ws);
         if (ctrl.disconnectedAt && Date.now() - ctrl.disconnectedAt > CONNECTION_LOST_TOAST_DELAY_MS) {
@@ -629,6 +638,19 @@ export function NotificationsProvider({ children }) {
 
     return () => {};
   }, [servers, connectServer, closeConnection]);
+
+  useEffect(() => {
+    const connections = connectionsRef.current;
+    for (const server of servers) {
+      const ctrl = connections.get(server.id);
+      if (!ctrl?.manualRetryRequired) continue;
+      if (serverHealth[server.id]?.status !== SERVER_HEALTH_STATUS.ONLINE) continue;
+      closeConnection(ctrl);
+      connections.delete(server.id);
+      const next = connectServer(server);
+      connections.set(server.id, next);
+    }
+  }, [serverHealth, servers, connectServer, closeConnection]);
 
   useEffect(() => {
     return () => {

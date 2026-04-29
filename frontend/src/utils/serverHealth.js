@@ -23,7 +23,7 @@ export async function testServer(server) {
   const base = `${scheme}://${server.host}:${server.port}`;
   const t = timeoutSignal(SERVER_HEALTH_TIMEOUT_MS);
   try {
-    const auth = await fetch(`${base}/api/sessions`, {
+    const auth = await fetch(`${base}/health`, {
       headers: { 'X-API-Key': server.apiKey },
       signal: t.signal,
     });

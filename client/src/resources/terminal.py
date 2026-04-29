@@ -13,9 +13,11 @@ from tools.pty import (
     PTYSession,
     LISTENER_QUEUE_MAX,
     get_pty,
-    register_pty,
+    get_main_loop,
+    register_pty_if_absent,
     unregister_pty,
     list_pty_ids,
+    count_ptys,
 )
 
 DEFAULT_PROJECT_ID = "proj-default"
@@ -34,6 +36,7 @@ _active_ws = {}
 _counter = 0
 _sessions_lock = threading.Lock()
 _ws_locks: dict[str, asyncio.Lock] = {}
+_ws_locks_lock = threading.Lock()
 _client_shutting_down = threading.Event()
 
 
@@ -78,11 +81,30 @@ async def close_active_websockets_for_shutdown():
 
 
 def _ws_lock(session_id):
-    lock = _ws_locks.get(session_id)
-    if lock is None:
-        lock = asyncio.Lock()
-        _ws_locks[session_id] = lock
-    return lock
+    with _ws_locks_lock:
+        lock = _ws_locks.get(session_id)
+        if lock is None:
+            lock = asyncio.Lock()
+            _ws_locks[session_id] = lock
+        return lock
+
+
+def _drop_ws_lock(session_id):
+    with _ws_locks_lock:
+        _ws_locks.pop(session_id, None)
+
+
+def _close_active_ws_soon(session_id, code, reason):
+    ws = _active_ws.get(session_id)
+    if ws is None:
+        return
+    loop = get_main_loop()
+    if loop is None:
+        return
+    try:
+        asyncio.run_coroutine_threadsafe(ws.close(code=code, reason=reason), loop)
+    except RuntimeError:
+        pass
 
 
 def _next_id():
@@ -112,22 +134,34 @@ def recover_sessions():
 
 
 def create_session_request(payload):
-    session_id = _next_id()
-    name = payload.get("name") or session_id
+    session_id = None
+    pty_session = None
+    name = None
+    while True:
+        session_id = _next_id()
+        name = payload.get("name") or session_id
+        cwd = payload.get("cwd")
+        # Default new terminals to $HOME regardless of where the client process runs
+        # (systemd/launchd spawn us under INSTALL_ROOT, which would otherwise leak
+        # into every new session via inherited CWD).
+        if not isinstance(cwd, str) or not cwd:
+            cwd = os.path.expanduser("~")
+
+        pty_session = PTYSession(session_id, start_directory=cwd)
+        try:
+            pty_session.start()
+        except Exception:
+            pty_session.close()
+            raise
+        if register_pty_if_absent(session_id, pty_session):
+            break
+        pty_session.close()
+        logger.warning("create_session_request: generated colliding session id %s; retrying", session_id)
+
     group_id = payload.get("group_id")
     group_name = payload.get("group_name") or None
     project_id = payload.get("project_id") or DEFAULT_PROJECT_ID
     project_name = payload.get("project_name") or None
-    cwd = payload.get("cwd")
-    # Default new terminals to $HOME regardless of where the client process runs
-    # (systemd/launchd spawn us under INSTALL_ROOT, which would otherwise leak
-    # into every new session via inherited CWD).
-    if not isinstance(cwd, str) or not cwd:
-        cwd = os.path.expanduser("~")
-
-    pty_session = PTYSession(session_id, start_directory=cwd)
-    pty_session.start()
-    register_pty(session_id, pty_session)
 
     now = datetime.now(timezone.utc).isoformat()
     with _sessions_lock:
@@ -168,6 +202,7 @@ def restore_sessions_request(payload):
             failed.append({"id": sid, "reason": "invalid_id"})
             continue
         if get_pty(sid) is not None:
+            _bump_counter_from_id(sid)
             skipped.append({"id": sid, "reason": "already_exists"})
             continue
         try:
@@ -176,7 +211,11 @@ def restore_sessions_request(payload):
                 cwd = os.path.expanduser("~")
             pty_session = PTYSession(sid, start_directory=cwd)
             pty_session.start()
-            register_pty(sid, pty_session)
+            if not register_pty_if_absent(sid, pty_session):
+                pty_session.close()
+                _bump_counter_from_id(sid)
+                skipped.append({"id": sid, "reason": "already_exists"})
+                continue
             name = item.get("name") or sid
             group_id = item.get("group_id")
             group_name = item.get("group_name") or None
@@ -270,12 +309,19 @@ def clone_session_request(source_session_id):
     if not cwd:
         cwd = os.path.expanduser("~")
 
-    session_id = _next_id()
-    name = f"{source_name} (clone)"
-
-    pty_session = PTYSession(session_id, start_directory=cwd)
-    pty_session.start()
-    register_pty(session_id, pty_session)
+    while True:
+        session_id = _next_id()
+        name = f"{source_name} (clone)"
+        pty_session = PTYSession(session_id, start_directory=cwd)
+        try:
+            pty_session.start()
+        except Exception:
+            pty_session.close()
+            raise
+        if register_pty_if_absent(session_id, pty_session):
+            break
+        pty_session.close()
+        logger.warning("clone_session_request: generated colliding session id %s; retrying", session_id)
 
     now = datetime.now(timezone.utc).isoformat()
     with _sessions_lock:
@@ -373,7 +419,8 @@ def kill_session_request(session_id):
             raise AppException(key="errors.session_not_found", status_code=404)
         del sessions[session_id]
 
-    _ws_locks.pop(session_id, None)
+    _close_active_ws_soon(session_id, SESSION_ENDED_CLOSE_CODE, SESSION_ENDED_CLOSE_REASON)
+    _drop_ws_lock(session_id)
     pty_session = unregister_pty(session_id)
     if pty_session is not None:
         pty_session.close()
@@ -394,7 +441,7 @@ def _drop_session(session_id):
     """
     with _sessions_lock:
         sessions.pop(session_id, None)
-    _ws_locks.pop(session_id, None)
+    _drop_ws_lock(session_id)
     pty_session = unregister_pty(session_id)
     if pty_session is not None:
         pty_session.close()
@@ -590,3 +637,13 @@ async def websocket_terminal(websocket: WebSocket, session_id: str):
         # Não fechar fd nem matar process — eles são da PTYSession e ela
         # continua viva entre conexões WS (esse é o ponto: frontend pode
         # reconectar sem perder estado).
+
+
+def terminal_stats():
+    with _sessions_lock:
+        session_count = len(sessions)
+    return {
+        "sessions": session_count,
+        "active_ws": len(_active_ws),
+        "ptys": count_ptys(),
+    }

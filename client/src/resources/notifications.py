@@ -1,6 +1,7 @@
 import asyncio
 import hashlib
 import logging
+import threading
 import time
 
 import pyte
@@ -42,6 +43,7 @@ VIEWING_GRACE_SECONDS = 15
 #                            user response — eternal dedup, no TTL>,
 #   }
 _state = {}
+_state_lock = threading.Lock()
 
 # Pyte screens cached per-session. Pyte mantém estado mutável e NÃO é
 # thread-safe, mas só o watcher (single asyncio task) toca esse dict — feed
@@ -50,8 +52,9 @@ _pyte_screens = {}
 
 
 def reset_session_state(session_id):
-    _state.pop(session_id, None)
-    _pyte_screens.pop(session_id, None)
+    with _state_lock:
+        _state.pop(session_id, None)
+        _pyte_screens.pop(session_id, None)
 
 
 def _hash_content(content):
@@ -77,18 +80,19 @@ def _render_pane_via_pyte(pty_session):
     """
     sid = pty_session.id
     cols, rows = pty_session.cols, pty_session.rows
-    cached = _pyte_screens.get(sid)
-    if cached is None or cached[0].columns != cols or cached[0].lines != rows:
-        screen = pyte.Screen(cols, rows)
-        stream = pyte.ByteStream(screen)
-        _pyte_screens[sid] = (screen, stream)
-    else:
-        screen, stream = cached
-        screen.reset()
-    raw = pty_session.get_scrollback_bytes()
-    if raw:
-        stream.feed(raw)
-    return "\n".join(screen.display).rstrip()
+    with _state_lock:
+        cached = _pyte_screens.get(sid)
+        if cached is None or cached[0].columns != cols or cached[0].lines != rows:
+            screen = pyte.Screen(cols, rows)
+            stream = pyte.ByteStream(screen)
+            _pyte_screens[sid] = (screen, stream)
+        else:
+            screen, stream = cached
+            screen.reset()
+        raw = pty_session.get_scrollback_bytes()
+        if raw:
+            stream.feed(raw)
+        return "\n".join(screen.display).rstrip()
 
 
 def _history_line_to_str(line):
@@ -170,12 +174,13 @@ async def notification_watcher():
 
             # Cleanup state/screens de sessões que saíram do monitoramento
             # (perderam notify_on_idle ou foram removidas).
-            for sid in list(_state):
-                if sid not in monitored_ids:
-                    del _state[sid]
-            for sid in list(_pyte_screens):
-                if sid not in monitored_ids:
-                    del _pyte_screens[sid]
+            with _state_lock:
+                for sid in list(_state):
+                    if sid not in monitored_ids:
+                        del _state[sid]
+                for sid in list(_pyte_screens):
+                    if sid not in monitored_ids:
+                        del _pyte_screens[sid]
 
             if not monitored_ids:
                 continue
@@ -201,19 +206,21 @@ async def notification_watcher():
                     continue
 
                 h = _hash_content(content)
-                state = _state.get(sid)
+                with _state_lock:
+                    state = _state.get(sid)
 
                 if state is None:
                     # Fresh baseline. last_output_ts stays 0 until a *real*
                     # hash change is observed, so a dormant session that was
                     # just armed with notify_on_idle=True cannot false-alert
                     # before any output ever happens.
-                    _state[sid] = {
-                        "hash": h,
-                        "last_output_ts": 0,
-                        "notified": False,
-                        "last_notified_hash": None,
-                    }
+                    with _state_lock:
+                        _state[sid] = {
+                            "hash": h,
+                            "last_output_ts": 0,
+                            "notified": False,
+                            "last_notified_hash": None,
+                        }
                     continue
 
                 if h != state["hash"]:

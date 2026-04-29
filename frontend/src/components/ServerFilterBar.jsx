@@ -10,6 +10,8 @@ function StatusIcon({ status }) {
       return <Wifi size={11} className="text-success flex-shrink-0" />;
     case SERVER_HEALTH_STATUS.OFFLINE:
       return <WifiOff size={11} className="text-destructive flex-shrink-0" />;
+    case SERVER_HEALTH_STATUS.AWAITING_MANUAL_RETRY:
+      return <WifiOff size={11} className="text-destructive flex-shrink-0" />;
     case SERVER_HEALTH_STATUS.CHECKING:
       return <Loader size={11} className="animate-spin text-muted-foreground flex-shrink-0" />;
     default:
@@ -74,7 +76,10 @@ export default function ServerFilterBar({
         const isActive = selectedServerId === srv.id;
         const health = serverHealthById[srv.id] || { status: SERVER_HEALTH_STATUS.UNKNOWN };
         const count = counts.get(srv.id) || 0;
-        const isOffline = health.status === SERVER_HEALTH_STATUS.OFFLINE;
+        const isOffline =
+          health.status === SERVER_HEALTH_STATUS.OFFLINE ||
+          health.status === SERVER_HEALTH_STATUS.AWAITING_MANUAL_RETRY;
+        const canRetry = health.status === SERVER_HEALTH_STATUS.AWAITING_MANUAL_RETRY;
         const reasonKey = isOffline && health.reason ? `serverFilter.reason.${health.reason}` : null;
         const baseLabel = srv.name || `${srv.host}:${srv.port}`;
         const tooltip = reasonKey ? `${baseLabel} — ${t(reasonKey)}` : baseLabel;
@@ -100,7 +105,7 @@ export default function ServerFilterBar({
                 {count}
               </span>
             </button>
-            {isOffline && onRetryServer && (
+            {canRetry && onRetryServer && (
               <button
                 type="button"
                 onClick={(e) => {

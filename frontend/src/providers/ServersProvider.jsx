@@ -10,11 +10,14 @@ import { timeoutSignal } from '@/utils/serverHealth';
 
 const ServersContext = createContext(null);
 
+const LOCAL_REACHABLE_TTL_MS = 30000;
+
 // cacheState.localReachable é um Map<serverId, boolean> preenchido pelo probe
 // async de `probeLocalReachable` abaixo. True quando a *mesma instância* do
-// server está acessível via `http(s)://localhost:<port>/api/sessions` com a
+// server está acessível via `http(s)://localhost:<port>/health` com a
 // apiKey cadastrada (comprova mesma máquina + mesma instância).
 const cacheState = { servers: [], localReachable: new Map() };
+const localReachableProbeCache = new Map();
 
 export function getServerById(id) {
   if (!id) return null;
@@ -57,18 +60,26 @@ function invalidateAffectedTerminals(oldList, newList) {
 async function probeLocalReachable(server) {
   if (!server?.port || !server?.apiKey) return false;
   const scheme = server.protocol === 'https' ? 'https' : 'http';
-  // /api/sessions exige apiKey. Se vier 200, é a *mesma instância* rodando na
-  // mesma máquina do browser (loopback). Outra instância na mesma porta
-  // retornaria 401 → descartamos como "não é o mesmo server".
-  const url = `${scheme}://localhost:${server.port}/api/sessions`;
+  const cacheKey = `${scheme}::${server.port}::${server.apiKey}`;
+  const cached = localReachableProbeCache.get(cacheKey);
+  if (cached && Date.now() - cached.checkedAt < LOCAL_REACHABLE_TTL_MS) {
+    return cached.reachable;
+  }
+  // /health valida a apiKey quando ela é enviada. Se vier 200, é a *mesma
+  // instância* rodando na mesma máquina do browser (loopback). Outra instância
+  // na mesma porta retornaria 401 → descartamos como "não é o mesmo server".
+  const url = `${scheme}://localhost:${server.port}/health`;
   const t = timeoutSignal(1500);
   try {
     const res = await fetch(url, {
       headers: { 'X-API-Key': server.apiKey },
       signal: t.signal,
     });
-    return res.ok;
+    const reachable = res.ok;
+    localReachableProbeCache.set(cacheKey, { reachable, checkedAt: Date.now() });
+    return reachable;
   } catch {
+    localReachableProbeCache.set(cacheKey, { reachable: false, checkedAt: Date.now() });
     return false;
   } finally {
     t.cancel();

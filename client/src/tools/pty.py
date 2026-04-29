@@ -160,6 +160,7 @@ class PTYSession:
         self.master_fd = None
         self.scrollback = bytearray()
         self.lock = threading.Lock()
+        self._fd_lock = threading.RLock()
         self._closed = False
         # Reader permanente + listener único (1 WS por sessão, enforced em
         # _active_ws). Tudo abaixo é tocado apenas no event loop principal,
@@ -334,41 +335,50 @@ class PTYSession:
             return bytes(self.scrollback)
 
     def write(self, data):
-        if self.master_fd is None:
-            return 0
-        return os.write(self.master_fd, data)
+        with self._fd_lock:
+            if self._closed or self.master_fd is None:
+                return 0
+            try:
+                return os.write(self.master_fd, data)
+            except OSError:
+                return 0
 
     def resize(self, rows, cols):
-        self.rows = rows
-        self.cols = cols
-        if self.master_fd is None:
-            return
-        self._set_pty_size_fd(self.master_fd, rows, cols)
-        # SIGWINCH ao process group inteiro (shell + filhos como vim/htop/Claude
-        # Code) — process_group foi criado via os.setsid no preexec_fn.
-        if self.process is not None:
+        with self._fd_lock:
+            self.rows = rows
+            self.cols = cols
+            if self._closed or self.master_fd is None:
+                return
             try:
-                os.killpg(os.getpgid(self.process.pid), signal.SIGWINCH)
-            except (ProcessLookupError, OSError):
-                pass
+                self._set_pty_size_fd(self.master_fd, rows, cols)
+            except OSError:
+                return
+            # SIGWINCH ao process group inteiro (shell + filhos como vim/htop/Claude
+            # Code) — process_group foi criado via os.setsid no preexec_fn.
+            if self.process is not None:
+                try:
+                    os.killpg(os.getpgid(self.process.pid), signal.SIGWINCH)
+                except (ProcessLookupError, OSError):
+                    pass
 
     def get_cwd(self):
         # Foreground job: tcgetpgrp devolve o PID líder do grupo em foco no
         # PTY (ex: vim/Claude Code rodando dentro do shell). É o cwd que o
         # usuário espera ver no "Open editor". Cai pro PID do shell quando
         # nada mais está em foreground.
-        if self.process is None:
-            return None
-        target_pid = None
-        if self.master_fd is not None:
-            try:
-                fg = os.tcgetpgrp(self.master_fd)
-                if fg > 0:
-                    target_pid = fg
-            except OSError:
-                pass
-        if target_pid is None:
-            target_pid = self.process.pid
+        with self._fd_lock:
+            if self.process is None:
+                return None
+            target_pid = None
+            if not self._closed and self.master_fd is not None:
+                try:
+                    fg = os.tcgetpgrp(self.master_fd)
+                    if fg > 0:
+                        target_pid = fg
+                except OSError:
+                    pass
+            if target_pid is None:
+                target_pid = self.process.pid
         try:
             return os.readlink(f"/proc/{target_pid}/cwd")
         except (OSError, ProcessLookupError):
@@ -440,81 +450,84 @@ class PTYSession:
         return pgids
 
     def kill(self):
-        if self.process is None:
-            return
-        if self.process.poll() is not None:
-            return
-        # SIGHUP semântica "terminal foi embora". Com job control, o shell e o
-        # job em foreground podem estar em process groups diferentes; sinaliza
-        # todos os grupos conhecidos e acorda jobs parados para receber o HUP.
-        pgids = self._shutdown_process_groups()
-        for pgid in pgids:
-            try:
-                os.killpg(pgid, signal.SIGHUP)
-            except (ProcessLookupError, OSError):
-                pass
-        for pgid in pgids:
-            try:
-                os.killpg(pgid, signal.SIGCONT)
-            except (ProcessLookupError, OSError):
-                pass
+        with self._fd_lock:
+            if self.process is None:
+                return
+            if self.process.poll() is not None:
+                return
+            # SIGHUP semântica "terminal foi embora". Com job control, o shell e o
+            # job em foreground podem estar em process groups diferentes; sinaliza
+            # todos os grupos conhecidos e acorda jobs parados para receber o HUP.
+            pgids = self._shutdown_process_groups()
+            for pgid in pgids:
+                try:
+                    os.killpg(pgid, signal.SIGHUP)
+                except (ProcessLookupError, OSError):
+                    pass
+            for pgid in pgids:
+                try:
+                    os.killpg(pgid, signal.SIGCONT)
+                except (ProcessLookupError, OSError):
+                    pass
 
     def close(self):
-        if self._closed:
-            return
-        self._closed = True
-        # ORDEM IMPORTA: remove_reader ANTES de os.close. Inverter arrisca o
-        # callback do reader disparar em fd já fechado, levando ao EBADF e
-        # potencialmente a estado inconsistente do selector.
-        # close() pode ser chamado de threadpool (kill_session_request via
-        # endpoint sync) OU do thread do loop (reaper / websocket_terminal).
-        # Em ambos os casos precisamos garantir que o remove_reader EXECUTOU
-        # antes de fechar o fd; daí o Event.wait quando estamos fora do loop.
-        if self._loop is not None and self._reader_installed and self.master_fd is not None:
-            try:
-                current = asyncio.get_running_loop()
-                same_loop = current is self._loop
-            except RuntimeError:
-                same_loop = False
-            if same_loop:
+        with self._fd_lock:
+            if self._closed:
+                return
+            self._closed = True
+            # ORDEM IMPORTA: remove_reader ANTES de os.close. Inverter arrisca o
+            # callback do reader disparar em fd já fechado, levando ao EBADF e
+            # potencialmente a estado inconsistente do selector.
+            # close() pode ser chamado de threadpool (kill_session_request via
+            # endpoint sync) OU do thread do loop (reaper / websocket_terminal).
+            # Em ambos os casos precisamos garantir que o remove_reader EXECUTOU
+            # antes de fechar o fd; daí o Event.wait quando estamos fora do loop.
+            if self._loop is not None and self._reader_installed and self.master_fd is not None:
                 try:
-                    self._loop.remove_reader(self.master_fd)
-                except Exception:
-                    pass
-            else:
-                done = threading.Event()
-                fd_to_remove = self.master_fd
-                def _remove():
+                    current = asyncio.get_running_loop()
+                    same_loop = current is self._loop
+                except RuntimeError:
+                    same_loop = False
+                if same_loop:
                     try:
-                        self._loop.remove_reader(fd_to_remove)
+                        self._loop.remove_reader(self.master_fd)
                     except Exception:
                         pass
-                    done.set()
-                try:
-                    self._loop.call_soon_threadsafe(_remove)
-                    done.wait(timeout=2.0)
-                except RuntimeError:
-                    # Loop não está rodando — nenhum callback pode disparar.
-                    pass
-            self._reader_installed = False
-        self.kill()
-        if self.master_fd is not None:
-            try:
-                os.close(self.master_fd)
-            except OSError:
-                pass
+                else:
+                    done = threading.Event()
+                    fd_to_remove = self.master_fd
+                    def _remove():
+                        try:
+                            self._loop.remove_reader(fd_to_remove)
+                        except Exception:
+                            pass
+                        done.set()
+                    try:
+                        self._loop.call_soon_threadsafe(_remove)
+                        done.wait(timeout=2.0)
+                    except RuntimeError:
+                        # Loop não está rodando — nenhum callback pode disparar.
+                        pass
+                self._reader_installed = False
+            self.kill()
+            fd_to_close = self.master_fd
             self.master_fd = None
-        # Colher o zumbi imediatamente em vez de esperar reap_dead_ptys ou
-        # GC do Popen — sob churn alto (kill 1000 sessões em sequência) o
-        # acúmulo bate em RLIMIT_NPROC. Wait curto: SIGHUP costuma matar em
-        # <50ms; se não morreu nessa janela, deixa pro reaper/GC.
-        if self.process is not None:
-            try:
-                self.process.wait(timeout=0.1)
-            except subprocess.TimeoutExpired:
-                pass
-            except Exception:
-                pass
+            if fd_to_close is not None:
+                try:
+                    os.close(fd_to_close)
+                except OSError:
+                    pass
+            # Colher o zumbi imediatamente em vez de esperar reap_dead_ptys ou
+            # GC do Popen — sob churn alto (kill 1000 sessões em sequência) o
+            # acúmulo bate em RLIMIT_NPROC. Wait curto: SIGHUP costuma matar em
+            # <50ms; se não morreu nessa janela, deixa pro reaper/GC.
+            if self.process is not None:
+                try:
+                    self.process.wait(timeout=0.1)
+                except subprocess.TimeoutExpired:
+                    pass
+                except Exception:
+                    pass
 
     @staticmethod
     def _set_pty_size_fd(fd, rows, cols):
@@ -536,6 +549,14 @@ def register_pty(session_id, pty_session):
         _pty_by_session[session_id] = pty_session
 
 
+def register_pty_if_absent(session_id, pty_session):
+    with _registry_lock:
+        if session_id in _pty_by_session:
+            return False
+        _pty_by_session[session_id] = pty_session
+        return True
+
+
 def unregister_pty(session_id):
     with _registry_lock:
         return _pty_by_session.pop(session_id, None)
@@ -544,3 +565,8 @@ def unregister_pty(session_id):
 def list_pty_ids():
     with _registry_lock:
         return list(_pty_by_session.keys())
+
+
+def count_ptys():
+    with _registry_lock:
+        return len(_pty_by_session)

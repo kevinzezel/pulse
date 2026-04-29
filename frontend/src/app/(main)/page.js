@@ -164,10 +164,15 @@ function Dashboard() {
   const restoreRetryTimerRef = useRef(null);
   const restoreInFlightRef = useRef(new Set());
   const restoreBlockedServerIdsRef = useRef(new Set());
+  const forceRestoreInFlightRef = useRef(new Set());
+  const killedSessionTombstonesRef = useRef(new Map());
   // Epoch counter pra descartar respostas obsoletas: se o usuário troca de
   // projeto/server enquanto uma fetch está em curso, comparamos runId no
   // handler de cada server e ignoramos updates de fetches superadas.
   const fetchRunIdRef = useRef(0);
+  const fetchSessionsInFlightRef = useRef(null);
+  const fetchSessionsQueuedRef = useRef(null);
+  const serverReconnectCooldownRef = useRef(new Map());
   // Epoch independente pra fetchGroups: grupos vêm do dashboard local
   // (/api/groups), não dos servers, então rodam mesmo com servers=[]. O
   // contador descarta respostas atrasadas de troca de projeto.
@@ -284,6 +289,8 @@ function Dashboard() {
   const markServerForRestore = useCallback(async (serverId) => {
     if (!serverId) return;
     if (restoreBlockedServerIdsRef.current.has(serverId)) return;
+    if (forceRestoreInFlightRef.current.has(serverId)) return;
+    forceRestoreInFlightRef.current.add(serverId);
     restoreBlockedServerIdsRef.current = new Set([...restoreBlockedServerIdsRef.current, serverId]);
     setServersPreparingRestore(prev => {
       if (prev.has(serverId)) return prev;
@@ -342,6 +349,7 @@ function Dashboard() {
     // dispara e o restore reidrata as sessões sem depender do retry interno.
     markServerOffline(serverId, 'restart');
     setRestoreRetryKey(k => k + 1);
+    forceRestoreInFlightRef.current.delete(serverId);
   }, [persistSnapshotForServer, sessions, markServerOffline]);
 
   useEffect(() => { groupsProjectIdRef.current = groupsProjectId; }, [groupsProjectId]);
@@ -599,8 +607,28 @@ function Dashboard() {
     return `${activeProjectId}::${serverKey}`;
   }, [activeProjectId, servers, serversLoaded]);
 
-  const fetchSessions = useCallback(async (options = {}) => {
-    const { block = false, forceServerIds = [], reason = 'unspecified' } = options;
+  const fetchSessions = useCallback((options = {}) => {
+    const queueOptions = (nextOptions = {}) => {
+      const queued = fetchSessionsQueuedRef.current || {
+        block: false,
+        forceServerIds: new Set(),
+        reasons: [],
+      };
+      queued.block = queued.block || Boolean(nextOptions.block);
+      for (const id of nextOptions.forceServerIds || []) {
+        if (id) queued.forceServerIds.add(id);
+      }
+      queued.reasons.push(nextOptions.reason || 'unspecified');
+      fetchSessionsQueuedRef.current = queued;
+    };
+
+    if (fetchSessionsInFlightRef.current) {
+      queueOptions(options);
+      return fetchSessionsInFlightRef.current;
+    }
+
+    const runOnce = async (currentOptions = {}) => {
+    const { block = false, forceServerIds = [], reason = 'unspecified' } = currentOptions;
     try {
       if (typeof window !== 'undefined' && window.localStorage?.getItem('rt:debugFetchSessions') === '1') {
         console.debug('[fetchSessions]', reason);
@@ -739,6 +767,28 @@ function Dashboard() {
     }
 
     return { onlineCount, total: servers.length, offlineServerIds: offline };
+    };
+
+    const run = (async () => {
+      let currentOptions = options;
+      let result;
+      while (true) {
+        fetchSessionsQueuedRef.current = null;
+        result = await runOnce(currentOptions);
+        const queued = fetchSessionsQueuedRef.current;
+        if (!queued) return result;
+        currentOptions = {
+          block: queued.block,
+          forceServerIds: [...queued.forceServerIds],
+          reason: `coalesced:${queued.reasons.join(',')}`,
+        };
+      }
+    })().finally(() => {
+      fetchSessionsInFlightRef.current = null;
+    });
+
+    fetchSessionsInFlightRef.current = run;
+    return run;
   }, [servers, activeProjectId, markServerOnline, markServerOffline, serversLoaded]);
 
   const fetchGroups = useCallback(async () => {
@@ -929,13 +979,30 @@ function Dashboard() {
       const restorePromises = [];
       const completedWithoutRequestServerIds = [];
       let skippedBecauseInFlight = false;
+      let skippedBecauseBlocked = false;
+      const now = Date.now();
+      for (const [id, expiresAt] of killedSessionTombstonesRef.current.entries()) {
+        if (expiresAt <= now) killedSessionTombstonesRef.current.delete(id);
+      }
       for (const [serverId, snapList] of Object.entries(snapshot.servers)) {
         if (!servers.some(srv => srv.id === serverId)) continue;
         if (!Array.isArray(snapList)) continue;
         const forceRestore = serversNeedingRestore.has(serverId);
+        const healthStatus = serverHealth[serverId]?.status;
+        const healthBlocked =
+          healthStatus === SERVER_HEALTH_STATUS.OFFLINE ||
+          healthStatus === SERVER_HEALTH_STATUS.CHECKING ||
+          healthStatus === SERVER_HEALTH_STATUS.AWAITING_MANUAL_RETRY;
+        if (healthBlocked || offlineServerIds.includes(serverId)) {
+          skippedBecauseBlocked = true;
+          continue;
+        }
         if (!forceRestore && restoreAttemptedRef.current.has(serverId)) continue;
         const liveSet = forceRestore ? new Set() : (liveByServer[serverId] || new Set());
-        const missing = snapList.filter(s => !liveSet.has(s.id));
+        const missing = snapList.filter((s) => {
+          if (!s?.id || liveSet.has(s.id)) return false;
+          return !killedSessionTombstonesRef.current.has(composeSessionId(serverId, s.id));
+        });
         if (missing.length === 0) {
           // Snapshot already aligned with live state — mark attempted so we
           // don't re-evaluate on the next sessions[] change.
@@ -959,7 +1026,7 @@ function Dashboard() {
         clearRestoreBarrierForServers(completedWithoutRequestServerIds);
       }
       if (restorePromises.length === 0) {
-        if (skippedBecauseInFlight) return;
+        if (skippedBecauseInFlight || skippedBecauseBlocked) return;
         // Either every server in snapshot has no missing sessions, or the
         // snapshot is empty for known servers. Mark all known servers as
         // attempted so subsequent sessions[] mutations don't re-run this.
@@ -1012,7 +1079,7 @@ function Dashboard() {
         toast.success(t('toast.sessions_auto_restored', { count: totalRestored }));
       }
     })();
-  }, [servers, serversLoading, hydratedSessions, sessions, offlineServerIds, fetchSessions, t, serversNeedingRestore, restoreRetryKey, scheduleRestoreRetry, clearRestoreBarrierForServers]);
+  }, [servers, serversLoading, hydratedSessions, sessions, offlineServerIds, serverHealth, fetchSessions, t, serversNeedingRestore, restoreRetryKey, scheduleRestoreRetry, clearRestoreBarrierForServers]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -1109,7 +1176,17 @@ function Dashboard() {
       });
       if (activeProjectIdRef.current !== scopeProjectId) return;
       const session = decorateSession(data.session, serverId);
-      setSessions(prev => [...prev, session]);
+      const nextSessions = [...sessionsRef.current.filter(s => s.id !== session.id), session];
+      sessionsRef.current = nextSessions;
+      setSessions(nextSessions);
+      if (snapshotDebounceRef.current) {
+        clearTimeout(snapshotDebounceRef.current);
+        snapshotDebounceRef.current = null;
+      }
+      snapshotInFlight.current = snapshotInFlight.current
+        .catch(() => {})
+        .then(() => persistSnapshotForServer(serverId, nextSessions))
+        .catch(err => console.warn('[handleCreate] snapshot persist failed', err));
       // A successful mutation proves the server is online — if it had been
       // marked offline by an earlier race-y fetch, the snapshot effect would
       // otherwise skip this server and sessions.json would never record the
@@ -1140,12 +1217,14 @@ function Dashboard() {
       await killSession(id);
       if (activeProjectIdRef.current !== scopeProjectId) return;
       const { serverId } = splitSessionId(id);
+      killedSessionTombstonesRef.current.set(id, Date.now() + 30000);
       // Calcula a lista pós-delete agora — `setSessions` é assíncrono e a
       // closure de `sessions` capturada por `persistSnapshotForServer` ainda
       // contém o id deletado. Passamos a lista filtrada explicitamente para
       // o helper como override, garantindo que o snapshot escrito não tenha
       // a sessão.
-      const remainingSessions = sessions.filter(s => s.id !== id);
+      const remainingSessions = sessionsRef.current.filter(s => s.id !== id);
+      sessionsRef.current = remainingSessions;
       destroyTerminal(id);
       setSessions(remainingSessions);
       setMosaicLayout(prev => prev ? removeFromTree(prev, id) : prev);
@@ -1185,7 +1264,17 @@ function Dashboard() {
       const data = await cloneSession(sourceSessionId);
       if (activeProjectIdRef.current !== scopeProjectId) return;
       const session = decorateSession(data.session, serverId);
-      setSessions(prev => [...prev, session]);
+      const nextSessions = [...sessionsRef.current.filter(s => s.id !== session.id), session];
+      sessionsRef.current = nextSessions;
+      setSessions(nextSessions);
+      if (snapshotDebounceRef.current) {
+        clearTimeout(snapshotDebounceRef.current);
+        snapshotDebounceRef.current = null;
+      }
+      snapshotInFlight.current = snapshotInFlight.current
+        .catch(() => {})
+        .then(() => persistSnapshotForServer(serverId, nextSessions))
+        .catch(err => console.warn('[handleSplit] snapshot persist failed', err));
       // Successful clone = server is online (see handleCreate for rationale).
       setOfflineServerIds(prev => prev.filter(id => id !== serverId));
       markServerOnline(serverId);
@@ -1244,6 +1333,10 @@ function Dashboard() {
   // perde estado em servidores que estão funcionando.
   const handleReconnectServer = useCallback((serverId, options = {}) => {
     if (!serverId) return;
+    const now = Date.now();
+    const last = serverReconnectCooldownRef.current.get(serverId) || 0;
+    if (now - last < 1500) return;
+    serverReconnectCooldownRef.current.set(serverId, now);
     destroyTerminalsByServerId(serverId);
     bumpServerReconnectKey(serverId);
     if (!options.silent) toast.success(t('toast.reconnecting'));
@@ -1325,7 +1418,9 @@ function Dashboard() {
     const prev = previousHealthRef.current;
     let recoveredAny = false;
     for (const [serverId, entry] of Object.entries(serverHealth)) {
-      const wasOffline = prev[serverId]?.status === SERVER_HEALTH_STATUS.OFFLINE;
+      const wasOffline =
+        prev[serverId]?.status === SERVER_HEALTH_STATUS.OFFLINE ||
+        prev[serverId]?.status === SERVER_HEALTH_STATUS.AWAITING_MANUAL_RETRY;
       const isOnline = entry?.status === SERVER_HEALTH_STATUS.ONLINE;
       if (wasOffline && isOnline) {
         if (restoreBlockedServerIdsRef.current.has(serverId)) continue;

@@ -44,6 +44,7 @@ export async function init(config) {
     } catch (err) {
       _client = null;
       _db = null;
+      _initPromise = null;
       console.error('[mongoStore] init failed:', err);
       throw new StorageUnavailableError(err);
     }

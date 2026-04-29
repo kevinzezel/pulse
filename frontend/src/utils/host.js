@@ -10,7 +10,7 @@ export function isLocalHost() {
 // outro caso ambíguo (browser em IP LAN acessando server do mesmo IP — que pode
 // ser o desktop ou outro notebook na mesma LAN, sem garantia) não conta como
 // local aqui. Quem resolve essa ambiguidade é o probe assíncrono feito pelo
-// ServersProvider: ele tenta `http(s)://localhost:<port>/api/sessions` com a
+// ServersProvider: ele tenta `http(s)://localhost:<port>/health` com a
 // apiKey e, se a mesma instância responder, marca o server como "local-
 // reachable" no cache — combinado com isto via `isServerLocal(server)`.
 export function isServerLocalToBrowser(server) {

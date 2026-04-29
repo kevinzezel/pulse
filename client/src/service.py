@@ -2,12 +2,13 @@ from system.log import setup_logging, AppException
 setup_logging()
 
 import asyncio
+import hmac
 from fastapi import FastAPI, Request, Depends
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from envs.load import COMPOSE_PROJECT_NAME, VERSION
+from envs.load import COMPOSE_PROJECT_NAME, VERSION, API_KEY
 from system.i18n import translate, parse_accept_language
 from system.auth import require_api_key
 
@@ -72,8 +73,17 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 
 
 @app.get("/health", tags=["Health"])
-def health():
-    return JSONResponse(status_code=200, content={"status": "UP"})
+def health(request: Request):
+    provided_key = request.headers.get("x-api-key")
+    if provided_key is not None and not hmac.compare_digest(provided_key, API_KEY):
+        return JSONResponse(status_code=401, content={"status": "UNAUTHORIZED"})
+
+    from resources.terminal import terminal_stats
+    return JSONResponse(status_code=200, content={
+        "status": "UP",
+        "version": VERSION,
+        "terminal": terminal_stats(),
+    })
 
 
 from routes import terminal, settings as settings_route, version as version_route, fs as fs_route

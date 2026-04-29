@@ -6,6 +6,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [3.3.2-pre] — 2026-04-29
+
+### Fixed
+
+- **Session refresh and restore are now guarded against reload/reconnect storms.** The dashboard coalesces overlapping `fetchSessions` calls, throttles repeated server-scoped reconnects, skips restore attempts while a server is known offline/checking, and keeps short-lived tombstones for killed terminals so stale snapshots cannot immediately restore a just-deleted session.
+- **Offline servers now stop retrying automatically after three failed health attempts.** Server health uses a bounded 5s/15s/30s backoff and then moves to a manual retry state, while the notifications WebSocket follows the same three-attempt cap instead of reconnecting forever in the background.
+- **Health and local-reachability probes no longer masquerade as session-list requests.** The frontend now uses the client `/health` endpoint for server checks and same-machine probes, and `/health` reports terminal counters while validating a provided API key.
+- **Concurrent restore/create/clone paths no longer orphan duplicate PTYs.** The client registers PTYs atomically, retries generated id collisions, protects per-session WebSocket lock creation, closes active WebSockets on kill, and guards PTY write/resize/close operations with a lifecycle lock.
+- **Remote storage can recover after a transient initialization failure.** MongoDB/S3 backend initialization promises are cleared on failure so later requests can reconnect without restarting the dashboard.
+
 ## [3.3.1] — 2026-04-28
 
 ### Fixed
@@ -1198,7 +1208,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v3.3.1...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v3.3.2-pre...HEAD
+[3.3.2-pre]: https://github.com/kevinzezel/pulse/releases/tag/v3.3.2-pre
 [3.3.1]: https://github.com/kevinzezel/pulse/releases/tag/v3.3.1
 [3.3.0]: https://github.com/kevinzezel/pulse/releases/tag/v3.3.0
 [3.2.10-pre]: https://github.com/kevinzezel/pulse/releases/tag/v3.2.10-pre

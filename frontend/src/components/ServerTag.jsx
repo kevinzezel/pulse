@@ -6,7 +6,10 @@ import { SERVER_HEALTH_STATUS } from '@/providers/ServerHealthProvider';
 export default function ServerTag({ name, size = 'xs', status = SERVER_HEALTH_STATUS.UNKNOWN }) {
   if (!name) return null;
   const textSize = size === 'xs' ? 'text-[9px]' : 'text-[10px]';
-  const icon = status === SERVER_HEALTH_STATUS.OFFLINE
+  const icon = (
+    status === SERVER_HEALTH_STATUS.OFFLINE ||
+    status === SERVER_HEALTH_STATUS.AWAITING_MANUAL_RETRY
+  )
     ? <WifiOff size={9} className="text-destructive flex-shrink-0" />
     : status === SERVER_HEALTH_STATUS.ONLINE
       ? <Wifi size={9} className="text-success flex-shrink-0" />

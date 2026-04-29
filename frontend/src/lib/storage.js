@@ -181,7 +181,10 @@ async function getBackend() {
     const mod = await loadDriverModule(driverAtBoot);
     await mod.init(configAtBoot);
     return mod;
-  })();
+  })().catch((err) => {
+    _backend_promise = null;
+    throw err;
+  });
   return _backend_promise;
 }
 

@@ -235,7 +235,9 @@ export default function TerminalPane({
   // placeholder com botão Retry. Quando o health volta pra online, o parent
   // bumpa serverReconnectKeys (Phase 8), forçando remount do pane com a
   // nova key — daí o effect roda e cria a WS de novo.
-  const isServerOffline = serverHealth?.status === 'offline';
+  const serverHealthStatus = serverHealth?.status;
+  const isServerAwaitingManualRetry = serverHealthStatus === 'awaiting_manual_retry';
+  const isServerOffline = serverHealthStatus === 'offline' || isServerAwaitingManualRetry;
   const offlineReason = serverHealth?.reason || null;
   const isServerBlocked = isServerOffline || isServerRestoring;
 
@@ -715,7 +717,7 @@ export default function TerminalPane({
           serverId={session.server_id}
           reason={isServerRestoring ? null : offlineReason}
           restoring={isServerRestoring}
-          onRetry={isServerRestoring ? null : onRetryServer}
+          onRetry={isServerRestoring || !isServerAwaitingManualRetry ? null : onRetryServer}
         />
       )}
     </div>

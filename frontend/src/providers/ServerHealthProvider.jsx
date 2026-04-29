@@ -12,13 +12,15 @@ export const SERVER_HEALTH_STATUS = Object.freeze({
   CHECKING: 'checking',
   ONLINE: 'online',
   OFFLINE: 'offline',
+  AWAITING_MANUAL_RETRY: 'awaiting_manual_retry',
 });
 
 // Backoff usado pra re-checar servers offline sem martelar a rede. O usuário
 // fica em VPNs diferentes ao longo do dia, então um servidor pode ficar offline
 // por minutos e voltar — preferimos manter intervalos maiores depois de tentar
 // algumas vezes a fazer health checks contínuos. Jitter evita sincronia.
-const BACKOFF_MS = [5000, 15000, 30000, 60000, 120000];
+export const SERVER_HEALTH_MAX_AUTO_ATTEMPTS = 3;
+const BACKOFF_MS = [5000, 15000, 30000];
 
 function initialEntry() {
   return {
@@ -26,6 +28,9 @@ function initialEntry() {
     reason: null,
     lastSeenAt: null,
     lastCheckedAt: null,
+    nextRetryAt: null,
+    attempt: 0,
+    maxAutoAttempts: SERVER_HEALTH_MAX_AUTO_ATTEMPTS,
   };
 }
 
@@ -48,7 +53,10 @@ export function ServerHealthProvider({ children }) {
         next.status === cur.status &&
         next.reason === cur.reason &&
         next.lastSeenAt === cur.lastSeenAt &&
-        next.lastCheckedAt === cur.lastCheckedAt
+        next.lastCheckedAt === cur.lastCheckedAt &&
+        next.nextRetryAt === cur.nextRetryAt &&
+        next.attempt === cur.attempt &&
+        next.maxAutoAttempts === cur.maxAutoAttempts
       ) {
         return prev;
       }
@@ -71,7 +79,13 @@ export function ServerHealthProvider({ children }) {
     const inflight = inflightRef.current.get(server.id);
     if (inflight) return inflight;
     const promise = (async () => {
-      setEntry(server.id, { status: SERVER_HEALTH_STATUS.CHECKING });
+      const slot = timersRef.current.get(server.id);
+      setEntry(server.id, {
+        status: SERVER_HEALTH_STATUS.CHECKING,
+        nextRetryAt: null,
+        attempt: slot?.attempt || 0,
+        maxAutoAttempts: SERVER_HEALTH_MAX_AUTO_ATTEMPTS,
+      });
       const result = await testServer(server);
       const now = new Date().toISOString();
       if (result.ok) {
@@ -80,17 +94,22 @@ export function ServerHealthProvider({ children }) {
           reason: null,
           lastSeenAt: now,
           lastCheckedAt: now,
+          nextRetryAt: null,
+          attempt: 0,
+          maxAutoAttempts: SERVER_HEALTH_MAX_AUTO_ATTEMPTS,
         });
         cancelBackoff(server.id);
-        timersRef.current.delete(server.id);
       } else {
         setEntry(server.id, {
           status: SERVER_HEALTH_STATUS.OFFLINE,
           reason: result.reason || 'unknown',
           lastCheckedAt: now,
+          nextRetryAt: null,
+          attempt: slot?.attempt || 0,
+          maxAutoAttempts: SERVER_HEALTH_MAX_AUTO_ATTEMPTS,
         });
         if (opts.scheduleBackoff !== false) {
-          scheduleBackoffRef.current?.(server);
+          scheduleBackoffRef.current?.(server, result.reason || 'unknown');
         }
       }
       return result;
@@ -102,21 +121,45 @@ export function ServerHealthProvider({ children }) {
   }, [setEntry, cancelBackoff]);
   checkServerRef.current = checkServer;
 
-  const scheduleBackoff = useCallback((server) => {
+  const scheduleBackoff = useCallback((server, reason = 'unknown') => {
     if (!server?.id) return;
     const prev = timersRef.current.get(server.id);
     if (prev?.timer) clearTimeout(prev.timer);
     const attempt = prev?.attempt ?? 0;
-    const base = BACKOFF_MS[Math.min(attempt, BACKOFF_MS.length - 1)];
+    if (attempt >= SERVER_HEALTH_MAX_AUTO_ATTEMPTS) {
+      timersRef.current.set(server.id, { timer: null, attempt, reason });
+      setEntry(server.id, {
+        status: SERVER_HEALTH_STATUS.AWAITING_MANUAL_RETRY,
+        reason: reason || 'unknown',
+        nextRetryAt: null,
+        attempt,
+        maxAutoAttempts: SERVER_HEALTH_MAX_AUTO_ATTEMPTS,
+        lastCheckedAt: new Date().toISOString(),
+      });
+      return;
+    }
+    const base = BACKOFF_MS[attempt];
     const jitter = Math.random() * 0.25 * base;
+    const nextAttempt = attempt + 1;
+    const nextRetryAt = new Date(Date.now() + base + jitter).toISOString();
     const timer = setTimeout(() => {
-      timersRef.current.delete(server.id);
+      const slot = timersRef.current.get(server.id);
+      if (slot) {
+        timersRef.current.set(server.id, { ...slot, timer: null, nextRetryAt: null });
+      }
       const current = serversRef.current.find(s => s.id === server.id);
       if (!current) return;
       checkServerRef.current?.(current, { silent: true });
     }, base + jitter);
-    timersRef.current.set(server.id, { timer, attempt: attempt + 1 });
-  }, []);
+    timersRef.current.set(server.id, { timer, attempt: nextAttempt, reason, nextRetryAt });
+    setEntry(server.id, {
+      status: SERVER_HEALTH_STATUS.OFFLINE,
+      reason: reason || 'unknown',
+      nextRetryAt,
+      attempt: nextAttempt,
+      maxAutoAttempts: SERVER_HEALTH_MAX_AUTO_ATTEMPTS,
+    });
+  }, [setEntry]);
   scheduleBackoffRef.current = scheduleBackoff;
 
   const markServerOnline = useCallback((serverId) => {
@@ -128,18 +171,40 @@ export function ServerHealthProvider({ children }) {
       reason: null,
       lastSeenAt: now,
       lastCheckedAt: now,
+      nextRetryAt: null,
+      attempt: 0,
+      maxAutoAttempts: SERVER_HEALTH_MAX_AUTO_ATTEMPTS,
     });
   }, [cancelBackoff, setEntry]);
 
   const markServerOffline = useCallback((serverId, reason = 'unknown') => {
     if (!serverId) return;
+    const slot = timersRef.current.get(serverId);
+    if (slot?.attempt >= SERVER_HEALTH_MAX_AUTO_ATTEMPTS) {
+      if (slot.timer) {
+        clearTimeout(slot.timer);
+        timersRef.current.set(serverId, { ...slot, timer: null, nextRetryAt: null });
+      }
+      setEntry(serverId, {
+        status: SERVER_HEALTH_STATUS.AWAITING_MANUAL_RETRY,
+        reason: reason || 'unknown',
+        nextRetryAt: null,
+        attempt: slot.attempt,
+        maxAutoAttempts: SERVER_HEALTH_MAX_AUTO_ATTEMPTS,
+        lastCheckedAt: new Date().toISOString(),
+      });
+      return;
+    }
     setEntry(serverId, {
       status: SERVER_HEALTH_STATUS.OFFLINE,
       reason: reason || 'unknown',
       lastCheckedAt: new Date().toISOString(),
+      nextRetryAt: null,
+      attempt: slot?.attempt || 0,
+      maxAutoAttempts: SERVER_HEALTH_MAX_AUTO_ATTEMPTS,
     });
     const server = serversRef.current.find(s => s.id === serverId);
-    if (server) scheduleBackoffRef.current?.(server);
+    if (server) scheduleBackoffRef.current?.(server, reason || 'unknown');
   }, [setEntry]);
 
   const retryServer = useCallback((serverId) => {
@@ -148,7 +213,14 @@ export function ServerHealthProvider({ children }) {
     cancelBackoff(serverId);
     // Reset attempt count para próxima sequência de backoff (caso o retry
     // manual falhe de novo, recomeça do passo 1).
-    timersRef.current.set(serverId, { attempt: 0 });
+    timersRef.current.set(serverId, { timer: null, attempt: 0, reason: null, nextRetryAt: null });
+    setEntry(serverId, {
+      status: SERVER_HEALTH_STATUS.CHECKING,
+      reason: null,
+      nextRetryAt: null,
+      attempt: 0,
+      maxAutoAttempts: SERVER_HEALTH_MAX_AUTO_ATTEMPTS,
+    });
     return checkServerRef.current?.(server, { silent: false });
   }, [cancelBackoff]);
 
