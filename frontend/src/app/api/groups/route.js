@@ -2,35 +2,32 @@ import { NextResponse } from 'next/server';
 import { randomUUID } from 'crypto';
 import { withAuth } from '@/lib/auth';
 import { readLocalStore, writeLocalStore, withLocalStoreLock } from '@/lib/projectStorage';
-import { DEFAULT_PROJECT_ID, migrateList } from '@/lib/projectScope';
 
 const REL = 'data/groups.json';
 const EMPTY = { groups: [] };
 
 async function readGroups() {
   const data = await readLocalStore(REL, EMPTY);
-  const list = Array.isArray(data?.groups) ? data.groups : [];
-  const { list: migrated, changed } = migrateList(list);
-  if (changed) {
-    await withLocalStoreLock(REL, async () => {
-      const fresh = await readLocalStore(REL, EMPTY);
-      const freshList = Array.isArray(fresh?.groups) ? fresh.groups : [];
-      const { list: freshMigrated, changed: stillChanged } = migrateList(freshList);
-      if (stillChanged) await writeLocalStore(REL, { groups: freshMigrated });
-    });
-  }
-  return migrated;
+  return Array.isArray(data?.groups) ? data.groups : [];
 }
 
+// Groups carry an optional `project_id`. Pre-v4.2 records may have a
+// `proj-default` stub; we pass it through so existing rows aren't dropped,
+// but new groups always come with a real id from the active selector
+// because the OnboardingGate guarantees at least one project before any UI
+// can fire group creation.
 function normalize(list) {
   const now = new Date().toISOString();
-  return list.map((g) => ({
-    id: g.id || `gid-${randomUUID()}`,
-    name: String(g.name ?? '').trim(),
-    created_at: g.created_at || now,
-    hidden: g.hidden === true,
-    project_id: (typeof g.project_id === 'string' && g.project_id) ? g.project_id : DEFAULT_PROJECT_ID,
-  }));
+  return list.map((g) => {
+    const out = {
+      id: g.id || `gid-${randomUUID()}`,
+      name: String(g.name ?? '').trim(),
+      created_at: g.created_at || now,
+      hidden: g.hidden === true,
+    };
+    if (typeof g.project_id === 'string' && g.project_id) out.project_id = g.project_id;
+    return out;
+  });
 }
 
 export const GET = withAuth(async () => {

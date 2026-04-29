@@ -6,6 +6,30 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [4.3.0-pre] — 2026-04-29
+
+Onboarding gate + the long-overdue removal of the `proj-default` fallback chain. After a fresh install, the dashboard now blocks behind a full-screen modal until you either create your first project or paste a backend share token to pick up a colleague's projects automatically. With at-least-one-project guaranteed, every `?? DEFAULT_PROJECT_ID` workaround in the codebase is gone — and the bogus `proj-default` id that orphaned sessions/groups in v4.0–v4.2 stops being silently stamped onto new records.
+
+### Added
+
+- **OnboardingGate component** (`frontend/src/components/onboarding/OnboardingGate.jsx`). Mounts in `InnerLayout` next to `NotesUI`; visible whenever `loaded && projects.length === 0` and the route isn't `/login`. Two CTAs: *Create your first project* (name + backend dropdown — same shape as the project-page modal) or *Add a storage backend* (opens `AddBackendModal`; on token paste, manifest projects appear automatically and the gate dismisses on the next refresh). After either path the dashboard unblocks without further intervention.
+- **DELETE-last-project guard.** `DELETE /api/projects/[id]` now returns `409 errors.project_last_remaining` when the post-delete project list would be empty across every configured backend. The Projects page hides the trash icon under the same condition (`!is_default && projects.length > 1`); even if a stale tab fires the request, the server-side guard preserves the onboarding invariant.
+
+### Changed
+
+- **`ProjectSelector` falls back to "Loading..." instead of "No project".** With the onboarding gate enforcing at least one project before any UI mounts, the brief flash of `projectSelector.none` between login and the first `/api/projects` response was the only place that string still appeared — replaced by the existing `projectSelector.loading` for a clean transition.
+- **`activeProjectId` defaults to `null` until `refreshProjects()` resolves with at least one project.** `ProjectsProvider` no longer seeds it with `DEFAULT_PROJECT_ID`; the gate covers the empty-list case and downstream code can rely on a non-null value pointing at a real entry.
+- **Sessions/groups/task-boards drop the `project_id` fallback.** `app/api/sessions/route.js`, `app/api/groups/route.js`, and `lib/taskBoardsStore.js` previously stamped `proj-default` on any record missing a `project_id`. They now leave the field absent for legacy rows; new records always carry a real id from the active selector (which the onboarding gate guarantees exists).
+
+### Removed
+
+- **`frontend/src/lib/projectScope.js`** along with its exports `DEFAULT_PROJECT_ID` (`'proj-default'`), `DEFAULT_PROJECT_NAME`, `ensureProjectId`, `migrateList`, and `filterByProject`. None of them resolved to a real backend in v4.x — `proj-default` had been a dangling literal since the default-project flag became a per-install pref. The seven call sites (`services/api.js`, `ProjectsProvider`, three API routes, `taskBoardsStore.js`, plus the file itself) drop the imports together.
+- **`projectSelector.none` i18n key** in en/pt-BR/es. Replaced everywhere by `projectSelector.loading`.
+
+### Notes
+
+- **Test suite up to 151 / 151 green** (was 150). New: `projects-route-v4-2.test.js > refuses to delete the only remaining project (onboarding invariant)`. Existing tests around the DELETE path were tightened to mock `listAllProjects` returning a 2-project install by default.
+
 ## [4.2.0-pre] — 2026-04-29
 
 Manifest-as-truth refactor. Each backend now owns its own `projects-manifest.json` and that file is the source of truth for what projects live on it — the local `data/projects.json` shadow list is gone. A second install pointed at the same shared backend sees the same project list automatically, with no separate "import" step. The default project becomes a per-install preference, so two collaborators on the same backend each pick their own default without stepping on each other.
@@ -1323,7 +1347,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v4.2.0-pre...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v4.3.0-pre...HEAD
+[4.3.0-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.3.0-pre
 [4.2.0-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.2.0-pre
 [4.1.0-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.1.0-pre
 [4.0.3-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.0.3-pre

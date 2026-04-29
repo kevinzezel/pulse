@@ -303,8 +303,13 @@ describe('DELETE /api/projects/[id] (v4.2)', () => {
   beforeEach(async () => {
     vi.resetModules();
     deleteFileMock = vi.fn(async () => true);
+    // Default to a 2-project install so DELETE is allowed; tests that
+    // exercise the "last-remaining" guard override this per-call.
     vi.doMock('@/lib/projectIndex', () => ({
-      listAllProjects: vi.fn(async () => []),
+      listAllProjects: vi.fn(async () => [
+        { id: 'p1', name: 'P1', backend_id: 'local' },
+        { id: 'p2', name: 'P2', backend_id: 'local' },
+      ]),
       addProjectToManifest: vi.fn(),
       removeProjectFromManifest: vi.fn(),
       findProjectBackend: vi.fn(async (id) => (id === 'p1' ? 'local' : null)),
@@ -353,5 +358,17 @@ describe('DELETE /api/projects/[id] (v4.2)', () => {
     const res = await route.DELETE(req, { params: Promise.resolve({ id: 'p1' }) });
     expect(res.status).toBe(200);
     expect(projectIndex.removeProjectFromManifest).toHaveBeenCalled();
+  });
+
+  it('refuses to delete the only remaining project (onboarding invariant)', async () => {
+    projectIndex.listAllProjects.mockResolvedValueOnce([
+      { id: 'p1', name: 'P1', backend_id: 'local' },
+    ]);
+    const req = new Request('http://localhost/api/projects/p1', { method: 'DELETE' });
+    const res = await route.DELETE(req, { params: Promise.resolve({ id: 'p1' }) });
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.detail_key).toBe('errors.project_last_remaining');
+    expect(projectIndex.removeProjectFromManifest).not.toHaveBeenCalled();
   });
 });

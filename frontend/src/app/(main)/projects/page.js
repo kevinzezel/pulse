@@ -279,7 +279,7 @@ function DeleteConfirmModal({ project, onClose, onConfirm }) {
   );
 }
 
-function ProjectCard({ project, isActive, stats, loadingStats, onActivate, onRename, onDelete, onSetDefault, activating, settingDefault }) {
+function ProjectCard({ project, isActive, stats, loadingStats, onActivate, onRename, onDelete, onSetDefault, activating, settingDefault, canDelete }) {
   const { t, formatDate } = useTranslation();
   const total = stats
     ? stats.groups + stats.terminals + stats.notes + stats.flows + stats.prompts
@@ -401,7 +401,7 @@ function ProjectCard({ project, isActive, stats, loadingStats, onActivate, onRen
           >
             <Pencil size={15} />
           </button>
-          {!project.is_default && (
+          {canDelete && (
             <button
               type="button"
               onClick={onDelete}
@@ -582,6 +582,7 @@ export default function ProjectsPage() {
               loadingStats={loadingStats}
               activating={activatingId === p.id}
               settingDefault={settingDefaultId === p.id}
+              canDelete={!p.is_default && projects.length > 1}
               onActivate={() => handleActivate(p.id)}
               onRename={() => setRenameTarget(p)}
               onDelete={() => handleDeleteClick(p)}

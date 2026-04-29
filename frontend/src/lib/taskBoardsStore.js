@@ -1,6 +1,5 @@
 import { randomUUID } from 'crypto';
 import { readStore, writeStore, withStoreLock } from './storage.js';
-import { DEFAULT_PROJECT_ID, migrateList } from './projectScope.js';
 
 export const TASK_BOARDS_REL = 'data/task-boards.json';
 export const TASK_BOARDS_EMPTY = { boards: [], updated_at: null };
@@ -36,7 +35,11 @@ export function normalizeBoard(board) {
   const now = new Date().toISOString();
   const id = typeof board?.id === 'string' && board.id ? board.id : `tboard-${randomUUID()}`;
   const name = String(board?.name ?? '').trim();
-  const projectId = (typeof board?.project_id === 'string' && board.project_id) ? board.project_id : DEFAULT_PROJECT_ID;
+  // The task-boards route always re-stamps `project_id` from the request URL
+  // before serializing, so any value in `board?.project_id` is just a
+  // legacy passthrough -- when the field is missing, we leave it absent
+  // rather than inventing a default that doesn't map to a real backend.
+  const projectId = (typeof board?.project_id === 'string' && board.project_id) ? board.project_id : null;
   const groupId = (typeof board?.group_id === 'string' && board.group_id) ? board.group_id : null;
 
   // Tasks come first so columns can prune stale task ids.
@@ -104,10 +107,9 @@ export function normalizeBoard(board) {
 
 export function normalizeBoards(rawBoards) {
   const list = Array.isArray(rawBoards) ? rawBoards : [];
-  const { list: migrated, changed: pidChanged } = migrateList(list);
-  const normalized = migrated.map(normalizeBoard);
-  const structureChanged = JSON.stringify(normalized) !== JSON.stringify(migrated);
-  return { normalized, changed: pidChanged || structureChanged };
+  const normalized = list.map(normalizeBoard);
+  const changed = JSON.stringify(normalized) !== JSON.stringify(list);
+  return { normalized, changed };
 }
 
 // Read + normalize. If anything had to change, regrab the file under the lock

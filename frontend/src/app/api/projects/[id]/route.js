@@ -4,6 +4,7 @@ import {
   addProjectToManifest,
   removeProjectFromManifest,
   findProjectBackend,
+  listAllProjects,
 } from '@/lib/projectIndex';
 import { setDefaultProjectPref } from '@/lib/projectPrefs';
 import { getDriverFor } from '@/lib/storage';
@@ -70,6 +71,20 @@ export const PATCH = withAuth(async (req, { params }) => {
 // error condition.
 export const DELETE = withAuth(async (req, { params }) => {
   const { id } = await params;
+
+  // Onboarding contract (v4.2): the dashboard always has at least one
+  // project. Refusing to delete the last one keeps that invariant true
+  // without needing a "re-run onboarding" path on the UI side.
+  const all = await listAllProjects();
+  if (all.length <= 1) {
+    return bad(
+      'errors.project_last_remaining',
+      'cannot delete the only remaining project',
+      409,
+      { project_id: id },
+    );
+  }
+
   const backendId = await findProjectBackend(id);
   if (!backendId) {
     return bad('errors.project_not_found', 'project not found', 404, { project_id: id });

@@ -162,8 +162,16 @@
   "projectSelector": {
     "switch": "Cambiar proyecto",
     "manage": "Administrar proyectos",
-    "loading": "Cargando...",
-    "none": "Sin proyecto"
+    "loading": "Cargando..."
+  },
+  "onboarding": {
+    "title": "Bienvenido a Pulse",
+    "subtitle": "Elige un punto de partida — siempre puedes añadir más desde Configuración.",
+    "createTitle": "Crea tu primer proyecto",
+    "createHint": "Empieza desde cero. El proyecto vive en el backend de almacenamiento que elijas.",
+    "addBackendTitle": "Añadir un backend",
+    "addBackendHint": "Conecta S3 / MongoDB o pega un token de un colaborador. Los proyectos existentes aparecen automáticamente.",
+    "back": "Atrás"
   },
   "projects": {
     "pageTitle": "Proyectos",
@@ -467,6 +475,7 @@
     "project_name_taken": "Ya existe un proyecto con este nombre",
     "project_not_empty": "El proyecto no está vacío",
     "project_default_protected": "El proyecto por defecto no puede ser eliminado",
+    "project_last_remaining": "No se puede eliminar el único proyecto — crea otro primero",
     "editor_binary_not_found": "Binario del editor no encontrado en el host. Instala VSCode / Cursor / VSCodium, o define la ruta en Ajustes → Editor.",
     "editor_binary_not_executable": "La ruta no es ejecutable: {path}",
     "remote_editor_no_target": "El servidor no tiene host/alias SSH configurado. Edita el servidor en Ajustes → Servidores.",

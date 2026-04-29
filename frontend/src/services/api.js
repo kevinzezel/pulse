@@ -1,19 +1,22 @@
 import { getCurrentLocale } from '@/providers/I18nProvider';
 import { getServerById } from '@/providers/ServersProvider';
-import { DEFAULT_PROJECT_ID } from '@/lib/projectScope';
 import { SERVER_HEALTH_TIMEOUT_MS, timeoutSignal } from '@/utils/serverHealth';
 
 export const SESSION_ID_SEP = '::';
 const REMOTE_REQUEST_TIMEOUT_MS = SERVER_HEALTH_TIMEOUT_MS;
 
-let _activeProjectId = DEFAULT_PROJECT_ID;
+// Onboarding gate (v4.2) guarantees at least one project exists before any
+// of these helpers run. Until then the value is null; callers that depend
+// on it (createSession etc.) only fire from UI that the onboarding gate
+// blocks, so a null read here would be a bug, not a normal path.
+let _activeProjectId = null;
 
 export function getActiveProjectId() {
   return _activeProjectId;
 }
 
 export function setActiveProjectIdInModule(id) {
-  _activeProjectId = (typeof id === 'string' && id) ? id : DEFAULT_PROJECT_ID;
+  _activeProjectId = (typeof id === 'string' && id) ? id : null;
 }
 
 export function composeSessionId(serverId, sessionId) {

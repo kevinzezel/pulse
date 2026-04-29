@@ -162,8 +162,16 @@
   "projectSelector": {
     "switch": "Switch project",
     "manage": "Manage projects",
-    "loading": "Loading...",
-    "none": "No project"
+    "loading": "Loading..."
+  },
+  "onboarding": {
+    "title": "Welcome to Pulse",
+    "subtitle": "Pick a starting point — you can always add more later from Settings.",
+    "createTitle": "Create your first project",
+    "createHint": "Start with a clean slate. The project lives on the storage backend you choose.",
+    "addBackendTitle": "Add a storage backend",
+    "addBackendHint": "Connect S3 / MongoDB or paste a share token from a collaborator. Existing projects on it appear automatically.",
+    "back": "Back"
   },
   "projects": {
     "pageTitle": "Projects",
@@ -467,6 +475,7 @@
     "project_name_taken": "A project with this name already exists",
     "project_not_empty": "Project is not empty",
     "project_default_protected": "The default project cannot be deleted",
+    "project_last_remaining": "Cannot delete the only project — create another one first",
     "editor_binary_not_found": "Editor binary not found on the host. Install VSCode / Cursor / VSCodium, or set the path in Settings → Editor.",
     "editor_binary_not_executable": "Path is not executable: {path}",
     "remote_editor_no_target": "Server has no host/SSH alias configured. Edit the server in Settings → Servers.",

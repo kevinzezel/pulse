@@ -50,9 +50,11 @@ export default function ProjectSelector() {
     }
   }
 
-  const label = loading && !activeProject
-    ? t('projectSelector.loading')
-    : (activeProject?.name || t('projectSelector.none'));
+  // Onboarding gate guarantees there's always at least one project once
+  // loaded -- if activeProject is still null while loaded is true we're in
+  // the brief tick before refreshProjects() resolves, so keep showing the
+  // loading label rather than a "no project" stub.
+  const label = activeProject?.name || t('projectSelector.loading');
 
   return (
     <div ref={ref} className="relative min-w-0 w-full">

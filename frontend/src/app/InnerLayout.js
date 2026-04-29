@@ -13,6 +13,7 @@ import { NotificationsProvider } from '@/providers/NotificationsProvider';
 import { NotesProvider } from '@/providers/NotesProvider';
 import { NotesFab } from '@/components/Notes/NotesFab';
 import { NotesManager } from '@/components/Notes/NotesManager';
+import OnboardingGate from '@/components/onboarding/OnboardingGate';
 
 // FAB + manager don't make sense pre-auth — hide them on /login.
 function NotesUI() {
@@ -38,6 +39,7 @@ export default function InnerLayout({ children }) {
                   <NotificationsProvider>
                     <NotesProvider>
                       {children}
+                      <OnboardingGate />
                       <NotesUI />
                       <Toaster
                         position="bottom-right"

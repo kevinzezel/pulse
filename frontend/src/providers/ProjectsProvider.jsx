@@ -12,7 +12,6 @@ import {
   listBackends, getBackendManifest,
 } from '@/services/api';
 import { useRefetchOnFocus } from '@/utils/useRefetchOnFocus';
-import { DEFAULT_PROJECT_ID } from '@/lib/projectScope';
 import { ssRead, ssWrite } from '@/lib/sessionState';
 import { useTranslation } from '@/providers/I18nProvider';
 
@@ -68,7 +67,10 @@ export function ProjectsProvider({ children }) {
   const { t } = useTranslation();
   const initialActiveProjectId = useMemo(() => readStoredActiveProjectId(), []);
   const [projects, setProjects] = useState([]);
-  const [activeProjectId, setActiveProjectIdState] = useState(() => initialActiveProjectId || DEFAULT_PROJECT_ID);
+  // Null until refreshProjects resolves with at least one project. The
+  // OnboardingGate covers the empty-list case, so any non-null value here
+  // is guaranteed to point at a real entry from a real backend.
+  const [activeProjectId, setActiveProjectIdState] = useState(() => initialActiveProjectId);
   // Ref instead of state: prevents refreshProjects from closing over a stale
   // value (the stale-closure capture was what overwrote the tab's chosen
   // project on F5).
@@ -94,23 +96,14 @@ export function ProjectsProvider({ children }) {
       const list = state.projects || [];
       setProjects(list);
 
-      if (hasTabActiveRef.current) {
-        // Tab already picked a project — keep it if still valid, else fall
-        // back to the server's active id (if valid) and finally to the
-        // default. Covers the case where another tab/process deleted it.
-        const storedId = readStoredActiveProjectId() ?? DEFAULT_PROJECT_ID;
-        if (!list.some(p => p.id === storedId)) {
-          const serverActive = state.active_project_id;
-          const fallback = list.some(p => p.id === serverActive)
-            ? serverActive
-            : DEFAULT_PROJECT_ID;
-          persistActive(fallback);
-        }
-      } else {
-        const serverActive = state.active_project_id;
-        const next = list.some(p => p.id === serverActive)
-          ? serverActive
-          : DEFAULT_PROJECT_ID;
+      // Empty list -> OnboardingGate kicks in. Leave activeProjectId as-is
+      // (likely null on a fresh install) so downstream code that depends on
+      // it doesn't get stamped with a non-existent id.
+      if (list.length > 0) {
+        const storedId = hasTabActiveRef.current ? readStoredActiveProjectId() : null;
+        const candidates = [storedId, state.active_project_id].filter(Boolean);
+        const valid = candidates.find((id) => list.some((p) => p.id === id));
+        const next = valid || list[0].id;
         persistActive(next);
       }
       setLoaded(true);
@@ -218,8 +211,11 @@ export function ProjectsProvider({ children }) {
     const res = await apiDelete(id);
     const state = await refreshProjects();
     if (id === activeProjectId) {
+      // The DELETE route refuses to remove the only project, so the post-
+      // delete list is guaranteed to have at least one survivor we can
+      // pivot to.
       const next = (state?.projects || []).find((p) => p.id !== id);
-      persistActive(next ? next.id : DEFAULT_PROJECT_ID);
+      if (next) persistActive(next.id);
     }
     return res;
   }, [refreshProjects, activeProjectId, persistActive]);
