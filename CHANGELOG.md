@@ -6,6 +6,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [4.2.3-pre] — 2026-04-29
+
+Closes the remaining cross-project group leak that survived v4.2.2-pre. After switching projects, the Flows / Tasks / Prompts pages still showed the previous project's groups for one render cycle — long enough for the user to see them in the sidebar and dropdowns. The effect-time `setBoardGroups([])` shipped in v4.2.2-pre fired *after* the first render with the new `activeProjectId`, so any consumer reading `boardGroups` / `flowGroups` / `groups` directly during that render rendered stale entries before the empty array landed. Terminal groups didn't have the issue because the dashboard's main page already gates display through `groupsForDisplay = groupsProjectId === activeProjectId ? groups : EMPTY_ARRAY`.
+
+### Fixed
+
+- **Flows page (`app/(main)/flows/page.js`), Tasks page (`app/(main)/tasks/page.js`), and Prompts library (`components/prompts/PromptsLibrary.jsx`) gate their lists at render time.** New derived values `flowsCur` / `flowGroupsCur`, `boardsCur` / `boardGroupsCur`, and `promptsCur` / `groupsCur` return `EMPTY_ARRAY` whenever the cached `*ProjectId` doesn't match `activeProjectId`. All consumers (memos, sidebars, group selectors, modal pickers, count maps) now read from those gated values, so the first render after a project switch shows an empty list instead of the previous project's groups — even though the underlying state hasn't been cleared yet.
+- **PromptsLibrary now tracks `groupsProjectId` separately from the legacy `groupsLoaded` flag** and clears `prompts` / `groups` synchronously at the top of `fetchAll` (mirroring the v4.2.2-pre clear that flows/tasks already had). This protects the case where the editor panel was already mounted across the project switch and would have re-read the previous project's group list.
+
+### Notes
+
+- Build clean, 153/153 tests still passing — no test changes; the fix is pure render-path discipline. New cases for the gate behaviour were not added because reproducing the one-frame race in vitest would require a custom render harness; flag if the reviewer wants explicit coverage.
+- Backend validation from v4.2.2-pre (`validateGroupBelongsToProject`) is unchanged and remains the second line of defence: if a user does manage to pick a stale group through some other path, the server still refuses with `400 errors.group_not_in_project`.
+
 ## [4.2.2-pre] — 2026-04-29
 
 Cross-project group leak fix. After creating two projects on the same install and switching between them, opening "New board" / "New flow" right after the switch could expose groups from the previous project in the dropdown — and the backend would happily accept them, leaving a board in project B pointing at a group that lived in project A. Both ends fixed.
@@ -1372,7 +1386,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v4.2.2-pre...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v4.2.3-pre...HEAD
+[4.2.3-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.2.3-pre
 [4.2.2-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.2.2-pre
 [4.2.1-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.2.1-pre
 [4.2.0-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.2.0-pre

@@ -33,6 +33,7 @@ const Excalidraw = dynamic(
 );
 
 const SIDEBAR_OPEN_KEY = 'rt:flowsSidebarOpen';
+const EMPTY_ARRAY = Object.freeze([]);
 
 function emptyScene() {
   return { elements: [], appState: {}, files: {} };
@@ -83,14 +84,23 @@ export default function FlowsPage() {
     && flowsProjectId === activeProjectId
     && flowGroupsProjectId === activeProjectId;
 
+  // Render-time gate: when projectId in state doesn't match the active one,
+  // the underlying state still holds the previous project's data because
+  // setState calls scheduled inside useEffect don't apply until the next
+  // render cycle. Returning the empty list here closes the one-frame leak
+  // that survived v4.2.2-pre's effect-time clear (mirrors the
+  // `groupsForDisplay` pattern in app/(main)/page.js).
+  const flowsCur = flowsProjectId === activeProjectId ? flows : EMPTY_ARRAY;
+  const flowGroupsCur = flowGroupsProjectId === activeProjectId ? flowGroups : EMPTY_ARRAY;
+
   const allFlowGroupIds = useMemo(
-    () => new Set(flowGroups.map((g) => g.id)),
-    [flowGroups],
+    () => new Set(flowGroupsCur.map((g) => g.id)),
+    [flowGroupsCur],
   );
 
   const visibleFlowGroupIds = useMemo(
-    () => new Set(flowGroups.filter((g) => !g.hidden).map((g) => g.id)),
-    [flowGroups],
+    () => new Set(flowGroupsCur.filter((g) => !g.hidden).map((g) => g.id)),
+    [flowGroupsCur],
   );
 
   const rawSelectedFlowGroupId = hydratedViewState ? getProjectFlowGroup(activeProjectId) : null;
@@ -222,16 +232,16 @@ export default function FlowsPage() {
   }, [dataReady, rawSelectedFlowGroupId, visibleFlowGroupIds, setSelectedFlowGroupId]);
 
   const flowsInSelectedGroup = useMemo(
-    () => flows.filter((f) => effectiveGroupOf(f) === selectedFlowGroupId),
-    [flows, selectedFlowGroupId, effectiveGroupOf],
+    () => flowsCur.filter((f) => effectiveGroupOf(f) === selectedFlowGroupId),
+    [flowsCur, selectedFlowGroupId, effectiveGroupOf],
   );
 
   const groupSelectorItems = useMemo(
-    () => flows.filter((f) => {
+    () => flowsCur.filter((f) => {
       const gid = effectiveGroupOf(f);
       return gid === null || visibleFlowGroupIds.has(gid);
     }),
-    [flows, effectiveGroupOf, visibleFlowGroupIds],
+    [flowsCur, effectiveGroupOf, visibleFlowGroupIds],
   );
 
   const filteredFlows = useMemo(() => {
@@ -515,7 +525,7 @@ export default function FlowsPage() {
     };
   }, [selectedFlow]);
 
-  const defaultNewName = `Flow ${flows.length + 1}`;
+  const defaultNewName = `Flow ${flowsCur.length + 1}`;
 
   return (
     <div className="flex flex-col h-full min-h-0">
@@ -530,7 +540,7 @@ export default function FlowsPage() {
 
         <FlowsSidebar
           flows={filteredFlows}
-          groups={flowGroups}
+          groups={flowGroupsCur}
           getFlowGroupId={effectiveGroupOf}
           selectedFlowId={selectedFlowId}
           savingIds={savingIds}
@@ -551,7 +561,7 @@ export default function FlowsPage() {
 
         <div className="flex-1 flex flex-col min-h-0 min-w-0">
           <GroupSelector
-            groups={flowGroups}
+            groups={flowGroupsCur}
             items={groupSelectorItems}
             getItemGroupId={effectiveGroupOf}
             selectedGroupId={selectedFlowGroupId}
@@ -601,7 +611,7 @@ export default function FlowsPage() {
           onSubmit={handleModalSubmit}
           loading={creating}
           fallbackName={defaultNewName}
-          groups={flowGroups.filter((g) => !g.hidden)}
+          groups={flowGroupsCur.filter((g) => !g.hidden)}
           defaultGroupId={selectedFlowGroupId}
         />
       )}

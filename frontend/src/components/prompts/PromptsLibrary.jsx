@@ -35,6 +35,8 @@ import {
   sortPrompts,
 } from './promptUtils';
 
+const EMPTY_ARRAY = Object.freeze([]);
+
 async function copyToClipboard(text) {
   try {
     await navigator.clipboard.writeText(text);
@@ -67,6 +69,7 @@ export default function PromptsLibrary() {
   const [prompts, setPrompts] = useState([]);
   const [groups, setGroups] = useState([]);
   const [promptsProjectId, setPromptsProjectId] = useState(null);
+  const [groupsProjectId, setGroupsProjectId] = useState(null);
   const [groupsLoaded, setGroupsLoaded] = useState(false);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -87,21 +90,40 @@ export default function PromptsLibrary() {
 
   const dataReady = hydratedViewState
     && promptsProjectId === activeProjectId
+    && groupsProjectId === activeProjectId
     && groupsLoaded;
+
+  // Render-time gate: prompts/groups can carry the previous project's
+  // entries for one render after activeProjectId flips because the
+  // fetchAll setState calls only apply on the next cycle. Using these
+  // in derived state and the JSX closes the same one-frame leak that
+  // hit flows/tasks (see app/(main)/page.js groupsForDisplay).
+  const promptsCur = promptsProjectId === activeProjectId ? prompts : EMPTY_ARRAY;
+  const groupsCur = groupsProjectId === activeProjectId ? groups : EMPTY_ARRAY;
 
   // ---------- load -------------------------------------------------------
 
   const fetchAll = useCallback(async () => {
     if (!activeProjectId) return;
+    const projectId = activeProjectId;
+    // Drop the previous project's data synchronously so any modal already
+    // mounted (editor panel/group dropdowns) sees an empty list during the
+    // refetch instead of stale entries.
+    setPrompts([]);
+    setGroups([]);
+    setPromptsProjectId(null);
+    setGroupsProjectId(null);
+    setGroupsLoaded(false);
     setLoading(true);
     try {
       const [promptsList, groupsList] = await Promise.all([
-        getCombinedPrompts(activeProjectId),
-        getCombinedPromptGroups(activeProjectId),
+        getCombinedPrompts(projectId),
+        getCombinedPromptGroups(projectId),
       ]);
       setPrompts(Array.isArray(promptsList) ? promptsList : []);
-      setPromptsProjectId(activeProjectId);
+      setPromptsProjectId(projectId);
       setGroups(Array.isArray(groupsList) ? groupsList : []);
+      setGroupsProjectId(projectId);
       setGroupsLoaded(true);
     } catch (err) {
       showError(err);
@@ -146,7 +168,7 @@ export default function PromptsLibrary() {
 
   // ---------- derived state ----------------------------------------------
 
-  const validGroupIds = useMemo(() => new Set(groups.map((g) => g.id)), [groups]);
+  const validGroupIds = useMemo(() => new Set(groupsCur.map((g) => g.id)), [groupsCur]);
 
   const rawScope = hydratedViewState ? getProjectPromptScope(activeProjectId) : null;
   const scope = VALID_PROMPT_SCOPES.includes(rawScope) ? rawScope : PROMPT_SCOPE_VISIBLE;
@@ -178,8 +200,8 @@ export default function PromptsLibrary() {
   }, [scope]);
 
   const scopedPrompts = useMemo(
-    () => filterPromptsByScope(prompts, activeProjectId, scope),
-    [prompts, activeProjectId, scope],
+    () => filterPromptsByScope(promptsCur, activeProjectId, scope),
+    [promptsCur, activeProjectId, scope],
   );
 
   const promptsInGroup = useMemo(
@@ -200,11 +222,11 @@ export default function PromptsLibrary() {
       const gid = p.group_id;
       return !gid || !validGroupIds.has(gid);
     }).length);
-    for (const g of groups) {
+    for (const g of groupsCur) {
       m.set(g.id, scopedPrompts.filter((p) => p.group_id === g.id).length);
     }
     return m;
-  }, [scopedPrompts, groups, validGroupIds]);
+  }, [scopedPrompts, groupsCur, validGroupIds]);
 
   const selectedPromptId = hydratedViewState
     ? getProjectPromptForGroup(activeProjectId, groupToken)
@@ -549,7 +571,7 @@ export default function PromptsLibrary() {
 
   const sidebar = (
     <PromptGroupSidebar
-      groups={groups}
+      groups={groupsCur}
       counts={counts}
       selectedGroupToken={groupToken}
       onSelectGroup={handleSelectGroupToken}
@@ -566,7 +588,7 @@ export default function PromptsLibrary() {
     <PromptEditorPanel
       mode={editorMode}
       prompt={selectedPrompt}
-      groups={groups}
+      groups={groupsCur}
       defaultIsGlobal={editorDefaultIsGlobal}
       defaultGroupId={editorDefaultGroupId}
       defaultPinned={editorDefaultPinned}
@@ -666,7 +688,7 @@ export default function PromptsLibrary() {
           <div className="flex-1 min-h-0 overflow-y-auto p-3 sm:p-4">
             <PromptList
               prompts={filteredPrompts}
-              groups={groups}
+              groups={groupsCur}
               selectedPromptId={selectedPromptId}
               loading={loading}
               onSelectPrompt={handleSelectPrompt}

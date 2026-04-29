@@ -26,6 +26,7 @@ const TASK_BOARD_GROUP_SUCCESS_KEYS = Object.freeze({
 });
 
 const SIDEBAR_OPEN_KEY = 'rt:tasksSidebarOpen';
+const EMPTY_ARRAY = Object.freeze([]);
 
 export default function TasksPage() {
   const { t } = useTranslation();
@@ -61,14 +62,21 @@ export default function TasksPage() {
     && boardsProjectId === activeProjectId
     && boardGroupsProjectId === activeProjectId;
 
+  // Render-time gate: closes the one-frame leak where the underlying
+  // boards/boardGroups state still holds the previous project's data
+  // because the in-effect setBoards([])/setBoardGroups([]) clears only
+  // apply on the next render. See app/(main)/page.js groupsForDisplay.
+  const boardsCur = boardsProjectId === activeProjectId ? boards : EMPTY_ARRAY;
+  const boardGroupsCur = boardGroupsProjectId === activeProjectId ? boardGroups : EMPTY_ARRAY;
+
   const allBoardGroupIds = useMemo(
-    () => new Set(boardGroups.map((g) => g.id)),
-    [boardGroups],
+    () => new Set(boardGroupsCur.map((g) => g.id)),
+    [boardGroupsCur],
   );
 
   const visibleBoardGroupIds = useMemo(
-    () => new Set(boardGroups.filter((g) => !g.hidden).map((g) => g.id)),
-    [boardGroups],
+    () => new Set(boardGroupsCur.filter((g) => !g.hidden).map((g) => g.id)),
+    [boardGroupsCur],
   );
 
   const rawSelectedBoardGroupId = hydratedViewState ? getProjectTaskBoardGroup(activeProjectId) : null;
@@ -170,16 +178,16 @@ export default function TasksPage() {
   }, [dataReady, rawSelectedBoardGroupId, visibleBoardGroupIds, setSelectedBoardGroupId]);
 
   const boardsInSelectedGroup = useMemo(
-    () => boards.filter((b) => effectiveGroupOf(b) === selectedBoardGroupId),
-    [boards, selectedBoardGroupId, effectiveGroupOf],
+    () => boardsCur.filter((b) => effectiveGroupOf(b) === selectedBoardGroupId),
+    [boardsCur, selectedBoardGroupId, effectiveGroupOf],
   );
 
   const groupSelectorItems = useMemo(
-    () => boards.filter((b) => {
+    () => boardsCur.filter((b) => {
       const gid = effectiveGroupOf(b);
       return gid === null || visibleBoardGroupIds.has(gid);
     }),
-    [boards, effectiveGroupOf, visibleBoardGroupIds],
+    [boardsCur, effectiveGroupOf, visibleBoardGroupIds],
   );
 
   const filteredBoards = useMemo(() => {
@@ -206,14 +214,14 @@ export default function TasksPage() {
 
   const assigneeOptions = useMemo(() => {
     const names = new Map();
-    for (const board of boards) {
+    for (const board of boardsCur) {
       for (const task of board.tasks || []) {
         const name = String(task.assignee || '').trim();
         if (name) names.set(name.toLowerCase(), name);
       }
     }
     return [...names.values()].sort((a, b) => a.localeCompare(b));
-  }, [boards]);
+  }, [boardsCur]);
 
   const markSaving = useCallback((id, isSaving) => {
     setSavingIds((prev) => {
@@ -387,7 +395,7 @@ export default function TasksPage() {
 
         <TasksSidebar
           boards={filteredBoards}
-          groups={boardGroups}
+          groups={boardGroupsCur}
           getBoardGroupId={effectiveGroupOf}
           selectedBoardId={selectedBoardId}
           savingIds={savingIds}
@@ -407,7 +415,7 @@ export default function TasksPage() {
 
         <div className="flex-1 flex flex-col min-h-0 min-w-0">
           <GroupSelector
-            groups={boardGroups}
+            groups={boardGroupsCur}
             items={groupSelectorItems}
             getItemGroupId={effectiveGroupOf}
             selectedGroupId={selectedBoardGroupId}
@@ -450,8 +458,8 @@ export default function TasksPage() {
           onClose={() => setShowNewBoardModal(false)}
           onSubmit={handleNewBoardSubmit}
           loading={creating}
-          fallbackName={`Board ${boards.length + 1}`}
-          groups={boardGroups.filter((g) => !g.hidden)}
+          fallbackName={`Board ${boardsCur.length + 1}`}
+          groups={boardGroupsCur.filter((g) => !g.hidden)}
           defaultGroupId={selectedBoardGroupId}
         />
       )}
