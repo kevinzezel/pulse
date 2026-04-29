@@ -20,10 +20,13 @@ import {
 import {
   filterPromptsByScope,
   filterPromptsByGroupToken,
+  effectivePromptGroupId,
   searchPrompts,
   sortPrompts,
 } from './promptUtils';
 import PromptList from './PromptList';
+
+const EMPTY_ARRAY = Object.freeze([]);
 
 async function copyToClipboard(text) {
   try {
@@ -48,6 +51,7 @@ export default function PromptQuickSelectorModal({ sessionId, open, onClose }) {
 
   const [prompts, setPrompts] = useState([]);
   const [groups, setGroups] = useState([]);
+  const [dataProjectId, setDataProjectId] = useState(null);
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [groupToken, setGroupToken] = useState(PROMPT_GROUP_ALL);
@@ -64,17 +68,22 @@ export default function PromptQuickSelectorModal({ sessionId, open, onClose }) {
     setSearchQuery('');
     setGroupToken(PROMPT_GROUP_ALL);
     setSendingKey(null);
+    setPrompts([]);
+    setGroups([]);
+    setDataProjectId(null);
     let cancelled = false;
+    const projectId = activeProjectId;
     setLoading(true);
     (async () => {
       try {
         const [promptsList, groupsList] = await Promise.all([
-          getCombinedPrompts(activeProjectId),
-          getCombinedPromptGroups(activeProjectId),
+          getCombinedPrompts(projectId),
+          getCombinedPromptGroups(projectId),
         ]);
         if (cancelled) return;
         setPrompts(Array.isArray(promptsList) ? promptsList : []);
         setGroups(Array.isArray(groupsList) ? groupsList : []);
+        setDataProjectId(projectId);
       } catch (err) {
         if (!cancelled) showError(err);
       } finally {
@@ -98,11 +107,18 @@ export default function PromptQuickSelectorModal({ sessionId, open, onClose }) {
     return () => document.removeEventListener('keydown', handleKey);
   }, [open, handleClose]);
 
-  const validGroupIds = useMemo(() => new Set(groups.map((g) => g.id)), [groups]);
+  const promptsCur = dataProjectId === activeProjectId
+    ? prompts.filter((p) => !p.project_id || p.project_id === activeProjectId)
+    : EMPTY_ARRAY;
+  const groupsCur = dataProjectId === activeProjectId
+    ? groups.filter((g) => g && g.project_id === activeProjectId)
+    : EMPTY_ARRAY;
+
+  const validGroupIds = useMemo(() => new Set(groupsCur.map((g) => g.id)), [groupsCur]);
 
   const visiblePrompts = useMemo(
-    () => filterPromptsByScope(prompts, activeProjectId, PROMPT_SCOPE_VISIBLE),
-    [prompts, activeProjectId],
+    () => filterPromptsByScope(promptsCur, activeProjectId, PROMPT_SCOPE_VISIBLE),
+    [promptsCur, activeProjectId],
   );
 
   const promptsInGroup = useMemo(
@@ -119,15 +135,14 @@ export default function PromptQuickSelectorModal({ sessionId, open, onClose }) {
     const m = new Map();
     m.set(PROMPT_GROUP_ALL, visiblePrompts.length);
     m.set(PROMPT_GROUP_PINNED, visiblePrompts.filter((p) => p.pinned === true).length);
-    m.set(PROMPT_GROUP_UNGROUPED, visiblePrompts.filter((p) => {
-      const gid = p.group_id;
-      return !gid || !validGroupIds.has(gid);
-    }).length);
-    for (const g of groups) {
-      m.set(g.id, visiblePrompts.filter((p) => p.group_id === g.id).length);
+    m.set(PROMPT_GROUP_UNGROUPED, visiblePrompts.filter((p) =>
+      effectivePromptGroupId(p, validGroupIds) === null
+    ).length);
+    for (const g of groupsCur) {
+      m.set(g.id, visiblePrompts.filter((p) => effectivePromptGroupId(p, validGroupIds) === g.id).length);
     }
     return m;
-  }, [visiblePrompts, groups, validGroupIds]);
+  }, [visiblePrompts, groupsCur, validGroupIds]);
 
   async function handleCopy(prompt) {
     await copyToClipboard(prompt.body || '');
@@ -167,7 +182,7 @@ export default function PromptQuickSelectorModal({ sessionId, open, onClose }) {
       label: t('prompts.pinned'),
       icon: <Pin size={13} />,
     },
-    ...groups.map((g) => ({
+    ...groupsCur.map((g) => ({
       token: g.id,
       label: g.name,
       icon: <Folder size={13} />,
@@ -299,7 +314,7 @@ export default function PromptQuickSelectorModal({ sessionId, open, onClose }) {
             ) : (
               <PromptList
                 prompts={filteredPrompts}
-                groups={groups}
+                groups={groupsCur}
                 onCopyPrompt={handleCopy}
                 onSendPrompt={handleSend}
                 sendingDisabled={sending}

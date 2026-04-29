@@ -21,13 +21,25 @@ function getProjectId(req) {
   return url.searchParams.get('project_id');
 }
 
+function normalizeGroups(list, projectId) {
+  const now = new Date().toISOString();
+  return (Array.isArray(list) ? list : []).map((g) => ({
+    id: (typeof g?.id === 'string' && g.id) ? g.id : `fgid-${randomUUID()}`,
+    name: String(g?.name ?? '').trim(),
+    created_at: g?.created_at || now,
+    updated_at: g?.updated_at || now,
+    hidden: g?.hidden === true,
+    project_id: projectId,
+  }));
+}
+
 export const GET = withAuth(async (req) => {
   const projectId = getProjectId(req);
   if (!projectId) {
     return bad('errors.invalid_body', 'project_id query param is required', 400);
   }
   const data = await readProjectFile(projectId, FILE, EMPTY);
-  return NextResponse.json({ groups: Array.isArray(data?.groups) ? data.groups : [] });
+  return NextResponse.json({ groups: normalizeGroups(data?.groups, projectId) });
 });
 
 export const POST = withAuth(async (req) => {
@@ -49,11 +61,12 @@ export const POST = withAuth(async (req) => {
       id: `fgid-${randomUUID()}`,
       name: body.name.trim(),
       created_at: now,
+      updated_at: now,
       hidden: false,
       project_id: projectId,
     };
     groups.push(group);
-    await writeProjectFile(projectId, FILE, { groups });
+    await writeProjectFile(projectId, FILE, { groups: normalizeGroups(groups, projectId) });
     return group;
   });
 
@@ -71,10 +84,11 @@ export const PUT = withAuth(async (req) => {
   if (!body || !Array.isArray(body.groups)) {
     return bad('errors.invalid_body', 'Expected { groups: [...] }');
   }
+  const groups = normalizeGroups(body.groups, projectId);
   await withProjectLock(projectId, FILE, async () => {
-    await writeProjectFile(projectId, FILE, { groups: body.groups });
+    await writeProjectFile(projectId, FILE, { groups });
   });
-  return NextResponse.json({ groups: body.groups });
+  return NextResponse.json({ groups });
 });
 
 export const DELETE = withAuth(async (req) => {

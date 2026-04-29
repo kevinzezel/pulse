@@ -13,6 +13,7 @@ describe('GET /api/prompts', () => {
       writeGlobalFile: vi.fn(),
       withProjectLock: vi.fn(async (pid, file, fn) => fn()),
       withGlobalLock: vi.fn(async (file, fn) => fn()),
+      validateGroupBelongsToProject: vi.fn(async () => null),
     }));
     vi.doMock('@/lib/auth', () => ({ withAuth: (fn) => fn }));
     projectStorage = await import('@/lib/projectStorage');
@@ -67,6 +68,7 @@ describe('POST /api/prompts', () => {
       writeGlobalFile: vi.fn(),
       withProjectLock: vi.fn(async (pid, file, fn) => fn()),
       withGlobalLock: vi.fn(async (file, fn) => fn()),
+      validateGroupBelongsToProject: vi.fn(async () => null),
     }));
     vi.doMock('@/lib/auth', () => ({ withAuth: (fn) => fn }));
     projectStorage = await import('@/lib/projectStorage');
@@ -99,6 +101,36 @@ describe('POST /api/prompts', () => {
     expect(res.status).toBe(201);
     const body = await res.json();
     expect(body.project_id).toBe(null);
+    expect(body.group_id).toBe(null);
     expect(projectStorage.withGlobalLock).toHaveBeenCalled();
+  });
+
+  it('rejects a group_id on a global prompt', async () => {
+    const req = new Request('http://localhost/api/prompts?scope=global', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'X', body: 'Y', group_id: 'pgid-1' }),
+    });
+    const res = await route.POST(req);
+    expect(res.status).toBe(400);
+    expect(projectStorage.withGlobalLock).not.toHaveBeenCalled();
+  });
+
+  it('rejects a project prompt group from another project', async () => {
+    projectStorage.validateGroupBelongsToProject.mockResolvedValueOnce({
+      detailKey: 'errors.group_not_in_project',
+      detail: 'group does not belong to this project',
+      params: { group_id: 'pgid-other', project_id: 'p1' },
+    });
+    const req = new Request('http://localhost/api/prompts?project_id=p1', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'X', body: 'Y', group_id: 'pgid-other' }),
+    });
+    const res = await route.POST(req);
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.detail_key).toBe('errors.group_not_in_project');
+    expect(projectStorage.withProjectLock).not.toHaveBeenCalled();
   });
 });

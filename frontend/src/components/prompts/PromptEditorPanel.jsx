@@ -42,16 +42,20 @@ export default function PromptEditorPanel({
       setName(prompt.name || '');
       setBody(prompt.body || '');
       setIsGlobal(!prompt.project_id);
-      setGroupId(prompt.group_id || null);
+      setGroupId(prompt.project_id ? (prompt.group_id || null) : null);
       setPinned(prompt.pinned === true);
     } else if (mode === 'create') {
       setName('');
       setBody('');
       setIsGlobal(defaultIsGlobal);
-      setGroupId(defaultGroupId);
+      setGroupId(defaultIsGlobal ? null : defaultGroupId);
       setPinned(defaultPinned);
     }
   }, [mode, prompt, defaultIsGlobal, defaultGroupId, defaultPinned]);
+
+  useEffect(() => {
+    if (isGlobal && groupId) setGroupId(null);
+  }, [isGlobal, groupId]);
 
   useEffect(() => {
     setCopied(false);
@@ -69,7 +73,7 @@ export default function PromptEditorPanel({
       name: cleanName,
       body,
       isGlobal,
-      groupId: groupId || null,
+      groupId: isGlobal ? null : (groupId || null),
       pinned,
     });
   }
@@ -130,7 +134,7 @@ export default function PromptEditorPanel({
                   {t('prompts.projectBadge')}
                 </span>
               )}
-              {prompt.group_id && (
+              {!isGlobalView && prompt.group_id && (
                 <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted/40 text-muted-foreground">
                   {groupName}
                 </span>
@@ -232,25 +236,31 @@ export default function PromptEditorPanel({
             className="flex-1 min-h-[200px] px-3 py-2 rounded-md bg-input border border-border text-sm text-foreground font-mono placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-none"
           />
         </div>
-        <div className="flex flex-col gap-1">
-          <label className="text-xs text-muted-foreground">{t('prompts.groupLabel')}</label>
-          <select
-            value={groupId || ''}
-            onChange={(e) => setGroupId(e.target.value || null)}
-            disabled={saving}
-            className="px-3 py-2 rounded-md bg-input border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-          >
-            <option value="">{t('prompts.noGroup')}</option>
-            {groups.map((g) => (
-              <option key={g.id} value={g.id}>{g.name}</option>
-            ))}
-          </select>
-        </div>
+        {!isGlobal && (
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-muted-foreground">{t('prompts.groupLabel')}</label>
+            <select
+              value={groupId || ''}
+              onChange={(e) => setGroupId(e.target.value || null)}
+              disabled={saving}
+              className="px-3 py-2 rounded-md bg-input border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            >
+              <option value="">{t('prompts.noGroup')}</option>
+              {groups.map((g) => (
+                <option key={g.id} value={g.id}>{g.name}</option>
+              ))}
+            </select>
+          </div>
+        )}
         <label className="flex items-start gap-2 cursor-pointer select-none">
           <input
             type="checkbox"
             checked={isGlobal}
-            onChange={(e) => setIsGlobal(e.target.checked)}
+            onChange={(e) => {
+              const checked = e.target.checked;
+              setIsGlobal(checked);
+              if (checked) setGroupId(null);
+            }}
             disabled={saving}
             className="mt-0.5 accent-primary"
           />

@@ -1,6 +1,13 @@
 import { NextResponse } from 'next/server';
 import { withAuth } from '@/lib/auth';
-import { _readScoped, _writeScoped, _withScopedLock, _getScope } from '../route.js';
+import {
+  _readScoped,
+  _writeScoped,
+  _withScopedLock,
+  _getScope,
+  _normalizeGroupId,
+  _validatePromptGroupForScope,
+} from '../route.js';
 
 function bad(detailKey, detail, status = 400, params) {
   const body = { detail, detail_key: detailKey };
@@ -19,6 +26,11 @@ export const PATCH = withAuth(async (req, { params }) => {
   if (!patch || typeof patch !== 'object') {
     return bad('errors.invalid_body', 'Expected object body');
   }
+  if (Object.prototype.hasOwnProperty.call(patch, 'group_id')) {
+    const groupId = _normalizeGroupId(patch.group_id);
+    const groupErr = await _validatePromptGroupForScope(sc, groupId);
+    if (groupErr) return bad(groupErr.detailKey, groupErr.detail, 400, groupErr.params);
+  }
 
   let updated = null;
   await _withScopedLock(sc, async () => {
@@ -27,11 +39,14 @@ export const PATCH = withAuth(async (req, { params }) => {
     const idx = prompts.findIndex((p) => p && p.id === id);
     if (idx < 0) return;
     const now = new Date().toISOString();
+    const hasGroupPatch = Object.prototype.hasOwnProperty.call(patch, 'group_id');
+    const nextGroupId = hasGroupPatch ? _normalizeGroupId(patch.group_id) : _normalizeGroupId(prompts[idx].group_id);
     prompts[idx] = {
       ...prompts[idx],
       ...patch,
       id,
       project_id: sc.kind === 'global' ? null : sc.projectId,
+      group_id: sc.kind === 'global' ? null : nextGroupId,
       updated_at: now,
     };
     updated = prompts[idx];

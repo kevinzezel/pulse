@@ -29,7 +29,9 @@ export const GET = withAuth(async (req) => {
   }
   try {
     const data = await readProjectFile(projectId, FILE, EMPTY);
-    return NextResponse.json({ flows: Array.isArray(data?.flows) ? data.flows : [] });
+    const flows = (Array.isArray(data?.flows) ? data.flows : [])
+      .map((flow) => ({ ...flow, project_id: projectId }));
+    return NextResponse.json({ flows });
   } catch (err) {
     if (/unknown project/i.test(err?.message || '')) {
       return bad('errors.project_not_found', 'project not found', 404, { project_id: projectId });

@@ -66,8 +66,14 @@ export default function TasksPage() {
   // boards/boardGroups state still holds the previous project's data
   // because the in-effect setBoards([])/setBoardGroups([]) clears only
   // apply on the next render. See app/(main)/page.js groupsForDisplay.
-  const boardsCur = boardsProjectId === activeProjectId ? boards : EMPTY_ARRAY;
-  const boardGroupsCur = boardGroupsProjectId === activeProjectId ? boardGroups : EMPTY_ARRAY;
+  const boardsCur = useMemo(() => {
+    if (boardsProjectId !== activeProjectId) return EMPTY_ARRAY;
+    return boards.filter((b) => b && b.project_id === activeProjectId);
+  }, [boards, boardsProjectId, activeProjectId]);
+  const boardGroupsCur = useMemo(() => {
+    if (boardGroupsProjectId !== activeProjectId) return EMPTY_ARRAY;
+    return boardGroups.filter((g) => g && g.project_id === activeProjectId);
+  }, [boardGroups, boardGroupsProjectId, activeProjectId]);
 
   const allBoardGroupIds = useMemo(
     () => new Set(boardGroupsCur.map((g) => g.id)),
@@ -282,10 +288,11 @@ export default function TasksPage() {
 
   async function handleAssignBoardGroup(boardId, groupId) {
     if (!activeProjectId) return;
-    const prev = boards;
+    const prev = boardsCur;
     const target = prev.find((b) => b.id === boardId);
     if (!target) return;
     const nextGroupId = groupId || null;
+    if (nextGroupId && !allBoardGroupIds.has(nextGroupId)) return;
     setBoards((cur) => cur.map((b) => (b.id === boardId ? { ...b, group_id: nextGroupId } : b)));
     try {
       const updated = await patchTaskBoard(activeProjectId, boardId, { action: 'move_board_group', group_id: nextGroupId });
@@ -311,11 +318,11 @@ export default function TasksPage() {
 
   async function handleReorderBoardGroups(fromId, toId) {
     if (!activeProjectId) return;
-    const prev = boardGroups;
-    const fromIndex = boardGroups.findIndex((g) => g.id === fromId);
-    const toIndex = boardGroups.findIndex((g) => g.id === toId);
+    const prev = boardGroupsCur;
+    const fromIndex = boardGroupsCur.findIndex((g) => g.id === fromId);
+    const toIndex = boardGroupsCur.findIndex((g) => g.id === toId);
     if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) return;
-    const optimistic = [...boardGroups];
+    const optimistic = [...boardGroupsCur];
     const [moved] = optimistic.splice(fromIndex, 1);
     optimistic.splice(toIndex, 0, moved);
     setBoardGroups(optimistic);
@@ -331,7 +338,8 @@ export default function TasksPage() {
 
   async function handleHideBoardGroup(groupId) {
     if (!activeProjectId) return;
-    const prev = boardGroups;
+    const prev = boardGroupsCur;
+    if (!boardGroupsCur.some((g) => g.id === groupId)) return;
     setBoardGroups((cur) => cur.map((g) => (g.id === groupId ? { ...g, hidden: true } : g)));
     try {
       await setTaskBoardGroupHidden(activeProjectId, groupId, true);

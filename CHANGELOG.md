@@ -6,6 +6,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [4.2.4-pre] — 2026-04-29
+
+Finishes the project-isolation fix for prompt groups and adds a backend stamp guard for flow groups. Prompt text can still be global, but prompt groups are now always owned by the active project.
+
+### Fixed
+
+- **Prompt groups are project-scoped only.** `/api/prompt-groups` no longer reads or writes the global prompt-groups file and now requires `project_id` for GET/POST/PUT/PATCH/DELETE. Legacy global prompt groups remain untouched on disk, but the UI and API ignore them.
+- **Global prompts cannot carry a project group.** `/api/prompts` rejects non-empty `group_id` for `scope=global`, clears group ids when a prompt is saved as global, and validates project prompt groups against that project's `prompt-groups.json`.
+- **Prompts UI no longer leaks group categories across projects.** The library and quick selector render only the active project's prompt groups, clear stale fetches, hide the group selector for global prompts, and treat any legacy global prompt `group_id` as ungrouped.
+- **Flow and task group handling now fails closed on stale ids.** Flow groups are force-stamped from the requested project on read/write, flows are stamped on read, and the Flows/Tasks pages ignore assignments or reorder actions for groups outside the active project.
+
+### Tests
+
+- Added route coverage for project-only prompt groups, prompt group validation on prompts, and flow-group project stamping.
+- Verified `npm test` outside the sandbox: 24 files / 161 tests passed.
+- Verified `npm run build`.
+
 ## [4.2.3-pre] — 2026-04-29
 
 Closes the remaining cross-project group leak that survived v4.2.2-pre. After switching projects, the Flows / Tasks / Prompts pages still showed the previous project's groups for one render cycle — long enough for the user to see them in the sidebar and dropdowns. The effect-time `setBoardGroups([])` shipped in v4.2.2-pre fired *after* the first render with the new `activeProjectId`, so any consumer reading `boardGroups` / `flowGroups` / `groups` directly during that render rendered stale entries before the empty array landed. Terminal groups didn't have the issue because the dashboard's main page already gates display through `groupsForDisplay = groupsProjectId === activeProjectId ? groups : EMPTY_ARRAY`.
@@ -1386,7 +1403,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v4.2.3-pre...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v4.2.4-pre...HEAD
+[4.2.4-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.2.4-pre
 [4.2.3-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.2.3-pre
 [4.2.2-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.2.2-pre
 [4.2.1-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.2.1-pre

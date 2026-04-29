@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import toast from 'react-hot-toast';
 import {
   Plus, Search, X, Loader, Send, CornerDownLeft, Terminal as TerminalIcon, Menu,
@@ -31,6 +31,7 @@ import {
 import {
   filterPromptsByScope,
   filterPromptsByGroupToken,
+  effectivePromptGroupId,
   searchPrompts,
   sortPrompts,
 } from './promptUtils';
@@ -85,6 +86,7 @@ export default function PromptsLibrary() {
   const [sessions, setSessions] = useState([]);
   const [sendingPrompt, setSendingPrompt] = useState(null);
   const [sendingKey, setSendingKey] = useState(null);
+  const fetchRunIdRef = useRef(0);
 
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
@@ -98,14 +100,21 @@ export default function PromptsLibrary() {
   // fetchAll setState calls only apply on the next cycle. Using these
   // in derived state and the JSX closes the same one-frame leak that
   // hit flows/tasks (see app/(main)/page.js groupsForDisplay).
-  const promptsCur = promptsProjectId === activeProjectId ? prompts : EMPTY_ARRAY;
-  const groupsCur = groupsProjectId === activeProjectId ? groups : EMPTY_ARRAY;
+  const promptsCur = useMemo(() => {
+    if (promptsProjectId !== activeProjectId) return EMPTY_ARRAY;
+    return prompts.filter((p) => !p.project_id || p.project_id === activeProjectId);
+  }, [prompts, promptsProjectId, activeProjectId]);
+  const groupsCur = useMemo(() => {
+    if (groupsProjectId !== activeProjectId) return EMPTY_ARRAY;
+    return groups.filter((g) => g && g.project_id === activeProjectId);
+  }, [groups, groupsProjectId, activeProjectId]);
 
   // ---------- load -------------------------------------------------------
 
   const fetchAll = useCallback(async () => {
     if (!activeProjectId) return;
     const projectId = activeProjectId;
+    const runId = ++fetchRunIdRef.current;
     // Drop the previous project's data synchronously so any modal already
     // mounted (editor panel/group dropdowns) sees an empty list during the
     // refetch instead of stale entries.
@@ -120,15 +129,16 @@ export default function PromptsLibrary() {
         getCombinedPrompts(projectId),
         getCombinedPromptGroups(projectId),
       ]);
+      if (runId !== fetchRunIdRef.current) return;
       setPrompts(Array.isArray(promptsList) ? promptsList : []);
       setPromptsProjectId(projectId);
       setGroups(Array.isArray(groupsList) ? groupsList : []);
       setGroupsProjectId(projectId);
       setGroupsLoaded(true);
     } catch (err) {
-      showError(err);
+      if (runId === fetchRunIdRef.current) showError(err);
     } finally {
-      setLoading(false);
+      if (runId === fetchRunIdRef.current) setLoading(false);
     }
   }, [activeProjectId, showError]);
 
@@ -218,12 +228,11 @@ export default function PromptsLibrary() {
     const m = new Map();
     m.set(PROMPT_GROUP_ALL, scopedPrompts.length);
     m.set(PROMPT_GROUP_PINNED, scopedPrompts.filter((p) => p.pinned === true).length);
-    m.set(PROMPT_GROUP_UNGROUPED, scopedPrompts.filter((p) => {
-      const gid = p.group_id;
-      return !gid || !validGroupIds.has(gid);
-    }).length);
+    m.set(PROMPT_GROUP_UNGROUPED, scopedPrompts.filter((p) =>
+      effectivePromptGroupId(p, validGroupIds) === null
+    ).length);
     for (const g of groupsCur) {
-      m.set(g.id, scopedPrompts.filter((p) => p.group_id === g.id).length);
+      m.set(g.id, scopedPrompts.filter((p) => effectivePromptGroupId(p, validGroupIds) === g.id).length);
     }
     return m;
   }, [scopedPrompts, groupsCur, validGroupIds]);
@@ -295,6 +304,7 @@ export default function PromptsLibrary() {
   async function handleSavePrompt(payload) {
     setSavingPrompt(true);
     try {
+      const savedGroupId = payload.isGlobal ? null : payload.groupId;
       if (editorMode === 'create') {
         const created = await createPrompt({
           projectId: payload.isGlobal ? undefined : activeProjectId,
@@ -302,7 +312,7 @@ export default function PromptsLibrary() {
           body: {
             name: payload.name,
             body: payload.body,
-            group_id: payload.groupId,
+            group_id: savedGroupId,
             pinned: payload.pinned,
           },
         });
@@ -311,7 +321,7 @@ export default function PromptsLibrary() {
         // it; respects pinned-first by jumping to "Pinned" filter.
         let nextToken = payload.pinned
           ? PROMPT_GROUP_PINNED
-          : (payload.groupId || PROMPT_GROUP_UNGROUPED);
+          : (savedGroupId || PROMPT_GROUP_UNGROUPED);
         const nextScope = scopeForSavedPrompt(payload.isGlobal);
         if (nextScope !== scope) {
           setScope(nextScope);
@@ -338,7 +348,7 @@ export default function PromptsLibrary() {
             patch: {
               name: payload.name,
               body: payload.body,
-              group_id: payload.groupId,
+              group_id: savedGroupId,
               pinned: payload.pinned,
             },
           });
@@ -361,7 +371,7 @@ export default function PromptsLibrary() {
             body: {
               name: payload.name,
               body: payload.body,
-              group_id: payload.groupId,
+              group_id: savedGroupId,
               pinned: payload.pinned,
             },
           });
@@ -372,11 +382,11 @@ export default function PromptsLibrary() {
         // to a sibling and the user would lose what they just edited.
         let nextToken = groupToken;
         if (groupToken === PROMPT_GROUP_PINNED && !payload.pinned) {
-          nextToken = payload.groupId || PROMPT_GROUP_UNGROUPED;
-        } else if (groupToken === PROMPT_GROUP_UNGROUPED && payload.groupId) {
-          nextToken = payload.groupId;
-        } else if (validGroupIds.has(groupToken) && payload.groupId !== groupToken) {
-          nextToken = payload.groupId || PROMPT_GROUP_UNGROUPED;
+          nextToken = savedGroupId || PROMPT_GROUP_UNGROUPED;
+        } else if (groupToken === PROMPT_GROUP_UNGROUPED && savedGroupId) {
+          nextToken = savedGroupId;
+        } else if (validGroupIds.has(groupToken) && savedGroupId !== groupToken) {
+          nextToken = savedGroupId || PROMPT_GROUP_UNGROUPED;
         }
         const nextScope = scopeForSavedPrompt(payload.isGlobal);
         if (nextScope !== scope) {
@@ -470,11 +480,10 @@ export default function PromptsLibrary() {
   }
 
   async function handleCreateGroup(name) {
+    if (!activeProjectId) return;
     setCreatingGroup(true);
     try {
-      // New groups default to global scope to match historical behavior --
-      // groups have always been visible across all projects.
-      const created = await createPromptGroup({ scope: 'global', name });
+      const created = await createPromptGroup({ projectId: activeProjectId, name });
       setGroups((prev) => [...prev, created]);
       toast.success(t('success.prompt_group_created'));
     } catch (err) {
@@ -486,14 +495,12 @@ export default function PromptsLibrary() {
   }
 
   async function handleRenameGroup(groupId, name) {
-    const target = groups.find((g) => g.id === groupId);
+    const target = groupsCur.find((g) => g.id === groupId);
     if (!target) return;
     setRenamingGroupId(groupId);
     try {
-      const isGlobal = !target.project_id;
       const updated = await renamePromptGroup({
-        projectId: isGlobal ? undefined : target.project_id,
-        scope: isGlobal ? 'global' : undefined,
+        projectId: activeProjectId,
         id: groupId,
         name,
       });
@@ -508,7 +515,7 @@ export default function PromptsLibrary() {
   }
 
   async function handleDeleteGroup(groupId) {
-    const target = groups.find((g) => g.id === groupId);
+    const target = groupsCur.find((g) => g.id === groupId);
     if (!target) return;
     setDeletingGroupId(groupId);
     try {
@@ -516,7 +523,7 @@ export default function PromptsLibrary() {
       // the group itself. Same pattern as deleteFlowGroup: avoids a window
       // where the group is gone but prompts still carry an orphan id. Prompts
       // can be in either scope, so we patch each in its own scope.
-      const orphans = prompts.filter((p) => p.group_id === groupId);
+      const orphans = promptsCur.filter((p) => p.group_id === groupId);
       const orphanResults = await Promise.allSettled(orphans.map((p) => {
         const pIsGlobal = !p.project_id;
         return updatePrompt({
@@ -532,10 +539,8 @@ export default function PromptsLibrary() {
         }
       }
 
-      const isGlobal = !target.project_id;
       await deletePromptGroup({
-        projectId: isGlobal ? undefined : target.project_id,
-        scope: isGlobal ? 'global' : undefined,
+        projectId: activeProjectId,
         id: groupId,
       });
       setGroups((prev) => prev.filter((g) => g.id !== groupId));

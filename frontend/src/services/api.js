@@ -556,11 +556,7 @@ export async function getPromptGroups({ projectId, scope } = {}) {
 }
 
 export async function getCombinedPromptGroups(projectId) {
-  const [global, scoped] = await Promise.all([
-    getPromptGroups({ scope: 'global' }),
-    getPromptGroups({ projectId }),
-  ]);
-  return [...global, ...scoped];
+  return await getPromptGroups({ projectId });
 }
 
 export async function createPromptGroup({ projectId, scope, name }) {

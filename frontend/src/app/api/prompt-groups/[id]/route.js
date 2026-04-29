@@ -1,6 +1,11 @@
 import { NextResponse } from 'next/server';
 import { withAuth } from '@/lib/auth';
-import { _readScoped, _writeScoped, _withScopedLock, _getScope } from '../route.js';
+import {
+  _readProjectGroups,
+  _writeProjectGroups,
+  _withProjectGroupsLock,
+  _getProjectId,
+} from '../route.js';
 
 function bad(detailKey, detail, status = 400, params) {
   const body = { detail, detail_key: detailKey };
@@ -10,9 +15,9 @@ function bad(detailKey, detail, status = 400, params) {
 
 export const PATCH = withAuth(async (req, { params }) => {
   const { id } = await params;
-  const sc = _getScope(req);
-  if (sc.kind === 'invalid') {
-    return bad('errors.invalid_body', 'project_id or scope=global required');
+  const projectId = _getProjectId(req);
+  if (!projectId) {
+    return bad('errors.invalid_body', 'project_id required');
   }
   let patch;
   try { patch = await req.json(); } catch { return bad('errors.invalid_body', 'Invalid JSON'); }
@@ -21,8 +26,8 @@ export const PATCH = withAuth(async (req, { params }) => {
   }
 
   let updated = null;
-  await _withScopedLock(sc, async () => {
-    const data = await _readScoped(sc);
+  await _withProjectGroupsLock(projectId, async () => {
+    const data = await _readProjectGroups(projectId);
     const groups = Array.isArray(data?.groups) ? data.groups : [];
     const idx = groups.findIndex((g) => g && g.id === id);
     if (idx < 0) return;
@@ -31,11 +36,11 @@ export const PATCH = withAuth(async (req, { params }) => {
       ...groups[idx],
       ...patch,
       id,
-      project_id: sc.kind === 'global' ? null : sc.projectId,
+      project_id: projectId,
       updated_at: now,
     };
     updated = groups[idx];
-    await _writeScoped(sc, { groups });
+    await _writeProjectGroups(projectId, { groups });
   });
 
   if (!updated) return bad('errors.prompt_group_not_found', 'prompt group not found', 404, { id });
@@ -44,19 +49,19 @@ export const PATCH = withAuth(async (req, { params }) => {
 
 export const DELETE = withAuth(async (req, { params }) => {
   const { id } = await params;
-  const sc = _getScope(req);
-  if (sc.kind === 'invalid') {
-    return bad('errors.invalid_body', 'project_id or scope=global required');
+  const projectId = _getProjectId(req);
+  if (!projectId) {
+    return bad('errors.invalid_body', 'project_id required');
   }
 
   let removed = false;
-  await _withScopedLock(sc, async () => {
-    const data = await _readScoped(sc);
+  await _withProjectGroupsLock(projectId, async () => {
+    const data = await _readProjectGroups(projectId);
     const groups = Array.isArray(data?.groups) ? data.groups : [];
     const next = groups.filter((g) => !(g && g.id === id));
     if (next.length === groups.length) return;
     removed = true;
-    await _writeScoped(sc, { groups: next });
+    await _writeProjectGroups(projectId, { groups: next });
   });
 
   if (!removed) return bad('errors.prompt_group_not_found', 'prompt group not found', 404, { id });

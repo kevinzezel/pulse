@@ -99,7 +99,7 @@ export default function PromptList({
                       {t('prompts.projectBadge')}
                     </span>
                   )}
-                  {prompt.group_id && (
+                  {!isGlobal && prompt.group_id && (
                     <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted/40 text-muted-foreground">
                       {groupName}
                     </span>

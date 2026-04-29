@@ -8,6 +8,7 @@ import {
   readGlobalFile,
   writeGlobalFile,
   withGlobalLock,
+  validateGroupBelongsToProject,
 } from '@/lib/projectStorage';
 
 const FILE = 'prompts.json';
@@ -47,6 +48,24 @@ async function withScopedLock(sc, fn) {
   return await withProjectLock(sc.projectId, FILE, fn);
 }
 
+function normalizeGroupId(value) {
+  return (typeof value === 'string' && value) ? value : null;
+}
+
+async function validatePromptGroupForScope(sc, groupId) {
+  if (sc.kind === 'global') {
+    if (groupId) {
+      return {
+        detailKey: 'errors.group_not_in_project',
+        detail: 'global prompts cannot belong to a project group',
+        params: { group_id: groupId },
+      };
+    }
+    return null;
+  }
+  return await validateGroupBelongsToProject(sc.projectId, 'prompt-groups.json', groupId);
+}
+
 export const GET = withAuth(async (req) => {
   const sc = getScope(req);
   if (sc.kind === 'invalid') {
@@ -73,6 +92,9 @@ export const POST = withAuth(async (req) => {
   if (!body || typeof body !== 'object') {
     return bad('errors.invalid_body', 'Expected object body');
   }
+  const groupId = normalizeGroupId(body.group_id);
+  const groupErr = await validatePromptGroupForScope(sc, groupId);
+  if (groupErr) return bad(groupErr.detailKey, groupErr.detail, 400, groupErr.params);
 
   const created = await withScopedLock(sc, async () => {
     const data = await readScoped(sc);
@@ -83,7 +105,7 @@ export const POST = withAuth(async (req) => {
       name: typeof body.name === 'string' ? body.name : '',
       body: typeof body.body === 'string' ? body.body : '',
       pinned: !!body.pinned,
-      group_id: typeof body.group_id === 'string' ? body.group_id : null,
+      group_id: sc.kind === 'global' ? null : groupId,
       project_id: sc.kind === 'global' ? null : sc.projectId,
       created_at: now,
       updated_at: now,
@@ -107,13 +129,30 @@ export const PUT = withAuth(async (req) => {
   if (!body || !Array.isArray(body.prompts)) {
     return bad('errors.invalid_body', 'Expected { prompts: [...] }');
   }
+  for (const prompt of body.prompts) {
+    const groupId = normalizeGroupId(prompt?.group_id);
+    const groupErr = await validatePromptGroupForScope(sc, groupId);
+    if (groupErr) return bad(groupErr.detailKey, groupErr.detail, 400, groupErr.params);
+  }
+  const prompts = body.prompts.map((prompt) => ({
+    ...prompt,
+    project_id: sc.kind === 'global' ? null : sc.projectId,
+    group_id: sc.kind === 'global' ? null : normalizeGroupId(prompt?.group_id),
+  }));
   await withScopedLock(sc, async () => {
-    await writeScoped(sc, { prompts: body.prompts });
+    await writeScoped(sc, { prompts });
   });
-  return NextResponse.json({ prompts: body.prompts });
+  return NextResponse.json({ prompts });
 });
 
 // Helpers exported for [id]/route.js — Next.js only treats GET/POST/PUT/PATCH/DELETE
 // as HTTP method handlers; named-export helpers like these are ignored by the
 // route scanner.
-export { getScope as _getScope, readScoped as _readScoped, writeScoped as _writeScoped, withScopedLock as _withScopedLock };
+export {
+  getScope as _getScope,
+  readScoped as _readScoped,
+  writeScoped as _writeScoped,
+  withScopedLock as _withScopedLock,
+  normalizeGroupId as _normalizeGroupId,
+  validatePromptGroupForScope as _validatePromptGroupForScope,
+};

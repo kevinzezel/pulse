@@ -30,6 +30,7 @@ export function filterPromptsByScope(prompts, projectId, scope) {
 // shows a prompt under a phantom group.
 export function effectivePromptGroupId(prompt, validGroupIds) {
   if (!prompt) return null;
+  if (!prompt.project_id) return null;
   const gid = prompt.group_id;
   if (gid && validGroupIds && validGroupIds.has(gid)) return gid;
   return null;

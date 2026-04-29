@@ -90,8 +90,14 @@ export default function FlowsPage() {
   // render cycle. Returning the empty list here closes the one-frame leak
   // that survived v4.2.2-pre's effect-time clear (mirrors the
   // `groupsForDisplay` pattern in app/(main)/page.js).
-  const flowsCur = flowsProjectId === activeProjectId ? flows : EMPTY_ARRAY;
-  const flowGroupsCur = flowGroupsProjectId === activeProjectId ? flowGroups : EMPTY_ARRAY;
+  const flowsCur = useMemo(() => {
+    if (flowsProjectId !== activeProjectId) return EMPTY_ARRAY;
+    return flows.filter((f) => f && f.project_id === activeProjectId);
+  }, [flows, flowsProjectId, activeProjectId]);
+  const flowGroupsCur = useMemo(() => {
+    if (flowGroupsProjectId !== activeProjectId) return EMPTY_ARRAY;
+    return flowGroups.filter((g) => g && g.project_id === activeProjectId);
+  }, [flowGroups, flowGroupsProjectId, activeProjectId]);
 
   const allFlowGroupIds = useMemo(
     () => new Set(flowGroupsCur.map((g) => g.id)),
@@ -411,10 +417,11 @@ export default function FlowsPage() {
 
   async function handleAssignFlowGroup(flowId, groupId) {
     if (!activeProjectId) return;
-    const prev = flows;
+    const prev = flowsCur;
     const target = prev.find((f) => f.id === flowId);
     if (!target) return;
     const nextGroupId = groupId || null;
+    if (nextGroupId && !allFlowGroupIds.has(nextGroupId)) return;
     setFlows((cur) => cur.map((f) => (f.id === flowId ? { ...f, group_id: nextGroupId } : f)));
     try {
       const updated = await patchFlow(activeProjectId, flowId, { group_id: nextGroupId });
@@ -440,11 +447,11 @@ export default function FlowsPage() {
 
   async function handleReorderFlowGroups(fromId, toId) {
     if (!activeProjectId) return;
-    const prev = flowGroups;
-    const fromIndex = flowGroups.findIndex((g) => g.id === fromId);
-    const toIndex = flowGroups.findIndex((g) => g.id === toId);
+    const prev = flowGroupsCur;
+    const fromIndex = flowGroupsCur.findIndex((g) => g.id === fromId);
+    const toIndex = flowGroupsCur.findIndex((g) => g.id === toId);
     if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) return;
-    const optimistic = [...flowGroups];
+    const optimistic = [...flowGroupsCur];
     const [moved] = optimistic.splice(fromIndex, 1);
     optimistic.splice(toIndex, 0, moved);
     setFlowGroups(optimistic);
@@ -460,7 +467,8 @@ export default function FlowsPage() {
 
   async function handleHideFlowGroup(groupId) {
     if (!activeProjectId) return;
-    const prev = flowGroups;
+    const prev = flowGroupsCur;
+    if (!flowGroupsCur.some((g) => g.id === groupId)) return;
     setFlowGroups((cur) => cur.map((g) => (g.id === groupId ? { ...g, hidden: true } : g)));
     try {
       await setFlowGroupHidden(activeProjectId, groupId, true);
