@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'fs';
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 
@@ -117,5 +117,32 @@ describe('projectIndex', () => {
     await projectIndex.removeProjectFromManifest('local', 'unknown-id');
     const list = await projectIndex.listAllProjects();
     expect(list).toHaveLength(1);
+  });
+
+  it('self-heals legacy pre-4.2.1 manifest at <root>/projects-manifest.json', async () => {
+    // Simulate the v4.2.0/4.3.0-pre bug: manifest written at the install
+    // root instead of inside data/. listAllProjects should detect this on
+    // the first read and migrate the file in place.
+    const legacyContents = {
+      v: 1,
+      projects: [
+        { id: 'p-legacy', name: 'Legacy Proj', created_at: '2024-01-01T00:00:00Z' },
+      ],
+    };
+    writeFileSync(join(tmpDir, 'projects-manifest.json'), JSON.stringify(legacyContents));
+
+    // No file at the new location yet.
+    expect(existsSync(join(tmpDir, 'data', 'projects-manifest.json'))).toBe(false);
+
+    const list = await projectIndex.listAllProjects();
+    expect(list).toHaveLength(1);
+    expect(list[0].id).toBe('p-legacy');
+
+    // Migration moved the file: new path now populated, legacy deleted.
+    expect(existsSync(join(tmpDir, 'data', 'projects-manifest.json'))).toBe(true);
+    expect(existsSync(join(tmpDir, 'projects-manifest.json'))).toBe(false);
+
+    const migrated = JSON.parse(readFileSync(join(tmpDir, 'data', 'projects-manifest.json'), 'utf-8'));
+    expect(migrated.projects[0].id).toBe('p-legacy');
   });
 });

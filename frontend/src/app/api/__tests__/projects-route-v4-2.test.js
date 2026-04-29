@@ -75,15 +75,20 @@ describe('POST /api/projects (v4.2)', () => {
   let route;
   let projectIndex;
 
+  let projectPrefs;
+
   beforeEach(async () => {
     vi.resetModules();
     vi.doMock('@/lib/projectIndex', () => ({
       listAllProjects: vi.fn(async () => []),
       addProjectToManifest: vi.fn(),
     }));
+    // Default: prefs already populated -> POST should NOT auto-claim.
+    // Fresh-install tests override readProjectPrefs per case.
     vi.doMock('@/lib/projectPrefs', () => ({
-      readProjectPrefs: vi.fn(async () => ({ active_project_id: null, default_project_id: null })),
+      readProjectPrefs: vi.fn(async () => ({ active_project_id: 'existing', default_project_id: 'existing' })),
       setActiveProjectPref: vi.fn(),
+      setDefaultProjectPref: vi.fn(),
     }));
     vi.doMock('@/lib/storage', () => ({
       getConfig: vi.fn(async () => ({
@@ -98,6 +103,7 @@ describe('POST /api/projects (v4.2)', () => {
     vi.doMock('@/lib/auth', () => ({ withAuth: (fn) => fn }));
 
     projectIndex = await import('@/lib/projectIndex');
+    projectPrefs = await import('@/lib/projectPrefs');
     route = await import('@/app/api/projects/route');
   });
 
@@ -119,6 +125,27 @@ describe('POST /api/projects (v4.2)', () => {
     expect(projectIndex.addProjectToManifest).toHaveBeenCalledWith('b-1', expect.objectContaining({
       id: body.id, name: 'New Proj',
     }));
+    // Prefs already populated -> route must NOT clobber the existing default.
+    expect(projectPrefs.setDefaultProjectPref).not.toHaveBeenCalled();
+    expect(projectPrefs.setActiveProjectPref).not.toHaveBeenCalled();
+  });
+
+  it('first-project-on-fresh-install claims default + active prefs', async () => {
+    projectPrefs.readProjectPrefs.mockResolvedValueOnce({
+      active_project_id: null,
+      default_project_id: null,
+    });
+    const req = new Request('http://localhost/api/projects', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'First', target_backend_id: 'local' }),
+    });
+    const res = await route.POST(req);
+    expect(res.status).toBe(201);
+    const body = await res.json();
+    expect(body.is_default).toBe(true);
+    expect(projectPrefs.setDefaultProjectPref).toHaveBeenCalledWith(body.id);
+    expect(projectPrefs.setActiveProjectPref).toHaveBeenCalledWith(body.id);
   });
 
   it('defaults target_backend_id to "local" when missing', async () => {
@@ -168,6 +195,7 @@ describe('PUT /api/projects (v4.2 active pref)', () => {
     vi.doMock('@/lib/projectPrefs', () => ({
       readProjectPrefs: vi.fn(async () => ({ active_project_id: null, default_project_id: null })),
       setActiveProjectPref: vi.fn(),
+      setDefaultProjectPref: vi.fn(),
     }));
     vi.doMock('@/lib/storage', () => ({
       getConfig: vi.fn(async () => ({

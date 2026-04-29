@@ -68,8 +68,11 @@ describe('v4.1 -> v4.2 reconciler', () => {
 
     expect(result.ran).toBe(true);
 
-    // Manifest written under PULSE_FRONTEND_ROOT (file driver default dataDir).
-    const manifest = JSON.parse(readFileSync(join(tmpDir, 'projects-manifest.json'), 'utf-8'));
+    // Manifest is written at `data/projects-manifest.json` (relative to the
+    // file driver's dataDir = PULSE_FRONTEND_ROOT). 4.2.1 moved it inside
+    // `data/` so it sits next to the rest of the dashboard's data instead
+    // of polluting the install root.
+    const manifest = JSON.parse(readFileSync(join(dataDir, 'projects-manifest.json'), 'utf-8'));
     expect(manifest.v).toBe(1);
     expect(manifest.projects).toHaveLength(2);
     const ids = manifest.projects.map((p) => p.id).sort();
@@ -110,7 +113,7 @@ describe('v4.1 -> v4.2 reconciler', () => {
     const result = await migrate();
     expect(result.ran).toBe(true);
 
-    const manifest = JSON.parse(readFileSync(join(tmpDir, 'projects-manifest.json'), 'utf-8'));
+    const manifest = JSON.parse(readFileSync(join(dataDir, 'projects-manifest.json'), 'utf-8'));
     expect(manifest.projects).toHaveLength(1);
     expect(manifest.projects[0].id).toBe('orphan');
   });

@@ -98,7 +98,7 @@ describe('POST /api/storage/import-token', () => {
     expect(body.projects).toHaveLength(2);
     expect(body.projects[0].name).toBe('AdsScanner');
     expect(storage.addBackend).toHaveBeenCalled();
-    expect(storage.readStoreFromBackend).toHaveBeenCalledWith('b-new', 'projects-manifest.json', expect.anything());
+    expect(storage.readStoreFromBackend).toHaveBeenCalledWith('b-new', 'data/projects-manifest.json', expect.anything());
   });
 
   it('400 on malformed token', async () => {

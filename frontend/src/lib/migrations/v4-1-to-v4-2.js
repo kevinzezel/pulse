@@ -17,7 +17,12 @@ import { FileDriver } from '../jsonStore.js';
 import { S3Driver } from '../s3Store.js';
 import { MongoDriver } from '../mongoStore.js';
 
-const MANIFEST_REL = 'projects-manifest.json';
+// Same path as `lib/projectIndex.js` (post-4.2.1). The reconciler talks to
+// drivers directly via FileDriver/S3Driver/MongoDriver so it doesn't reach
+// for the higher-level helper, but we keep the rel string in lock-step.
+// File driver lands inside `<frontend_root>/data/`; S3/Mongo strip `data/`
+// on resolution so the bucket key stays at `<prefix>/projects-manifest.json`.
+const MANIFEST_REL = 'data/projects-manifest.json';
 
 function frontendRoot() {
   return process.env.PULSE_FRONTEND_ROOT || process.cwd();

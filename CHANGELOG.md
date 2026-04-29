@@ -6,6 +6,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [4.2.1-pre] — 2026-04-29
+
+Three follow-up fixes after the v4.2.0-pre / OnboardingGate release went out for testing. None are blockers but they make the on-disk layout match the documented contract and remove the awkward "single project, no default" state on a fresh install.
+
+### Fixed
+
+- **`projects-manifest.json` no longer pollutes the install root on the file driver.** The path is now `data/projects-manifest.json`. The S3 and Mongo drivers strip the leading `data/` on resolution, so the bucket key (`<prefix>/projects-manifest.json`) and the Mongo doc id stay exactly where they were — share tokens minted on v4.2.0-pre keep working without changes. The file driver, which does *not* strip, now writes the manifest inside `<frontend_root>/data/` next to the rest of the dashboard's data instead of at the install root next to `package.json` and `server.js`.
+- **One-shot self-heal for the misplaced legacy file.** First read of the manifest from the local backend checks for the pre-4.2.1 path (`<frontend_root>/projects-manifest.json`), and if found, atomically moves the file to the new location and deletes the legacy copy. Idempotent within the process — flag flips after the first attempt; if the move itself fails (permissions, disk full), the next project write falls back cleanly to the new path so the system still self-corrects on subsequent boots.
+- **First project on a fresh install auto-claims `default_project_id` and `active_project_id` per-install prefs.** Before this fix, a new user who completed the OnboardingGate landed on the dashboard with `data/project-prefs.json` still showing `{ active_project_id: null, default_project_id: null }`. The "Default" star badge on the project card stayed empty until they manually clicked it, and a fresh tab opened with no sessionStorage would fall back to "first project in the list" instead of an explicit user choice. `POST /api/projects` now reads the prefs file and, when either field is null, claims the new project for it. Subsequent project creations leave the existing prefs alone.
+
+### Notes
+
+- **Test suite up to 153 / 153 green** (was 151). New: `projectIndex.test.js > self-heals legacy pre-4.2.1 manifest at <root>/projects-manifest.json` and `projects-route-v4-2.test.js > first-project-on-fresh-install claims default + active prefs`. Existing reconciler test relaxed the manifest path expectation to `data/projects-manifest.json` to match the new layout.
+
 ## [4.3.0-pre] — 2026-04-29
 
 Onboarding gate + the long-overdue removal of the `proj-default` fallback chain. After a fresh install, the dashboard now blocks behind a full-screen modal until you either create your first project or paste a backend share token to pick up a colleague's projects automatically. With at-least-one-project guaranteed, every `?? DEFAULT_PROJECT_ID` workaround in the codebase is gone — and the bogus `proj-default` id that orphaned sessions/groups in v4.0–v4.2 stops being silently stamped onto new records.
@@ -1347,7 +1361,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v4.3.0-pre...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v4.2.1-pre...HEAD
+[4.2.1-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.2.1-pre
 [4.3.0-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.3.0-pre
 [4.2.0-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.2.0-pre
 [4.1.0-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.1.0-pre

@@ -2,7 +2,11 @@ import { NextResponse } from 'next/server';
 import { randomUUID } from 'crypto';
 import { withAuth } from '@/lib/auth';
 import { listAllProjects, addProjectToManifest } from '@/lib/projectIndex';
-import { readProjectPrefs, setActiveProjectPref } from '@/lib/projectPrefs';
+import {
+  readProjectPrefs,
+  setActiveProjectPref,
+  setDefaultProjectPref,
+} from '@/lib/projectPrefs';
 import { getConfig } from '@/lib/storage';
 
 const NAME_MAX = 64;
@@ -76,13 +80,29 @@ export const POST = withAuth(async (req) => {
 
   await addProjectToManifest(targetBackendId, { id, name, created_at });
 
+  // First-project ergonomics: when there's no default/active pref yet
+  // (fresh install or post-onboarding), claim the new project as both. The
+  // OnboardingGate dismisses on `projects.length > 0`, so without this the
+  // user lands on the dashboard with `active_project_id: null` in the
+  // server-side prefs and has to manually click "Set as default" to make
+  // the badge match what the UI is already showing them.
+  const prefs = await readProjectPrefs();
+  let isDefault = false;
+  if (!prefs.default_project_id) {
+    await setDefaultProjectPref(id);
+    isDefault = true;
+  }
+  if (!prefs.active_project_id) {
+    await setActiveProjectPref(id);
+  }
+
   return NextResponse.json({
     id,
     name,
     storage_ref: targetBackendId,
     created_at,
     updated_at: created_at,
-    is_default: false,
+    is_default: isDefault,
   }, { status: 201 });
 });
 
