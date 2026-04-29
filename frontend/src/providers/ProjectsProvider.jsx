@@ -2,16 +2,19 @@
 
 import { createContext, useContext, useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { usePathname } from 'next/navigation';
+import toast from 'react-hot-toast';
 import {
   getProjects,
   createProject as apiCreate, renameProject as apiRename, deleteProject as apiDelete,
   reorderProjects as apiReorder,
   setActiveProjectIdInModule,
+  listBackends, getBackendManifest,
 } from '@/services/api';
 import { reorderById } from '@/utils/reorder';
 import { useRefetchOnFocus } from '@/utils/useRefetchOnFocus';
 import { DEFAULT_PROJECT_ID } from '@/lib/projectScope';
 import { ssRead, ssWrite } from '@/lib/sessionState';
+import { useTranslation } from '@/providers/I18nProvider';
 
 const STORAGE_KEY = 'rt:activeProjectId';
 
@@ -62,6 +65,7 @@ function readStoredActiveProjectId() {
 
 export function ProjectsProvider({ children }) {
   const pathname = usePathname();
+  const { t } = useTranslation();
   const initialActiveProjectId = useMemo(() => readStoredActiveProjectId(), []);
   const [projects, setProjects] = useState([]);
   const [activeProjectId, setActiveProjectIdState] = useState(() => initialActiveProjectId || DEFAULT_PROJECT_ID);
@@ -129,6 +133,65 @@ export function ProjectsProvider({ children }) {
     () => { refreshProjects().catch((err) => console.warn('[ProjectsProvider] focus refetch failed:', err)); },
     loaded && pathname !== '/login',
   );
+
+  // Periodic manifest refetch — every 5 min and on tab focus. Diffs each
+  // remote backend's manifest against the local projects list and toasts when
+  // there are project ids in the manifest that aren't local yet (a peer ran
+  // Move/Create on a shared backend). Silent on transient errors so flaky
+  // networks don't spam toasts.
+  useEffect(() => {
+    if (pathname === '/login') return;
+    let cancelled = false;
+
+    async function refreshManifests() {
+      if (cancelled) return;
+      try {
+        const cfg = await listBackends();
+        const remoteBackends = (cfg.backends || []).filter((b) => b.driver !== 'file');
+        if (remoteBackends.length === 0) return;
+        const knownIds = new Set(projects.map((p) => p.id));
+
+        for (const backend of remoteBackends) {
+          if (cancelled) return;
+          try {
+            const manifest = await getBackendManifest(backend.id);
+            const newOnes = (manifest.projects || []).filter((p) => !knownIds.has(p.id));
+            if (newOnes.length > 0 && !cancelled) {
+              const names = newOnes.map((p) => p.name).slice(0, 3).join(', ');
+              toast(t('settings.storage.newProjectsAvailable', {
+                backend: backend.name,
+                count: newOnes.length,
+                names,
+              }), { duration: 6000 });
+            }
+          } catch {
+            // backend down or transient error — skip silently for this cycle
+          }
+        }
+      } catch {
+        // listBackends failure — skip silently
+      }
+    }
+
+    const interval = setInterval(refreshManifests, 5 * 60 * 1000);
+    function onVisible() {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        refreshManifests();
+      }
+    }
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', onVisible);
+    }
+    refreshManifests();
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', onVisible);
+      }
+    };
+  }, [projects, t, pathname]);
 
   const setActiveProject = useCallback(async (id) => {
     persistActive(id);

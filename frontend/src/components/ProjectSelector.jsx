@@ -2,16 +2,31 @@
 
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { FolderOpen, Check, Settings, Loader } from 'lucide-react';
+import { FolderOpen, Check, Settings, Loader, ArrowRightLeft } from 'lucide-react';
 import { useTranslation, useErrorToast } from '@/providers/I18nProvider';
 import { useProjects } from '@/providers/ProjectsProvider';
+import MoveProjectModal from './projects/MoveProjectModal';
+
+// Deterministic color from a backend id — same id always maps to the same hue.
+// Inline HSL is fine here (design system tolerates inline HSL for derived colors);
+// `local` falls back to a token to stay subtle.
+function backendColor(backendId) {
+  if (backendId === 'local') return 'hsl(var(--muted-foreground))';
+  let hash = 0;
+  for (let i = 0; i < backendId.length; i++) {
+    hash = (hash * 31 + backendId.charCodeAt(i)) | 0;
+  }
+  const hue = Math.abs(hash) % 360;
+  return `hsl(${hue}, 60%, 50%)`;
+}
 
 export default function ProjectSelector() {
   const { t } = useTranslation();
   const showError = useErrorToast();
-  const { projects, activeProjectId, activeProject, loading, setActiveProject } = useProjects();
+  const { projects, activeProjectId, activeProject, loading, setActiveProject, refreshProjects } = useProjects();
   const [open, setOpen] = useState(false);
   const [switching, setSwitching] = useState(null);
+  const [moveTarget, setMoveTarget] = useState(null);
   const ref = useRef(null);
 
   useEffect(() => {
@@ -58,17 +73,38 @@ export default function ProjectSelector() {
           </div>
           <div className="max-h-64 overflow-y-auto">
             {projects.map((p) => (
-              <button
+              <div
                 key={p.id}
-                onClick={() => handleSwitch(p.id)}
-                disabled={switching !== null}
-                className="w-full flex items-center justify-between gap-2 px-3 py-1.5 text-sm text-foreground hover:bg-muted/40 transition-colors disabled:opacity-50"
+                className="group w-full flex items-center gap-1 pr-1 hover:bg-muted/40 transition-colors"
               >
-                <span className="truncate flex-1 text-left">{p.name}</span>
-                {switching === p.id
-                  ? <Loader size={13} className="animate-spin text-muted-foreground shrink-0" />
-                  : p.id === activeProjectId && <Check size={13} className="text-primary shrink-0" />}
-              </button>
+                <button
+                  onClick={() => handleSwitch(p.id)}
+                  disabled={switching !== null}
+                  className="flex-1 min-w-0 flex items-center justify-between gap-2 pl-3 pr-1 py-1.5 text-sm text-foreground disabled:opacity-50"
+                >
+                  <span className="flex-1 min-w-0 flex items-center gap-2 text-left">
+                    <span
+                      className="inline-block size-2 rounded-full shrink-0"
+                      style={{ background: backendColor(p.storage_ref || 'local') }}
+                      title={p.storage_ref || 'local'}
+                    />
+                    <span className="truncate">{p.name}</span>
+                  </span>
+                  {switching === p.id
+                    ? <Loader size={13} className="animate-spin text-muted-foreground shrink-0" />
+                    : p.id === activeProjectId && <Check size={13} className="text-primary shrink-0" />}
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); setMoveTarget(p); setOpen(false); }}
+                  disabled={switching !== null}
+                  className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted shrink-0 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity disabled:opacity-30"
+                  title={t('moveProject.title')}
+                  aria-label={t('moveProject.title')}
+                >
+                  <ArrowRightLeft size={13} />
+                </button>
+              </div>
             ))}
           </div>
           <div className="h-px bg-border my-1" />
@@ -81,6 +117,16 @@ export default function ProjectSelector() {
             <span>{t('projectSelector.manage')}</span>
           </Link>
         </div>
+      )}
+      {moveTarget && (
+        <MoveProjectModal
+          project={moveTarget}
+          onClose={() => setMoveTarget(null)}
+          onMoved={() => {
+            setMoveTarget(null);
+            refreshProjects().catch((err) => showError(err));
+          }}
+        />
       )}
     </div>
   );

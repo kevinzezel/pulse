@@ -6,7 +6,30 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
-## [4.0.3-pre] — 2026-04-29
+## [4.1.0-pre] — 2026-04-29
+
+The collaboration layer that the multi-backend foundation (4.0.x) was preparing for. One Pulse install can now host multiple named storage backends at once (personal S3, work S3, MongoDB, etc.), share access to a backend with a colleague via a single base64url token, and move individual projects between backends with redirect markers so other installs see the change cleanly.
+
+### Added
+
+- **Settings → Storage redesigned as a list of backend cards.** The previous Local / MongoDB / S3 tabs are replaced by one card per configured backend, each with actions for *Make default*, *Generate share token*, and *Remove* (the latter blocked while projects still route to it). Two top-level buttons — *Add backend* and *Import token* — handle adding new backends.
+- **`pulsebackend://v1/<base64url>` share tokens.** Each remote backend can generate a versioned, URL-safe token that carries the full configuration (including credentials in plaintext — that is the contract). The generated token is shown in a modal with a destructive-styled warning, copy-to-clipboard support, and a select-all fallback for non-secure contexts where the Clipboard API is blocked.
+- **Import token flow.** Pasting a token validates the prefix/version/JSON shape, pings the backend with the embedded credentials, registers the backend locally (with a new opaque UUID, not the one from the source install), reads `<prefix>/projects-manifest.json`, and shows a checklist of the projects available there. Selecting + confirming bulk-imports the chosen entries into local `projects.json` with `storage_ref` pointing at the freshly registered backend.
+- **Move project between backends.** A new action in the project picker opens a modal that lists every backend except the current one, requires an explicit "I understand the consequences" checkbox, and on confirm copies all seven per-project shards to the destination, updates both manifests, writes a `.moved.json` redirect marker on the source (so other installs see where the project went), and updates the local `projects.json` `storage_ref` atomically. The ordering is designed so any partial failure is recoverable by re-running the move.
+- **Periodic manifest refetch in `ProjectsProvider`.** Every five minutes and on tab focus, each remote backend's manifest is fetched and diffed against the local project list. New entries surface as a toast (`Backend Foo: 2 new project(s) available — Bar, Baz`) so a collaborator dropping a project into a shared backend doesn't require a manual refresh on the other side.
+- **Color dots in the project picker.** Each project entry shows an inline circle whose color is a deterministic HSL hash of its `storage_ref`, with the local backend rendered in the muted-foreground token. Hovering reveals the backend id; the visual cue makes it obvious which backend a given project lives on without opening Settings.
+- **Test infrastructure.** 31 new vitest cases covering the token codec (round-trip, validation rejections), the new API routes (backends list/add/remove/set-default, share-token, import-token, import-projects, project move), and the move algorithm itself (shard copy, manifest updates on both sides, redirect marker write, source-shard delete).
+- **Project lifecycle event emitted on Move.** `MoveProjectModal` fires `project:storage-ref-changed { projectId, oldRef, newRef }` on the bus that Plan 2 wired in `ProjectsProvider`. No subscribers ship in this release; future per-project caches (Notes, Flows, Tasks) can hook in to invalidate after a move.
+
+### Changed
+
+- **Per-install routes (servers, sessions, recent-cwds, intelligence-config, compose-drafts, groups, projects/stats) now route their reads/writes through `readLocalStore` / `writeLocalStore` from `projectStorage.js`** instead of the legacy `storage.js` compat layer. This was already the fix in 4.0.2-pre — re-mentioned here because the new Settings UI relies on the same routing for `projects.json` reads. Net effect for users: per-install data stays local even when a remote backend is the default, with no further action needed.
+
+### Notes
+
+- **Adding a backend pings before persisting.** `POST /api/storage/backends` runs `pingS3` or `pingMongo` against the supplied configuration before calling `addBackend`, so a typo in credentials surfaces as `errors.backend_unreachable` instead of leaving a broken backend registered. Same for `import-token`.
+- **GET responses mask secrets.** `/api/storage/backends` masks `access_key_id`, `secret_access_key`, and `uri` (Mongo URIs) with asterisks. The full credentials only flow OUT through the share-token endpoint, never through the list view.
+- **Removing a backend is blocked while projects depend on it.** `DELETE /api/storage/backends/[id]` returns 409 `errors.backend_in_use` with a sample of project names; users move the projects (or change the backend's default flag) before retrying.
 
 ### Fixed
 
@@ -1267,7 +1290,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v4.0.3-pre...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v4.1.0-pre...HEAD
+[4.1.0-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.1.0-pre
 [4.0.3-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.0.3-pre
 [4.0.2-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.0.2-pre
 [4.0.1-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.0.1-pre

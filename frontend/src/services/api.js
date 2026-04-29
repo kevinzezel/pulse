@@ -995,6 +995,65 @@ export async function deleteStorageConfig() {
   return localRequest('/api/storage-config', { method: 'DELETE' });
 }
 
+// ===== Multi-backend storage management =====
+
+export async function listBackends() {
+  return localRequest('/api/storage/backends');
+}
+
+export async function getBackendManifest(backendId) {
+  return localRequest(`/api/storage/backends/${encodeURIComponent(backendId)}/manifest`);
+}
+
+export async function addBackend({ name, driver, config }) {
+  return localRequest('/api/storage/backends', {
+    method: 'POST',
+    body: JSON.stringify({ name, driver, config }),
+  });
+}
+
+export async function removeBackend(id) {
+  return localRequest(`/api/storage/backends/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  });
+}
+
+export async function setDefaultBackend(id) {
+  return localRequest(`/api/storage/backends/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ set_default: true }),
+  });
+}
+
+export async function generateShareToken(backendId) {
+  const data = await localRequest(
+    `/api/storage/share-token/${encodeURIComponent(backendId)}`,
+    { method: 'POST' },
+  );
+  return data.token;
+}
+
+export async function importBackendToken({ token, rename }) {
+  return localRequest('/api/storage/import-token', {
+    method: 'POST',
+    body: JSON.stringify({ token, rename }),
+  });
+}
+
+export async function importProjects({ backendId, projects }) {
+  return localRequest('/api/storage/import-projects', {
+    method: 'POST',
+    body: JSON.stringify({ backend_id: backendId, projects }),
+  });
+}
+
+export async function moveProject({ projectId, targetBackendId }) {
+  return localRequest(`/api/projects/${encodeURIComponent(projectId)}/move`, {
+    method: 'POST',
+    body: JSON.stringify({ target_backend_id: targetBackendId }),
+  });
+}
+
 // ===== Intelligence (AI providers) =====
 
 export function getIntelligenceConfig() {
