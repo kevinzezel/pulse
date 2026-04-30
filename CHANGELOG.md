@@ -6,7 +6,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
-## [4.5.0-pre] — 2026-04-30
+## [4.5.0] — 2026-04-30
 
 Aligns Settings → Intelligence with the existing Telegram token editor: the
 saved Gemini API key now loads directly into the input, can be shown/hidden,
@@ -1579,8 +1579,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v4.5.0-pre...HEAD
-[4.5.0-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.5.0-pre
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v4.5.0...HEAD
+[4.5.0]: https://github.com/kevinzezel/pulse/releases/tag/v4.5.0
 [4.4.0-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.4.0-pre
 [4.3.2-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.3.2-pre
 [4.3.1-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.3.1-pre
