@@ -67,11 +67,13 @@
     "checkingTitle": "Checking servers",
     "checkingBody": "Preparing terminals. This can take up to 1 second per server.",
     "allOfflineTitle": "No servers responded",
-    "allOfflineBody": "Pulse could not reach any configured server. Check VPN/network and try again.",
+    "allOfflineBody": "Pulse could not reach any configured server. The client may be offline, or the protocol/host/port/API key may be wrong (e.g. after running `pulse config tls on`, the client now needs HTTPS). Check VPN/network or open settings to fix the server.",
     "checkingStatus": "Checking",
     "online": "Online",
     "offline": "Offline",
-    "retry": "Try again"
+    "retry": "Try again",
+    "openSettings": "Open settings",
+    "dismiss": "Continue offline"
   },
   "nav": {
     "dashboard": "Terminals",

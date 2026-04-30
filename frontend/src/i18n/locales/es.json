@@ -67,11 +67,13 @@
     "checkingTitle": "Comprobando servidores",
     "checkingBody": "Preparando terminales. Puede tardar hasta 1 segundo por servidor.",
     "allOfflineTitle": "Ningún servidor respondió",
-    "allOfflineBody": "Pulse no pudo alcanzar ningún servidor configurado. Revisa la VPN/red e inténtalo de nuevo.",
+    "allOfflineBody": "Pulse no pudo alcanzar ningún servidor configurado. El cliente puede estar offline, o el protocolo/host/puerto/API key pueden estar mal (p. ej. tras ejecutar `pulse config tls on`, el cliente ahora exige HTTPS). Revisa la VPN/red o abre la configuración para ajustar el servidor.",
     "checkingStatus": "Comprobando",
     "online": "Online",
     "offline": "Offline",
-    "retry": "Intentar de nuevo"
+    "retry": "Intentar de nuevo",
+    "openSettings": "Abrir configuración",
+    "dismiss": "Continuar offline"
   },
   "nav": {
     "dashboard": "Terminales",

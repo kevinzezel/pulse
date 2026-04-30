@@ -3,7 +3,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import toast from 'react-hot-toast';
-import { Loader, RefreshCw } from 'lucide-react';
 import {
   getSessions, createSession, killSession, renameSession, cloneSession,
   getGroups, createGroup, assignSessionGroup, setGroupHidden, saveGroups, setSessionNotify, createPrompt,
@@ -33,6 +32,8 @@ import ComposeModal from '@/components/ComposeModal';
 import VoiceCommandModal from '@/components/VoiceCommandModal';
 import MobileKeyBar from '@/components/MobileKeyBar';
 import TlsAcceptModal from '@/components/TlsAcceptModal';
+import ServerBootGateModal from '@/components/ServerBootGateModal';
+import { buildSettingsTargetUrl } from '@/lib/serverBootGate';
 const TerminalMosaic = dynamic(() => import('@/components/TerminalMosaic'), { ssr: false });
 
 const EMPTY_ARRAY = [];
@@ -59,58 +60,6 @@ function loadFromStorage(key, fallback) {
   } catch {
     return fallback;
   }
-}
-
-function ServerBootGateModal({ gate, t, onRetry }) {
-  if (!gate.visible) return null;
-  const allFailed = gate.checked && gate.total > 0 && gate.onlineCount === 0;
-  const title = allFailed ? t('serverBoot.allOfflineTitle') : t('serverBoot.checkingTitle');
-  const body = allFailed ? t('serverBoot.allOfflineBody') : t('serverBoot.checkingBody');
-
-  return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-overlay/70 backdrop-blur-sm px-4">
-      <div className="w-full max-w-sm rounded-lg border border-border bg-card p-5 shadow-xl">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted/50">
-            <Loader size={18} className={`text-primary ${gate.checking ? 'animate-spin' : ''}`} />
-          </div>
-          <div className="min-w-0">
-            <h2 className="text-sm font-semibold text-foreground">{title}</h2>
-            <p className="mt-1 text-xs text-muted-foreground">{body}</p>
-          </div>
-        </div>
-
-        {gate.results.length > 0 && (
-          <div className="mt-4 max-h-36 overflow-y-auto rounded-md border border-border bg-background/40">
-            {gate.results.map((item) => {
-              const reasonKey = item.reason ? `serverFilter.reason.${item.reason}` : null;
-              const checking = item.status === 'checking';
-              return (
-                <div key={item.serverId} className="flex items-center justify-between gap-3 px-3 py-2 text-xs">
-                  <span className="truncate text-foreground">{item.name}</span>
-                  <span className={item.ok ? 'text-success' : 'text-muted-foreground'}>
-                    {checking ? t('serverBoot.checkingStatus') : (item.ok ? t('serverBoot.online') : (reasonKey ? t(reasonKey) : t('serverBoot.offline')))}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        {allFailed && (
-          <button
-            type="button"
-            onClick={onRetry}
-            disabled={gate.checking}
-            className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-md border border-border bg-primary px-3 py-2 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {gate.checking ? <Loader size={13} className="animate-spin" /> : <RefreshCw size={13} />}
-            {t('serverBoot.retry')}
-          </button>
-        )}
-      </div>
-    </div>
-  );
 }
 
 export default function DashboardPage() {
@@ -837,6 +786,16 @@ function Dashboard() {
     fetchSessions({ block: true, reason: 'manual-retry' });
     fetchGroups();
   }, [serversLoaded, fetchSessions, fetchGroups]);
+
+  const handleOpenSettingsFromGate = useCallback(() => {
+    const url = buildSettingsTargetUrl(serverGate.results);
+    setServerGate(EMPTY_SERVER_GATE);
+    router.push(url);
+  }, [router, serverGate.results]);
+
+  const handleDismissGate = useCallback(() => {
+    setServerGate(EMPTY_SERVER_GATE);
+  }, []);
 
   useEffect(() => {
     if (!hydratedSessions) return;
@@ -1791,6 +1750,8 @@ function Dashboard() {
         gate={serverGate}
         t={t}
         onRetry={handleBlockingRetry}
+        onOpenSettings={handleOpenSettingsFromGate}
+        onDismiss={handleDismissGate}
       />
     </div>
   );

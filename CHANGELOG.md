@@ -6,6 +6,30 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [4.2.8-pre] — 2026-04-29
+
+Unblocks the dashboard when every configured Pulse client is offline. Before this, hitting "No servers responded" on boot left the user stuck on the modal — the only action was *Try again*, which is useless when the real fix is editing protocol/host/port/API key in settings (the typical case after `pulse config tls on` flipped a client from HTTP to HTTPS).
+
+### Fixed
+
+- **"No servers responded" gate no longer traps the user.** When every configured client fails the boot health check, the dashboard now offers, alongside *Try again*, an *Open settings* button that deep-links into `/settings?tab=servers` (or directly into the offending server's edit form when there is exactly one) and a *Continue offline* button that dismisses the gate so the rest of the dashboard chrome stays usable. This matters most after `pulse config tls on` — the client switches to HTTPS and the previously-saved HTTP server config can only be repaired from settings.
+
+### Changed
+
+- **`serverBoot.allOfflineBody` rewritten** in en, pt-BR and es. The body now mentions that the client may be offline *or* that protocol/host/port/API key may be wrong (with `pulse config tls on` called out as the typical trigger), and `serverBoot.openSettings` / `serverBoot.dismiss` labels were added.
+
+### Internal
+
+- Extracted `ServerBootGateModal` into `frontend/src/components/ServerBootGateModal.jsx` and the URL helper into `frontend/src/lib/serverBootGate.js`. The dashboard page no longer hosts the component inline, which keeps the modal isolated from the dashboard tree and unit-testable.
+- `vitest.config.js` now sets `esbuild.jsx: 'automatic'` so `.jsx` files compile under the React 17+ runtime in tests without requiring `import React` in every component.
+
+### Tests
+
+- Added `serverBootGate.test.js`: covers `buildSettingsTargetUrl` for empty / single / multi / unsafe-character / orphan inputs.
+- Added `ServerBootGateModal.test.js`: asserts the modal renders nothing while hidden, no buttons during checking, the three action buttons (retry, open settings, dismiss) when every server failed, that each onClick wires through to the right handler, and that retry is disabled while a check is in flight.
+- Verified `npm test`: 28 files / 181 tests passed.
+- Verified `npm run build`.
+
 ## [4.2.7-pre] — 2026-04-29
 
 Fixes a manifest path mismatch in project move that left the project visible on both the source and the destination backend. The mover wrote to the legacy pre-4.2.1 path (`projects-manifest.json`) while every other code path reads the canonical `data/projects-manifest.json`, so the entry on the source was never actually removed. Move now reuses the canonical helpers, drops the source entry for real, and stops writing the `.moved.json` redirect marker.
@@ -1442,7 +1466,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v4.2.7-pre...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v4.2.8-pre...HEAD
+[4.2.8-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.2.8-pre
 [4.2.7-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.2.7-pre
 [4.2.6-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.2.6-pre
 [4.2.5-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.2.5-pre
