@@ -38,6 +38,12 @@ CONFIG_ROOT="$HOME/.config/pulse"
 STATE_ROOT="$HOME/.local/state/pulse"
 BIN_ROOT="$HOME/.local/bin"
 
+TEMP_DIR=""
+UPGRADE_BACKUP_DIR=""
+CLIENT_DATA_BACKUP=""
+FRONTEND_DATA_BACKUP=""
+INSTALL_COMPLETED=0
+
 # -----------------------------------------------------------------------------
 # Colors + logging
 # -----------------------------------------------------------------------------
@@ -426,6 +432,102 @@ download_and_extract() {
 # -----------------------------------------------------------------------------
 # File placement
 # -----------------------------------------------------------------------------
+ensure_upgrade_backup_dir() {
+    if [ -z "$UPGRADE_BACKUP_DIR" ]; then
+        mkdir -p "$INSTALL_ROOT/.upgrade-backups"
+        UPGRADE_BACKUP_DIR="$INSTALL_ROOT/.upgrade-backups/$(date -u +%Y%m%dT%H%M%SZ)-$$"
+        mkdir -p "$UPGRADE_BACKUP_DIR"
+    fi
+}
+
+cleanup_upgrade_backup_dir_if_empty() {
+    if [ -n "$UPGRADE_BACKUP_DIR" ]; then
+        rmdir "$UPGRADE_BACKUP_DIR" 2>/dev/null || true
+    fi
+    rmdir "$INSTALL_ROOT/.upgrade-backups" 2>/dev/null || true
+}
+
+backup_component_data() {
+    component="$1"
+    src="$INSTALL_ROOT/$component/data"
+    [ -d "$src" ] || return 0
+
+    ensure_upgrade_backup_dir
+    dest="$UPGRADE_BACKUP_DIR/$component-data"
+    log "preserving existing $component/data for upgrade"
+    mv "$src" "$dest"
+
+    case "$component" in
+        client)   CLIENT_DATA_BACKUP="$dest" ;;
+        frontend) FRONTEND_DATA_BACKUP="$dest" ;;
+    esac
+}
+
+restore_component_data() {
+    component="$1"
+    backup="$2"
+    [ -n "$backup" ] && [ -d "$backup" ] || return 0
+
+    target="$INSTALL_ROOT/$component/data"
+    mkdir -p "$INSTALL_ROOT/$component"
+    rm -rf "$target"
+    mv "$backup" "$target"
+    log "restored $component/data"
+
+    case "$component" in
+        client)   CLIENT_DATA_BACKUP="" ;;
+        frontend) FRONTEND_DATA_BACKUP="" ;;
+    esac
+}
+
+restore_pending_data_backups() {
+    restore_component_data client "$CLIENT_DATA_BACKUP"
+    restore_component_data frontend "$FRONTEND_DATA_BACKUP"
+    cleanup_upgrade_backup_dir_if_empty
+}
+
+recover_component_data_backup() {
+    component="$1"
+    target="$INSTALL_ROOT/$component/data"
+    backups_root="$INSTALL_ROOT/.upgrade-backups"
+    [ ! -e "$target" ] || return 0
+    [ -d "$backups_root" ] || return 0
+
+    backup=""
+    backup_dir=""
+    for dir in "$backups_root"/*; do
+        [ -d "$dir" ] || continue
+        candidate="$dir/$component-data"
+        [ -d "$candidate" ] || continue
+        backup="$candidate"
+        backup_dir="$dir"
+    done
+    [ -n "$backup" ] || return 0
+
+    mkdir -p "$INSTALL_ROOT/$component"
+    mv "$backup" "$target"
+    warn "recovered stranded $component/data from interrupted upgrade: $backup"
+    rmdir "$backup_dir" 2>/dev/null || true
+    rmdir "$backups_root" 2>/dev/null || true
+}
+
+recover_stranded_data_backups() {
+    recover_component_data_backup client
+    recover_component_data_backup frontend
+}
+
+cleanup_on_exit() {
+    rc="$?"
+    trap - EXIT INT TERM
+    if [ "$INSTALL_COMPLETED" != 1 ]; then
+        restore_pending_data_backups
+    fi
+    if [ -n "$TEMP_DIR" ]; then
+        rm -rf "$TEMP_DIR"
+    fi
+    exit "$rc"
+}
+
 stop_services_if_running() {
     case "$PULSE_OS" in
         linux)
@@ -452,26 +554,19 @@ stop_services_if_running() {
 install_files() {
     status "installing files to $INSTALL_ROOT"
     mkdir -p "$INSTALL_ROOT" "$CONFIG_ROOT" "$STATE_ROOT/logs" "$BIN_ROOT"
+    recover_stranded_data_backups
 
     # Stop running services so we can overwrite dirs without crashing in-flight requests.
     stop_services_if_running
 
     if [ "$PULSE_DASHBOARD_ONLY" = 0 ]; then
-        # Preserve user data (settings.json with Telegram config, session state, etc.)
-        # across upgrades — mirrors the frontend/data handling below.
-        client_data_backup=""
-        if [ -d "$INSTALL_ROOT/client/data" ]; then
-            client_data_backup="$TEMP_DIR/client-data-backup"
-            log "preserving existing client/data for upgrade"
-            mv "$INSTALL_ROOT/client/data" "$client_data_backup"
-        fi
+        # Preserve user data (settings.json with Telegram config, session state,
+        # etc.) across upgrades. Backups live outside $TEMP_DIR so an interrupted
+        # install can roll back instead of stranding user data in a temp dir.
+        backup_component_data client
         rm -rf "$INSTALL_ROOT/client"
         cp -R "$EXTRACTED/client" "$INSTALL_ROOT/client"
-        if [ -n "$client_data_backup" ] && [ -d "$client_data_backup" ]; then
-            rm -rf "$INSTALL_ROOT/client/data"
-            mv "$client_data_backup" "$INSTALL_ROOT/client/data"
-            log "restored client/data"
-        fi
+        restore_component_data client "$CLIENT_DATA_BACKUP"
         log "setting up Python environment for client (this may take a minute)"
         # uv sync requires pyproject.toml which we don't ship (would need to commit one).
         # Use uv venv + uv pip instead — works off the existing requirements.txt.
@@ -492,12 +587,9 @@ install_files() {
 
     if [ "$PULSE_CLIENT_ONLY" = 0 ]; then
         # Preserve user data (notes, flows, servers.json, etc.) across upgrades.
-        data_backup=""
-        if [ -d "$INSTALL_ROOT/frontend/data" ]; then
-            data_backup="$TEMP_DIR/frontend-data-backup"
-            log "preserving existing frontend/data for upgrade"
-            mv "$INSTALL_ROOT/frontend/data" "$data_backup"
-        fi
+        # Keep the backup durable until restore completes; $TEMP_DIR is deleted
+        # on exit and is not safe for user data during long npm/build steps.
+        backup_component_data frontend
         rm -rf "$INSTALL_ROOT/frontend"
         cp -R "$EXTRACTED/frontend" "$INSTALL_ROOT/frontend"
 
@@ -515,13 +607,10 @@ install_files() {
         log "pruning dev dependencies"
         run_npm_clean "npm prune" 10 "$INSTALL_ROOT/frontend" prune --omit=dev --loglevel=error || warn "npm prune failed (non-fatal)"
 
-        # Restore preserved user data
-        if [ -n "$data_backup" ] && [ -d "$data_backup" ]; then
-            rm -rf "$INSTALL_ROOT/frontend/data"
-            mv "$data_backup" "$INSTALL_ROOT/frontend/data"
-            log "restored frontend/data"
-        fi
+        restore_component_data frontend "$FRONTEND_DATA_BACKUP"
     fi
+
+    cleanup_upgrade_backup_dir_if_empty
 
     cp "$EXTRACTED/install/pulse.sh" "$BIN_ROOT/pulse"
     chmod +x "$BIN_ROOT/pulse"
@@ -1211,7 +1300,9 @@ main() {
     fi
 
     TEMP_DIR=$(mktemp -d)
-    trap 'rm -rf "$TEMP_DIR"' EXIT
+    trap cleanup_on_exit EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
 
     ensure_runtime_deps
     download_and_extract
@@ -1223,6 +1314,7 @@ main() {
     install_service_units
     enable_services
     print_success
+    INSTALL_COMPLETED=1
 }
 
 main "$@"

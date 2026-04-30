@@ -6,6 +6,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [4.3.2-pre] — 2026-04-30
+
+Hardens `pulse upgrade` so interrupted installs cannot strand user data outside
+`~/.local/share/pulse/frontend/data` or `client/data`.
+
+### Fixed
+
+- **Upgrade data preservation is now interruption-safe.** The installer no longer
+  moves `frontend/data` or `client/data` into `$TEMP_DIR` during long npm/build
+  steps. It stores upgrade backups under `$INSTALL_ROOT/.upgrade-backups`, restores
+  them on normal completion, and rolls them back on `EXIT`, `SIGINT`, or `SIGTERM`
+  if the install exits early.
+- **Next upgrade attempts recover stranded durable backups.** If a previous run
+  was killed after moving a data directory but before restore, the next installer
+  run restores the missing `client/data` or `frontend/data` before reseeding files.
+
 ## [4.3.1-pre] — 2026-04-30
 
 Two Settings ergonomics improvements that make day-to-day backend and intelligence management less painful: you can now copy the saved Gemini API key from Settings → Intelligence (it stays masked in the UI; the raw value is only fetched when you click *Copy key*), and you can edit existing storage backends (rename, swap region/endpoint, rotate credentials) without having to delete-and-recreate them.
@@ -1512,7 +1528,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v4.3.1-pre...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v4.3.2-pre...HEAD
+[4.3.2-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.3.2-pre
 [4.3.1-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.3.1-pre
 [4.3.0-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.3.0-pre
 [4.2.9-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.2.9-pre
