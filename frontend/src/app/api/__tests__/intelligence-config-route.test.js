@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
-describe('GET /api/intelligence-config', () => {
+describe('GET/PUT /api/intelligence-config', () => {
   let route;
 
   beforeEach(async () => {
@@ -62,5 +62,62 @@ describe('GET /api/intelligence-config', () => {
     expect(res.status).toBe(400);
     const body = await res.json();
     expect(body.detail_key).toBe('errors.intelligence.unknown_provider');
+  });
+
+  it('PUT preserves the saved key when api_key is omitted', async () => {
+    const projectStorage = await import('@/lib/projectStorage');
+    const req = new Request('http://localhost/api/intelligence-config', {
+      method: 'PUT',
+      body: JSON.stringify({ gemini: { model: 'gemini-2.5-flash-lite' } }),
+    });
+    const res = await route.PUT(req);
+    expect(res.status).toBe(200);
+    expect(projectStorage.writeLocalStore).toHaveBeenCalledWith(
+      'data/intelligence-config.json',
+      expect.objectContaining({
+        providers: expect.objectContaining({
+          gemini: expect.objectContaining({
+            api_key: 'AIzaSecretKeyValue123',
+            model: 'gemini-2.5-flash-lite',
+          }),
+        }),
+      }),
+    );
+  });
+
+  it('PUT clears the saved key when api_key is explicitly empty', async () => {
+    const projectStorage = await import('@/lib/projectStorage');
+    const req = new Request('http://localhost/api/intelligence-config', {
+      method: 'PUT',
+      body: JSON.stringify({ gemini: { api_key: '', model: 'gemini-2.5-flash' } }),
+    });
+    const res = await route.PUT(req);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.providers.gemini.configured).toBe(false);
+    expect(projectStorage.writeLocalStore).toHaveBeenCalledWith(
+      'data/intelligence-config.json',
+      expect.objectContaining({
+        providers: expect.objectContaining({
+          gemini: expect.objectContaining({
+            api_key: '',
+            model: 'gemini-2.5-flash',
+          }),
+        }),
+      }),
+    );
+  });
+
+  it('PUT rejects an empty key when no key exists yet', async () => {
+    const projectStorage = await import('@/lib/projectStorage');
+    projectStorage.readLocalStore.mockResolvedValueOnce({ providers: {}, updated_at: null });
+    const req = new Request('http://localhost/api/intelligence-config', {
+      method: 'PUT',
+      body: JSON.stringify({ gemini: { api_key: '', model: 'gemini-2.5-flash' } }),
+    });
+    const res = await route.PUT(req);
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.detail_key).toBe('errors.intelligence.gemini.api_key_required');
   });
 });

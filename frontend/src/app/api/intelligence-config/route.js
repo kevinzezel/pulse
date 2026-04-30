@@ -78,7 +78,11 @@ export const PUT = withAuth(async (req) => {
   if (!geminiIn) {
     return bad('errors.intelligence.payload_required', 'Provider payload required', 400);
   }
-  const apiKey = typeof geminiIn.api_key === 'string' ? geminiIn.api_key.trim() : '';
+  const hasApiKeyField = Object.prototype.hasOwnProperty.call(geminiIn, 'api_key');
+  if (hasApiKeyField && typeof geminiIn.api_key !== 'string') {
+    return bad('errors.invalid_body', 'Invalid API key');
+  }
+  const apiKey = hasApiKeyField ? geminiIn.api_key.trim() : '';
   if (apiKey.length > API_KEY_MAX) {
     return bad('errors.intelligence.gemini.api_key_too_long', 'API key too long', 400, { max: API_KEY_MAX });
   }
@@ -104,7 +108,7 @@ export const PUT = withAuth(async (req) => {
       providers: {
         ...providers,
         gemini: {
-          api_key: apiKey || currentApiKey || existingApiKey,
+          api_key: hasApiKeyField ? apiKey : (currentApiKey || existingApiKey),
           model,
           updated_at: now,
         },

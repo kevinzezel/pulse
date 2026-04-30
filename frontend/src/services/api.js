@@ -1075,10 +1075,8 @@ export function deleteIntelligenceConfig(provider = null) {
   return localRequest(`/api/intelligence-config${qs}`, { method: 'DELETE' });
 }
 
-// Fetches the raw API key for a configured provider. Server-side authenticated;
-// only returns when the provider is configured. Used by the "Copy key" button —
-// the key never lives in the page state long-term, just enough to reach the
-// clipboard.
+// Fetches the raw API key for a configured provider so Settings can mirror the
+// Telegram token field and let users edit/clear the value in-place.
 export function revealIntelligenceProvider(provider) {
   return localRequest(`/api/intelligence-config?reveal=${encodeURIComponent(provider)}`);
 }

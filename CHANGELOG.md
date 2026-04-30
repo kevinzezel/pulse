@@ -6,6 +6,28 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [4.5.0-pre] — 2026-04-30
+
+Aligns Settings → Intelligence with the existing Telegram token editor: the
+saved Gemini API key now loads directly into the input, can be shown/hidden,
+edited, copied manually, or cleared by deleting the field value and saving.
+
+### Changed
+
+- **Gemini API key editing now matches Telegram.** The saved key is revealed into
+  the API key input when the Intelligence tab loads. The dedicated *Copy key*
+  and *Remove key* actions were removed; users can select/copy the visible field
+  or clear it and save.
+- **`PUT /api/intelligence-config` now treats an explicitly empty `api_key` as a
+  clear request.** Omitting `api_key` still preserves the stored key for
+  model-only updates.
+
+### Internal
+
+- Extended `intelligence-config-route.test.js` to cover preserving an omitted
+  key, clearing with an explicit empty key, and rejecting empty saves when no key
+  exists yet.
+
 ## [4.4.0-pre] — 2026-04-30
 
 Introduces a reusable, page-grade loading component and rolls it out to the
@@ -1557,7 +1579,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v4.4.0-pre...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v4.5.0-pre...HEAD
+[4.5.0-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.5.0-pre
 [4.4.0-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.4.0-pre
 [4.3.2-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.3.2-pre
 [4.3.1-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.3.1-pre

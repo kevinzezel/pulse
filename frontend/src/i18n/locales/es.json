@@ -527,8 +527,7 @@
         "timeout": "La API de Gemini superó el tiempo de espera. Prueba con una grabación más corta.",
         "upstream_failed": "La API de Gemini falló: {reason}",
         "empty_transcript": "Gemini devolvió una transcripción vacía ({reason}). Intenta grabar de nuevo.",
-        "config_load_failed": "No se pudo cargar la configuración de Inteligencia.",
-        "copy_failed": "No se pudo copiar la API key. Verifica los permisos del navegador."
+        "config_load_failed": "No se pudo cargar la configuración de Inteligencia."
       },
       "voice": {
         "insecure_context": "La entrada por voz necesita HTTPS o localhost. Si abriste Pulse desde una IP de red, ejecuta `pulse config tls on`, acepta el certificado en el navegador y vuelve a abrir el panel con https://.",
@@ -595,7 +594,6 @@
     },
     "intelligence": {
       "gemini_saved": "API key de Gemini guardada.",
-      "gemini_copied": "API key de Gemini copiada al portapapeles.",
       "cleared": "Configuración de Inteligencia eliminada.",
       "transcribed": "Audio transcrito."
     }
@@ -781,22 +779,14 @@
         "configuredBadge": "Configurado",
         "apiKeyLabel": "API key",
         "apiKeyHintEmpty": "Pega tu API key de Gemini.",
-        "apiKeyHintConfigured": "Ya hay una key guardada. Pega un nuevo valor para reemplazarla.",
+        "apiKeyHintConfigured": "La key guardada está cargada aquí. Edítala, o limpia el campo y guarda para eliminarla.",
         "getKeyLink": "Obtener una API key de Gemini",
         "modelLabel": "Modelo",
         "modelHint": "Gemini 3 Flash Preview es el predeterminado recomendado. Los modelos Flash y Flash-Lite están disponibles para transcripción.",
         "updatedAt": "Última actualización: {when}",
         "saveButton": "Guardar",
-        "clearButton": "Eliminar key",
-        "copyButton": "Copiar key",
-        "copyTooltip": "Copiar la API key guardada al portapapeles",
         "show": "Mostrar",
-        "hide": "Ocultar",
-        "clearConfirm": {
-          "title": "¿Eliminar la key de Gemini?",
-          "body": "La entrada por voz dejará de funcionar hasta que guardes una nueva key. La key almacenada en el servidor se eliminará.",
-          "confirm": "Eliminar"
-        }
+        "hide": "Ocultar"
       }
     },
     "storage": {

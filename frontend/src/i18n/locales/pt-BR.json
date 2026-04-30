@@ -527,8 +527,7 @@
         "timeout": "API do Gemini demorou demais. Tente uma gravação mais curta.",
         "upstream_failed": "API do Gemini falhou: {reason}",
         "empty_transcript": "Gemini retornou transcrição vazia ({reason}). Tente gravar de novo.",
-        "config_load_failed": "Não foi possível carregar as configurações de Inteligência.",
-        "copy_failed": "Não foi possível copiar a API key. Verifique as permissões do navegador."
+        "config_load_failed": "Não foi possível carregar as configurações de Inteligência."
       },
       "voice": {
         "insecure_context": "Entrada por voz precisa de HTTPS ou localhost. Se você abriu o Pulse por um IP da rede, rode `pulse config tls on`, aceite o certificado no navegador e reabra o painel com https://.",
@@ -595,7 +594,6 @@
     },
     "intelligence": {
       "gemini_saved": "API key do Gemini salva.",
-      "gemini_copied": "API key do Gemini copiada para a área de transferência.",
       "cleared": "Configuração de Inteligência removida.",
       "transcribed": "Áudio transcrito."
     }
@@ -781,22 +779,14 @@
         "configuredBadge": "Configurado",
         "apiKeyLabel": "API key",
         "apiKeyHintEmpty": "Cole sua API key do Gemini.",
-        "apiKeyHintConfigured": "Já existe uma key salva. Cole um novo valor para substituí-la.",
+        "apiKeyHintConfigured": "A key salva está carregada aqui. Edite ou limpe o campo e salve para removê-la.",
         "getKeyLink": "Obter uma API key do Gemini",
         "modelLabel": "Modelo",
         "modelHint": "Gemini 3 Flash Preview é o padrão recomendado. Modelos Flash e Flash-Lite ficam disponíveis para transcrição.",
         "updatedAt": "Última atualização: {when}",
         "saveButton": "Salvar",
-        "clearButton": "Remover key",
-        "copyButton": "Copiar key",
-        "copyTooltip": "Copiar a API key salva para a área de transferência",
         "show": "Mostrar",
-        "hide": "Ocultar",
-        "clearConfirm": {
-          "title": "Remover key do Gemini?",
-          "body": "A entrada por voz vai parar de funcionar até você salvar uma nova key. A key armazenada no servidor será apagada.",
-          "confirm": "Remover"
-        }
+        "hide": "Ocultar"
       }
     },
     "storage": {

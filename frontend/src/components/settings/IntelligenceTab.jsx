@@ -3,13 +3,11 @@
 import { useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
 import {
-  Brain, Loader, Save, Trash2, Eye, EyeOff, CheckCircle,
-  AlertTriangle, ExternalLink, Copy, Check,
+  Brain, Loader, Save, Eye, EyeOff, CheckCircle, ExternalLink,
 } from 'lucide-react';
 import {
   getIntelligenceConfig,
   setIntelligenceConfig,
-  deleteIntelligenceConfig,
   revealIntelligenceProvider,
 } from '@/services/api';
 import { useTranslation, useErrorToast } from '@/providers/I18nProvider';
@@ -21,65 +19,19 @@ const GEMINI_MODELS = [
   'gemini-2.5-flash-lite',
 ];
 
-function ConfirmClearModal({ open, busy, onConfirm, onCancel }) {
-  const { t } = useTranslation();
-  if (!open) return null;
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-overlay/60">
-      <div
-        className="bg-card border rounded-lg shadow-xl max-w-md w-full p-5"
-        style={{ borderColor: 'hsl(var(--border))' }}
-      >
-        <div className="flex items-start gap-3 mb-3">
-          <AlertTriangle className="w-5 h-5 text-destructive mt-0.5 shrink-0" />
-          <h3 className="text-base font-semibold text-foreground">
-            {t('settings.intelligence.gemini.clearConfirm.title')}
-          </h3>
-        </div>
-        <p className="text-sm text-muted-foreground mb-4">
-          {t('settings.intelligence.gemini.clearConfirm.body')}
-        </p>
-        <div className="flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={onCancel}
-            disabled={busy}
-            className="px-3 py-1.5 text-sm rounded-md border border-border text-foreground hover:bg-muted/40 transition-colors disabled:opacity-50"
-          >
-            {t('common.cancel')}
-          </button>
-          <button
-            type="button"
-            onClick={onConfirm}
-            disabled={busy}
-            className="px-3 py-1.5 text-sm rounded-md bg-destructive text-destructive-foreground disabled:opacity-50 inline-flex items-center gap-1.5 hover:opacity-90"
-          >
-            {busy ? <Loader size={14} className="animate-spin" /> : <Trash2 size={14} />}
-            {t('settings.intelligence.gemini.clearConfirm.confirm')}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export default function IntelligenceTab() {
   const { t } = useTranslation();
   const showError = useErrorToast();
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [clearing, setClearing] = useState(false);
-  const [copying, setCopying] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const [confirmClear, setConfirmClear] = useState(false);
 
   const [configured, setConfigured] = useState(false);
   const [maskedKey, setMaskedKey] = useState(null);
-  const [savedModel, setSavedModel] = useState(GEMINI_MODELS[0]);
   const [updatedAt, setUpdatedAt] = useState(null);
 
   const [apiKey, setApiKey] = useState('');
+  const [apiKeyDirty, setApiKeyDirty] = useState(false);
   const [showKey, setShowKey] = useState(false);
   const [model, setModel] = useState(GEMINI_MODELS[0]);
 
@@ -90,11 +42,20 @@ export default function IntelligenceTab() {
       const gemini = data?.providers?.gemini || {};
       setConfigured(!!gemini.configured);
       setMaskedKey(gemini.masked || null);
+      let rawKey = '';
+      if (gemini.configured) {
+        try {
+          const revealed = await revealIntelligenceProvider('gemini');
+          rawKey = typeof revealed?.api_key === 'string' ? revealed.api_key : '';
+        } catch (err) {
+          showError(err);
+        }
+      }
       const m = GEMINI_MODELS.includes(gemini.model) ? gemini.model : GEMINI_MODELS[0];
-      setSavedModel(m);
       setModel(m);
       setUpdatedAt(gemini.updated_at || null);
-      setApiKey('');
+      setApiKey(rawKey);
+      setApiKeyDirty(false);
       setShowKey(false);
     } catch (err) {
       showError(err);
@@ -115,7 +76,7 @@ export default function IntelligenceTab() {
     setSaving(true);
     try {
       const payload = { gemini: { model } };
-      if (trimmed) payload.gemini.api_key = trimmed;
+      if (apiKeyDirty || trimmed) payload.gemini.api_key = trimmed;
       const data = await setIntelligenceConfig(payload);
       if (data?.detail_key) toast.success(t(data.detail_key));
       await refresh();
@@ -126,45 +87,8 @@ export default function IntelligenceTab() {
     }
   }
 
-  async function handleCopy() {
-    setCopying(true);
-    try {
-      // Server returns 404 with detail_key 'errors.intelligence.gemini.not_configured'
-      // when the key is missing — that path goes straight to the outer catch.
-      const data = await revealIntelligenceProvider('gemini');
-      try {
-        await navigator.clipboard.writeText(data.api_key);
-      } catch {
-        showError({ detail_key: 'errors.intelligence.gemini.copy_failed' });
-        return;
-      }
-      setCopied(true);
-      toast.success(t('success.intelligence.gemini_copied'));
-      setTimeout(() => setCopied(false), 2000);
-    } catch (err) {
-      showError(err);
-    } finally {
-      setCopying(false);
-    }
-  }
-
-  async function handleClear() {
-    setClearing(true);
-    try {
-      const data = await deleteIntelligenceConfig('gemini');
-      if (data?.detail_key) toast.success(t(data.detail_key));
-      setConfirmClear(false);
-      await refresh();
-    } catch (err) {
-      showError(err);
-    } finally {
-      setClearing(false);
-    }
-  }
-
-  const modelChanged = model !== savedModel;
   const hasNewKey = apiKey.trim().length > 0;
-  const canSave = !saving && (hasNewKey || (configured && modelChanged));
+  const canSave = !saving && (hasNewKey || configured);
 
   return (
     <div className="flex flex-col gap-4">
@@ -206,7 +130,10 @@ export default function IntelligenceTab() {
               <input
                 type={showKey ? 'text' : 'password'}
                 value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
+                onChange={(e) => {
+                  setApiKey(e.target.value);
+                  setApiKeyDirty(true);
+                }}
                 placeholder={configured && maskedKey ? maskedKey : 'AIza…'}
                 disabled={saving}
                 autoComplete="off"
@@ -272,49 +199,15 @@ export default function IntelligenceTab() {
           <div className="flex flex-col sm:flex-row gap-2 pt-2 flex-wrap">
             <button
               type="submit"
-              disabled={!canSave || copying}
+              disabled={!canSave}
               className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-md text-sm font-medium text-white bg-brand-gradient hover:opacity-90 transition-opacity disabled:opacity-50"
             >
               {saving ? <Loader size={14} className="animate-spin" /> : <Save size={14} />}
               {saving ? t('settings.saving') : t('settings.intelligence.gemini.saveButton')}
             </button>
-            {configured && (
-              <button
-                type="button"
-                onClick={handleCopy}
-                disabled={copying || saving || clearing}
-                title={t('settings.intelligence.gemini.copyTooltip')}
-                className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-md text-sm font-medium border border-border text-foreground hover:bg-muted/40 transition-colors disabled:opacity-50"
-              >
-                {copying
-                  ? <Loader size={14} className="animate-spin" />
-                  : copied
-                  ? <Check size={14} className="text-success" />
-                  : <Copy size={14} />}
-                {t('settings.intelligence.gemini.copyButton')}
-              </button>
-            )}
-            {configured && (
-              <button
-                type="button"
-                onClick={() => setConfirmClear(true)}
-                disabled={clearing || saving || copying}
-                className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-md text-sm font-medium border border-border text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-50"
-              >
-                <Trash2 size={14} />
-                {t('settings.intelligence.gemini.clearButton')}
-              </button>
-            )}
           </div>
         </form>
       )}
-
-      <ConfirmClearModal
-        open={confirmClear}
-        busy={clearing}
-        onConfirm={handleClear}
-        onCancel={() => setConfirmClear(false)}
-      />
     </div>
   );
 }

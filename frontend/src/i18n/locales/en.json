@@ -527,8 +527,7 @@
         "timeout": "Gemini API timed out. Try a shorter recording.",
         "upstream_failed": "Gemini API failed: {reason}",
         "empty_transcript": "Gemini returned an empty transcript ({reason}). Try recording again.",
-        "config_load_failed": "Could not load Intelligence settings.",
-        "copy_failed": "Could not copy the API key. Check browser permissions."
+        "config_load_failed": "Could not load Intelligence settings."
       },
       "voice": {
         "insecure_context": "Voice input needs HTTPS or localhost. If you are opening Pulse from a network IP, run `pulse config tls on`, accept the certificate in the browser, and reopen the dashboard with https://.",
@@ -595,7 +594,6 @@
     },
     "intelligence": {
       "gemini_saved": "Gemini API key saved.",
-      "gemini_copied": "Gemini API key copied to clipboard.",
       "cleared": "Intelligence configuration cleared.",
       "transcribed": "Audio transcribed."
     }
@@ -781,22 +779,14 @@
         "configuredBadge": "Configured",
         "apiKeyLabel": "API key",
         "apiKeyHintEmpty": "Paste your Gemini API key.",
-        "apiKeyHintConfigured": "A key is already saved. Paste a new value to replace it.",
+        "apiKeyHintConfigured": "The saved key is loaded here. Edit it, or clear the field and save to remove it.",
         "getKeyLink": "Get a Gemini API key",
         "modelLabel": "Model",
         "modelHint": "Gemini 3 Flash Preview is the recommended default. Flash and Flash-Lite models are listed for transcription.",
         "updatedAt": "Last updated: {when}",
         "saveButton": "Save",
-        "clearButton": "Remove key",
-        "copyButton": "Copy key",
-        "copyTooltip": "Copy the saved API key to clipboard",
         "show": "Show",
-        "hide": "Hide",
-        "clearConfirm": {
-          "title": "Remove Gemini key?",
-          "body": "Voice input will stop working until you save a key again. The key on the server will be deleted.",
-          "confirm": "Remove"
-        }
+        "hide": "Hide"
       }
     },
     "storage": {
