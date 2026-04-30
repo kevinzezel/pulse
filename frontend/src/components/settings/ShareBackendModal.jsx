@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Copy, Check, AlertTriangle } from 'lucide-react';
+import { Copy, Check, AlertTriangle, X } from 'lucide-react';
 import { useTranslation } from '@/providers/I18nProvider';
 
 export default function ShareBackendModal({ backendName, token, onClose }) {
@@ -20,30 +20,41 @@ export default function ShareBackendModal({ backendName, token, onClose }) {
   }
 
   return (
-    <div className="fixed inset-0 bg-overlay/60 z-50 flex items-center justify-center p-4">
-      <div className="bg-card border border-border rounded-lg p-6 w-full max-w-lg space-y-4">
-        <h3 className="text-lg font-semibold">
-          {t('settings.storage.shareModal.title', { name: backendName })}
-        </h3>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-overlay/60 px-4">
+      <div className="bg-card border border-border rounded-lg p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-foreground font-semibold">
+            {t('settings.storage.shareModal.title', { name: backendName })}
+          </h3>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-muted-foreground hover:text-foreground"
+            aria-label={t('settings.storage.shareModal.close')}
+          >
+            <X size={18} />
+          </button>
+        </div>
 
-        <div className="flex items-start gap-2 p-3 bg-destructive/10 border border-destructive/30 rounded text-sm">
+        <div className="flex items-start gap-2 p-3 bg-destructive/10 border border-destructive/30 rounded-md text-sm mb-4">
           <AlertTriangle className="size-5 text-destructive shrink-0 mt-0.5" />
           <p className="text-destructive">
             {t('settings.storage.shareModal.warning')}
           </p>
         </div>
 
-        <div className="relative">
+        <div className="relative mb-4">
           <textarea
             readOnly
             value={token}
             rows={4}
-            className="w-full px-3 py-2 pr-12 border border-input rounded bg-background font-mono text-xs break-all"
+            className="w-full px-3 py-2 pr-12 bg-input border border-border rounded-md text-foreground font-mono text-xs break-all focus:outline-none focus:ring-1 focus:ring-ring"
             onFocus={(e) => e.target.select()}
           />
           <button
+            type="button"
             onClick={handleCopy}
-            className="absolute top-2 right-2 p-2 rounded hover:bg-accent"
+            className="absolute top-2 right-2 p-2 rounded hover:bg-accent text-muted-foreground hover:text-foreground"
             aria-label={t('settings.storage.shareModal.copy')}
             title={copied ? t('settings.storage.shareModal.copied') : t('settings.storage.shareModal.copy')}
           >
@@ -53,8 +64,9 @@ export default function ShareBackendModal({ backendName, token, onClose }) {
 
         <div className="flex justify-end">
           <button
+            type="button"
             onClick={onClose}
-            className="px-3 py-2 text-sm rounded bg-primary text-primary-foreground hover:bg-primary/90"
+            className="py-2 px-6 rounded-md text-sm font-medium text-white bg-brand-gradient hover:opacity-90 transition-opacity"
           >
             {t('settings.storage.shareModal.close')}
           </button>

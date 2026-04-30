@@ -484,10 +484,11 @@
     "remote_editor_no_target": "Servidor sem host/alias SSH configurado. Edite o servidor em Configurações → Servidores.",
     "backend_unknown": "Backend não encontrado",
     "backend_in_use": "O backend tem {count} projeto(s) ainda apontando pra ele. Mova-os primeiro.",
-    "backend_local_immutable": "Não é possível remover o backend local",
+    "backend_local_immutable": "Não é possível editar ou remover o backend local",
     "backend_local_not_shareable": "Não é possível compartilhar o backend local — dados locais ficam neste install",
     "backend_is_default": "Não é possível remover o backend padrão. Defina outro como padrão primeiro.",
     "backend_unreachable": "Não foi possível acessar o backend: {reason}",
+    "backend_clipboard_failed": "Não foi possível copiar para a área de transferência. Verifique as permissões do navegador.",
     "invalid_token": "Token de backend inválido: {reason}",
     "storage": {
       "not_configured": "Nenhum storage remoto configurado.",
@@ -510,6 +511,7 @@
     },
     "intelligence": {
       "payload_required": "Payload do provedor é obrigatório.",
+      "unknown_provider": "Provedor de inteligência desconhecido.",
       "audio_required": "É necessário enviar uma gravação de áudio.",
       "audio_invalid_type": "Tipo MIME de áudio não suportado: {mime}",
       "audio_empty": "Gravação de áudio está vazia.",
@@ -521,7 +523,8 @@
         "timeout": "API do Gemini demorou demais. Tente uma gravação mais curta.",
         "upstream_failed": "API do Gemini falhou: {reason}",
         "empty_transcript": "Gemini retornou transcrição vazia ({reason}). Tente gravar de novo.",
-        "config_load_failed": "Não foi possível carregar as configurações de Inteligência."
+        "config_load_failed": "Não foi possível carregar as configurações de Inteligência.",
+        "copy_failed": "Não foi possível copiar a API key. Verifique as permissões do navegador."
       },
       "voice": {
         "insecure_context": "Entrada por voz precisa de HTTPS ou localhost. Se você abriu o Pulse por um IP da rede, rode `pulse config tls on`, aceite o certificado no navegador e reabra o painel com https://.",
@@ -583,10 +586,12 @@
       "file_activated": "Storage local ativado — recarregando.",
       "sync_local_to_cloud": "Dados locais enviados ao cloud ({count} arquivo(s)).",
       "sync_cloud_to_local": "Dados do cloud trazidos para arquivos locais ({count} arquivo(s)).",
-      "copied": "Copiado para clipboard."
+      "copied": "Copiado para clipboard.",
+      "backend_updated": "Backend atualizado."
     },
     "intelligence": {
       "gemini_saved": "API key do Gemini salva.",
+      "gemini_copied": "API key do Gemini copiada para a área de transferência.",
       "cleared": "Configuração de Inteligência removida.",
       "transcribed": "Áudio transcrito."
     }
@@ -779,6 +784,8 @@
         "updatedAt": "Última atualização: {when}",
         "saveButton": "Salvar",
         "clearButton": "Remover key",
+        "copyButton": "Copiar key",
+        "copyTooltip": "Copiar a API key salva para a área de transferência",
         "show": "Mostrar",
         "hide": "Ocultar",
         "clearConfirm": {
@@ -796,12 +803,14 @@
       "default": "Padrão",
       "setDefault": "Tornar padrão",
       "rename": "Renomear",
+      "edit": "Editar",
       "remove": "Remover",
       "generateToken": "Gerar token de compartilhamento",
       "removeBlocked": "Não é possível remover — {count} projeto(s) ainda usa(m) este backend",
       "newProjectsAvailable": "{backend}: {count} novo(s) projeto(s) disponível(is) — {names}",
       "addModal": {
         "title": "Adicionar backend",
+        "editTitle": "Editar backend",
         "modeForm": "Novo backend",
         "modeToken": "Colar token",
         "name": "Nome de exibição",
@@ -814,12 +823,16 @@
         "region": "Região",
         "accessKeyId": "Access Key ID",
         "secretAccessKey": "Secret Access Key",
+        "secretPlaceholder": "Deixe inalterado para manter o valor atual",
         "prefix": "Prefixo (opcional)",
         "forcePathStyle": "Usar endereçamento path-style (MinIO)",
         "uri": "MongoDB URI",
+        "uriPlaceholder": "Deixe inalterado para manter o valor atual",
         "database": "Banco de dados",
         "validate": "Validar e adicionar",
         "validating": "Validando...",
+        "save": "Salvar alterações",
+        "saving": "Salvando...",
         "tokenHelp": "Cole um token de compartilhamento de um colaborador. O backend é adicionado com as credenciais embutidas e os projetos dele aparecem automaticamente.",
         "tokenLabel": "Token de compartilhamento",
         "tokenPlaceholder": "pulsebackend://v1/...",
@@ -828,6 +841,7 @@
         "import": "Validar e importar",
         "importing": "Importando...",
         "successAdded": "Backend \"{name}\" adicionado",
+        "successUpdated": "Backend \"{name}\" atualizado",
         "successImported": "Importado \"{name}\" — {count} projeto(s) descoberto(s)",
         "cancel": "Cancelar"
       },

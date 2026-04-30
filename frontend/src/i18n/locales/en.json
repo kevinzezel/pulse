@@ -484,10 +484,11 @@
     "remote_editor_no_target": "Server has no host/SSH alias configured. Edit the server in Settings → Servers.",
     "backend_unknown": "Backend not found",
     "backend_in_use": "Backend has {count} project(s) still routed to it. Move them first.",
-    "backend_local_immutable": "Cannot remove the local backend",
+    "backend_local_immutable": "Cannot edit or remove the local backend",
     "backend_local_not_shareable": "Cannot share the local backend — local data stays on this install",
     "backend_is_default": "Cannot remove the default backend. Set another as default first.",
     "backend_unreachable": "Cannot reach backend: {reason}",
+    "backend_clipboard_failed": "Could not copy to clipboard. Check browser permissions.",
     "invalid_token": "Invalid backend token: {reason}",
     "storage": {
       "not_configured": "No remote storage is configured.",
@@ -510,6 +511,7 @@
     },
     "intelligence": {
       "payload_required": "Provider payload is required.",
+      "unknown_provider": "Unknown intelligence provider.",
       "audio_required": "An audio recording is required.",
       "audio_invalid_type": "Unsupported audio mime type: {mime}",
       "audio_empty": "Audio recording is empty.",
@@ -521,7 +523,8 @@
         "timeout": "Gemini API timed out. Try a shorter recording.",
         "upstream_failed": "Gemini API failed: {reason}",
         "empty_transcript": "Gemini returned an empty transcript ({reason}). Try recording again.",
-        "config_load_failed": "Could not load Intelligence settings."
+        "config_load_failed": "Could not load Intelligence settings.",
+        "copy_failed": "Could not copy the API key. Check browser permissions."
       },
       "voice": {
         "insecure_context": "Voice input needs HTTPS or localhost. If you are opening Pulse from a network IP, run `pulse config tls on`, accept the certificate in the browser, and reopen the dashboard with https://.",
@@ -583,10 +586,12 @@
       "file_activated": "Local storage activated — reloading.",
       "sync_local_to_cloud": "Local data pushed to cloud ({count} file(s)).",
       "sync_cloud_to_local": "Cloud data pulled to local files ({count} file(s)).",
-      "copied": "Copied to clipboard."
+      "copied": "Copied to clipboard.",
+      "backend_updated": "Backend updated."
     },
     "intelligence": {
       "gemini_saved": "Gemini API key saved.",
+      "gemini_copied": "Gemini API key copied to clipboard.",
       "cleared": "Intelligence configuration cleared.",
       "transcribed": "Audio transcribed."
     }
@@ -779,6 +784,8 @@
         "updatedAt": "Last updated: {when}",
         "saveButton": "Save",
         "clearButton": "Remove key",
+        "copyButton": "Copy key",
+        "copyTooltip": "Copy the saved API key to clipboard",
         "show": "Show",
         "hide": "Hide",
         "clearConfirm": {
@@ -796,12 +803,14 @@
       "default": "Default",
       "setDefault": "Make default",
       "rename": "Rename",
+      "edit": "Edit",
       "remove": "Remove",
       "generateToken": "Generate share token",
       "removeBlocked": "Cannot remove — {count} project(s) still on this backend",
       "newProjectsAvailable": "{backend}: {count} new project(s) available — {names}",
       "addModal": {
         "title": "Add backend",
+        "editTitle": "Edit backend",
         "modeForm": "New backend",
         "modeToken": "Paste share token",
         "name": "Display name",
@@ -814,12 +823,16 @@
         "region": "Region",
         "accessKeyId": "Access key ID",
         "secretAccessKey": "Secret access key",
+        "secretPlaceholder": "Leave unchanged to keep the current value",
         "prefix": "Prefix (optional)",
         "forcePathStyle": "Use path-style addressing (MinIO)",
         "uri": "MongoDB URI",
+        "uriPlaceholder": "Leave unchanged to keep the current value",
         "database": "Database",
         "validate": "Validate & add",
         "validating": "Validating...",
+        "save": "Save changes",
+        "saving": "Saving...",
         "tokenHelp": "Paste a share token from a collaborator. The backend is added with their credentials and any projects they have on it become available automatically.",
         "tokenLabel": "Share token",
         "tokenPlaceholder": "pulsebackend://v1/...",
@@ -828,6 +841,7 @@
         "import": "Validate & import",
         "importing": "Importing...",
         "successAdded": "Backend \"{name}\" added",
+        "successUpdated": "Backend \"{name}\" updated",
         "successImported": "Imported \"{name}\" — {count} project(s) discovered",
         "cancel": "Cancel"
       },

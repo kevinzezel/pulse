@@ -365,6 +365,35 @@ export async function setDefaultBackend(backendId) {
   await _setConfigV2({ ...cfg, default_backend_id: backendId });
 }
 
+// Update an existing backend's name / config in place. The driver promise for
+// this id is invalidated and its client closed in the background so in-flight
+// requests can finish; the next read/write will reinstantiate with the new
+// config. Refuses to touch the `local` backend (its config is immutable).
+export async function updateBackend(backendId, patch) {
+  if (backendId === 'local') throw new Error('Cannot update the local backend');
+  const cfg = await getConfig();
+  const idx = cfg.backends.findIndex((b) => b.id === backendId);
+  if (idx < 0) throw new Error(`Unknown backend: ${backendId}`);
+  const current = cfg.backends[idx];
+  const next = {
+    ...current,
+    ...(patch.name !== undefined ? { name: patch.name } : {}),
+    ...(patch.config !== undefined ? { config: patch.config } : {}),
+  };
+  const nextBackends = cfg.backends.slice();
+  nextBackends[idx] = next;
+  await _setConfigV2({ ...cfg, backends: nextBackends });
+
+  // Invalidate the driver promise for this id so the next access rebuilds
+  // with the new config. Drain the old client in the background so any
+  // in-flight requests finish first.
+  if (_driverPromises.has(backendId)) {
+    const oldPromise = _driverPromises.get(backendId);
+    _driverPromises.delete(backendId);
+    await _drainDriverInBackground(backendId, oldPromise);
+  }
+}
+
 // ---------- Test utilities ----------
 
 export async function resetForTests() {

@@ -1,12 +1,12 @@
 'use client';
 
 import { useState } from 'react';
-import { Star, Share2, Trash2 } from 'lucide-react';
+import { Star, Share2, Trash2, Pencil } from 'lucide-react';
 import { useTranslation, useErrorToast } from '@/providers/I18nProvider';
 import { setDefaultBackend, removeBackend, generateShareToken } from '@/services/api';
 import ShareBackendModal from './ShareBackendModal';
 
-export default function BackendCard({ backend, isDefault, projectCount, onChange }) {
+export default function BackendCard({ backend, isDefault, projectCount, onChange, onEdit }) {
   const { t } = useTranslation();
   const showError = useErrorToast();
   const [busy, setBusy] = useState(false);
@@ -80,6 +80,17 @@ export default function BackendCard({ backend, isDefault, projectCount, onChange
               className="px-2 py-1 text-sm rounded hover:bg-accent disabled:opacity-50"
             >
               {t('settings.storage.setDefault')}
+            </button>
+          )}
+          {backend.driver !== 'file' && (
+            <button
+              onClick={() => onEdit?.(backend)}
+              disabled={busy}
+              className="p-2 rounded hover:bg-accent disabled:opacity-50"
+              aria-label={t('settings.storage.edit')}
+              title={t('settings.storage.edit')}
+            >
+              <Pencil className="size-4" />
             </button>
           )}
           {backend.driver !== 'file' && (

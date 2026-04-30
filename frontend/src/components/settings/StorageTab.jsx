@@ -15,6 +15,7 @@ export default function StorageTab() {
   const [data, setData] = useState({ backends: [], default_backend_id: 'local' });
   const [loading, setLoading] = useState(true);
   const [addModalOpen, setAddModalOpen] = useState(false);
+  const [editing, setEditing] = useState(null); // backend being edited or null
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -39,6 +40,7 @@ export default function StorageTab() {
   // surfaces any projects that came along with a token import.
   async function handleAdded() {
     setAddModalOpen(false);
+    setEditing(null);
     await refresh();
     refreshProjects().catch((err) => console.warn('[StorageTab] project refresh failed:', err));
   }
@@ -71,6 +73,7 @@ export default function StorageTab() {
               isDefault={data.default_backend_id === backend.id}
               projectCount={projectCountFor(backend.id)}
               onChange={refresh}
+              onEdit={setEditing}
             />
           ))}
         </div>
@@ -79,6 +82,14 @@ export default function StorageTab() {
       {addModalOpen && (
         <AddBackendModal
           onClose={() => setAddModalOpen(false)}
+          onAdded={handleAdded}
+        />
+      )}
+
+      {editing && (
+        <AddBackendModal
+          backend={editing}
+          onClose={() => setEditing(null)}
           onAdded={handleAdded}
         />
       )}

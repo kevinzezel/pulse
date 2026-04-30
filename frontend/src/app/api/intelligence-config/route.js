@@ -43,9 +43,30 @@ function publicShape(stored) {
   };
 }
 
-export const GET = withAuth(async () => {
+const REVEAL_PROVIDERS = ['gemini'];
+
+export const GET = withAuth(async (req) => {
+  const url = new URL(req.url);
+  const reveal = url.searchParams.get('reveal');
   const data = await readLocalStore(REL, EMPTY);
-  return NextResponse.json(publicShape(data));
+  if (!reveal) return NextResponse.json(publicShape(data));
+
+  if (!REVEAL_PROVIDERS.includes(reveal)) {
+    return bad('errors.intelligence.unknown_provider', 'Unknown provider', 400);
+  }
+  const provider = (data && typeof data === 'object' && data.providers) || {};
+  const entry = provider[reveal] && typeof provider[reveal] === 'object' ? provider[reveal] : null;
+  const apiKey = typeof entry?.api_key === 'string' ? entry.api_key : '';
+  if (!apiKey) {
+    return bad(`errors.intelligence.${reveal}.not_configured`, 'Provider not configured', 404);
+  }
+  // Response carries a raw secret — must never be cached by intermediaries
+  // (browsers, proxies, dev tools' offline caches). The default GET above is
+  // already mask-only, so it doesn't need this header.
+  return NextResponse.json(
+    { provider: reveal, api_key: apiKey },
+    { headers: { 'Cache-Control': 'no-store' } },
+  );
 });
 
 export const PUT = withAuth(async (req) => {

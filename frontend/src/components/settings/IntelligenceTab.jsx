@@ -2,11 +2,12 @@
 
 import { useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
-import { Brain, Loader, Save, Trash2, Eye, EyeOff, CheckCircle, AlertTriangle, ExternalLink } from 'lucide-react';
+import { Brain, Loader, Save, Trash2, Eye, EyeOff, CheckCircle, AlertTriangle, ExternalLink, Copy, Check } from 'lucide-react';
 import {
   getIntelligenceConfig,
   setIntelligenceConfig,
   deleteIntelligenceConfig,
+  revealIntelligenceProvider,
 } from '@/services/api';
 import { useTranslation, useErrorToast } from '@/providers/I18nProvider';
 
@@ -97,6 +98,8 @@ export default function IntelligenceTab() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [clearing, setClearing] = useState(false);
+  const [copying, setCopying] = useState(false);
+  const [copied, setCopied] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
 
   const [configured, setConfigured] = useState(false);
@@ -146,6 +149,28 @@ export default function IntelligenceTab() {
       showError(err);
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleCopy() {
+    setCopying(true);
+    try {
+      // Server returns 404 with detail_key 'errors.intelligence.gemini.not_configured'
+      // when the key is missing — that path goes straight to the outer catch.
+      const data = await revealIntelligenceProvider('gemini');
+      try {
+        await navigator.clipboard.writeText(data.api_key);
+      } catch {
+        showError({ detail_key: 'errors.intelligence.gemini.copy_failed' });
+        return;
+      }
+      setCopied(true);
+      toast.success(t('success.intelligence.gemini_copied'));
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      showError(err);
+    } finally {
+      setCopying(false);
     }
   }
 
@@ -267,8 +292,25 @@ export default function IntelligenceTab() {
           {configured && (
             <button
               type="button"
+              onClick={handleCopy}
+              disabled={copying || saving || clearing}
+              title={t('settings.intelligence.gemini.copyTooltip')}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded border text-foreground hover:bg-accent disabled:opacity-50"
+              style={{ borderColor: 'hsl(var(--border))' }}
+            >
+              {copying
+                ? <Loader size={14} className="animate-spin" />
+                : copied
+                ? <Check size={14} className="text-success" />
+                : <Copy size={14} />}
+              {t('settings.intelligence.gemini.copyButton')}
+            </button>
+          )}
+          {configured && (
+            <button
+              type="button"
               onClick={() => setConfirmClear(true)}
-              disabled={clearing || saving}
+              disabled={clearing || saving || copying}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded border text-destructive hover:bg-destructive/10 disabled:opacity-50"
               style={{ borderColor: 'hsl(var(--border))' }}
             >
@@ -278,7 +320,7 @@ export default function IntelligenceTab() {
           )}
           <button
             type="submit"
-            disabled={!canSave}
+            disabled={!canSave || copying}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded bg-primary text-primary-foreground disabled:opacity-50 hover:opacity-90"
           >
             {saving ? <Loader size={14} className="animate-spin" /> : <Save size={14} />}

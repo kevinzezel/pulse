@@ -1,35 +1,43 @@
 'use client';
 
 import { useState } from 'react';
+import { X } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useTranslation, useErrorToast } from '@/providers/I18nProvider';
-import { addBackend, importBackendToken } from '@/services/api';
+import { addBackend, updateBackend, importBackendToken } from '@/services/api';
 
-// Single modal that handles both flows for bringing a backend in:
+// Single modal that handles three flows for managing storage backends:
 //
-// 1. Form mode  — fill in driver-specific credentials manually.
-// 2. Token mode — paste a `pulsebackend://v1/...` share token; the server
-//    decodes it, pings the backend, and registers it locally. Manifest-as-
-//    truth (v4.2) means the projects on that backend show up automatically
-//    on the next /api/projects refresh, no separate import step needed.
-export default function AddBackendModal({ onClose, onAdded }) {
+// 1. Form-add   — fill in driver-specific credentials manually.
+// 2. Form-edit  — patch an existing backend's name/config; secret fields
+//                 prefill with the masked value and only get sent to the
+//                 server when the user changes them. The driver and storage
+//                 token import are not editable here.
+// 3. Token mode — paste a `pulsebackend://v1/...` share token; the server
+//                 decodes it, pings the backend, and registers it locally.
+//                 Token mode is only offered when adding (no editing).
+export default function AddBackendModal({ onClose, onAdded, backend = null }) {
   const { t } = useTranslation();
   const showError = useErrorToast();
+  const isEdit = backend != null;
   const [mode, setMode] = useState('form'); // 'form' | 'token'
   const [busy, setBusy] = useState(false);
 
+  const initialDriver = backend?.driver === 'mongo' ? 'mongo' : 's3';
+  const initialConfig = backend?.config || {};
+
   // Form-mode state
-  const [driver, setDriver] = useState('s3');
-  const [name, setName] = useState('');
-  const [endpoint, setEndpoint] = useState('');
-  const [bucket, setBucket] = useState('');
-  const [region, setRegion] = useState('us-east-1');
-  const [accessKeyId, setAccessKeyId] = useState('');
-  const [secretAccessKey, setSecretAccessKey] = useState('');
-  const [prefix, setPrefix] = useState('');
-  const [forcePathStyle, setForcePathStyle] = useState(false);
-  const [uri, setUri] = useState('');
-  const [database, setDatabase] = useState('pulse');
+  const [driver, setDriver] = useState(initialDriver);
+  const [name, setName] = useState(backend?.name || '');
+  const [endpoint, setEndpoint] = useState(initialConfig.endpoint || '');
+  const [bucket, setBucket] = useState(initialConfig.bucket || '');
+  const [region, setRegion] = useState(initialConfig.region || 'us-east-1');
+  const [accessKeyId, setAccessKeyId] = useState(initialConfig.access_key_id || '');
+  const [secretAccessKey, setSecretAccessKey] = useState(initialConfig.secret_access_key || '');
+  const [prefix, setPrefix] = useState(initialConfig.prefix || '');
+  const [forcePathStyle, setForcePathStyle] = useState(!!initialConfig.force_path_style);
+  const [uri, setUri] = useState(initialConfig.uri || '');
+  const [database, setDatabase] = useState(initialConfig.database || 'pulse');
 
   // Token-mode state
   const [token, setToken] = useState('');
@@ -50,8 +58,13 @@ export default function AddBackendModal({ onClose, onAdded }) {
             force_path_style: forcePathStyle,
           }
         : { uri, database };
-      await addBackend({ name, driver, config });
-      toast.success(t('settings.storage.addModal.successAdded', { name }));
+      if (isEdit) {
+        await updateBackend(backend.id, { name, config });
+        toast.success(t('settings.storage.addModal.successUpdated', { name }));
+      } else {
+        await addBackend({ name, driver, config });
+        toast.success(t('settings.storage.addModal.successAdded', { name }));
+      }
       onAdded();
     } catch (err) {
       showError(err);
@@ -65,7 +78,6 @@ export default function AddBackendModal({ onClose, onAdded }) {
     setBusy(true);
     try {
       const result = await importBackendToken({ token, rename: rename || undefined });
-      // result: { backend_id, backend_name, projects: [...] }
       const projectCount = (result.projects || []).length;
       toast.success(t('settings.storage.addModal.successImported', {
         name: result.backend_name,
@@ -79,114 +91,155 @@ export default function AddBackendModal({ onClose, onAdded }) {
     }
   }
 
-  return (
-    <div className="fixed inset-0 bg-overlay/60 z-50 flex items-center justify-center p-4">
-      <div className="bg-card border border-border rounded-lg p-6 w-full max-w-md space-y-3 max-h-[90vh] overflow-y-auto">
-        <h3 className="text-lg font-semibold">{t('settings.storage.addModal.title')}</h3>
+  const title = isEdit
+    ? t('settings.storage.addModal.editTitle')
+    : t('settings.storage.addModal.title');
+  const submitLabelIdle = isEdit
+    ? t('settings.storage.addModal.save')
+    : t('settings.storage.addModal.validate');
+  const submitLabelBusy = isEdit
+    ? t('settings.storage.addModal.saving')
+    : t('settings.storage.addModal.validating');
 
-        <div className="flex gap-1 p-1 bg-muted/40 rounded-md text-xs">
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-overlay/60 px-4">
+      <div className="bg-card border border-border rounded-lg p-6 w-full max-w-md max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-foreground font-semibold">{title}</h3>
           <button
             type="button"
-            onClick={() => setMode('form')}
-            disabled={busy}
-            className={`flex-1 px-3 py-1.5 rounded transition-colors disabled:opacity-50 ${
-              mode === 'form' ? 'bg-card shadow-sm font-medium' : 'text-muted-foreground hover:text-foreground'
-            }`}
+            onClick={onClose}
+            className="text-muted-foreground hover:text-foreground"
+            aria-label={t('settings.storage.addModal.cancel')}
           >
-            {t('settings.storage.addModal.modeForm')}
-          </button>
-          <button
-            type="button"
-            onClick={() => setMode('token')}
-            disabled={busy}
-            className={`flex-1 px-3 py-1.5 rounded transition-colors disabled:opacity-50 ${
-              mode === 'token' ? 'bg-card shadow-sm font-medium' : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            {t('settings.storage.addModal.modeToken')}
+            <X size={18} />
           </button>
         </div>
 
-        {mode === 'form' && (
+        {!isEdit && (
+          <div className="flex gap-1 p-1 bg-muted/40 rounded-md text-xs mb-4">
+            <button
+              type="button"
+              onClick={() => setMode('form')}
+              disabled={busy}
+              className={`flex-1 px-3 py-1.5 rounded transition-colors disabled:opacity-50 ${
+                mode === 'form' ? 'bg-card shadow-sm font-medium' : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              {t('settings.storage.addModal.modeForm')}
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode('token')}
+              disabled={busy}
+              className={`flex-1 px-3 py-1.5 rounded transition-colors disabled:opacity-50 ${
+                mode === 'token' ? 'bg-card shadow-sm font-medium' : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              {t('settings.storage.addModal.modeToken')}
+            </button>
+          </div>
+        )}
+
+        {(isEdit || mode === 'form') && (
           <form onSubmit={handleSubmitForm} className="space-y-3">
-            <label className="block text-sm">
-              <span className="block mb-1">{t('settings.storage.addModal.name')}</span>
+            <div>
+              <label className="block text-sm text-muted-foreground mb-1">
+                {t('settings.storage.addModal.name')}
+              </label>
               <input
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 required
-                className="w-full px-3 py-2 border border-input rounded bg-background"
+                className="w-full px-3 py-2 bg-input border border-border rounded-md text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
               />
-            </label>
+            </div>
 
-            <label className="block text-sm">
-              <span className="block mb-1">{t('settings.storage.addModal.driver')}</span>
+            <div>
+              <label className="block text-sm text-muted-foreground mb-1">
+                {t('settings.storage.addModal.driver')}
+              </label>
               <select
                 value={driver}
                 onChange={(e) => setDriver(e.target.value)}
-                className="w-full px-3 py-2 border border-input rounded bg-background"
+                disabled={isEdit}
+                className="w-full px-3 py-2 bg-input border border-border rounded-md text-foreground text-sm focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-60"
               >
                 <option value="s3">{t('settings.storage.addModal.driverS3')}</option>
                 <option value="mongo">{t('settings.storage.addModal.driverMongo')}</option>
               </select>
-            </label>
+            </div>
 
             {driver === 's3' && (
               <>
-                <label className="block text-sm">
-                  <span className="block mb-1">{t('settings.storage.addModal.endpoint')}</span>
+                <div>
+                  <label className="block text-sm text-muted-foreground mb-1">
+                    {t('settings.storage.addModal.endpoint')}
+                  </label>
                   <input
                     value={endpoint}
                     onChange={(e) => setEndpoint(e.target.value)}
                     placeholder="https://s3.amazonaws.com"
-                    className="w-full px-3 py-2 border border-input rounded bg-background"
+                    className="w-full px-3 py-2 bg-input border border-border rounded-md text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
                   />
-                </label>
-                <label className="block text-sm">
-                  <span className="block mb-1">{t('settings.storage.addModal.bucket')}</span>
+                </div>
+                <div>
+                  <label className="block text-sm text-muted-foreground mb-1">
+                    {t('settings.storage.addModal.bucket')}
+                  </label>
                   <input
                     value={bucket}
                     onChange={(e) => setBucket(e.target.value)}
                     required
-                    className="w-full px-3 py-2 border border-input rounded bg-background"
+                    className="w-full px-3 py-2 bg-input border border-border rounded-md text-foreground text-sm focus:outline-none focus:ring-1 focus:ring-ring"
                   />
-                </label>
-                <label className="block text-sm">
-                  <span className="block mb-1">{t('settings.storage.addModal.region')}</span>
+                </div>
+                <div>
+                  <label className="block text-sm text-muted-foreground mb-1">
+                    {t('settings.storage.addModal.region')}
+                  </label>
                   <input
                     value={region}
                     onChange={(e) => setRegion(e.target.value)}
-                    className="w-full px-3 py-2 border border-input rounded bg-background"
+                    className="w-full px-3 py-2 bg-input border border-border rounded-md text-foreground text-sm focus:outline-none focus:ring-1 focus:ring-ring"
                   />
-                </label>
-                <label className="block text-sm">
-                  <span className="block mb-1">{t('settings.storage.addModal.accessKeyId')}</span>
+                </div>
+                <div>
+                  <label className="block text-sm text-muted-foreground mb-1">
+                    {t('settings.storage.addModal.accessKeyId')}
+                  </label>
                   <input
                     value={accessKeyId}
                     onChange={(e) => setAccessKeyId(e.target.value)}
-                    required
-                    className="w-full px-3 py-2 border border-input rounded bg-background font-mono text-xs"
+                    required={!isEdit}
+                    placeholder={isEdit ? t('settings.storage.addModal.secretPlaceholder') : ''}
+                    className="w-full px-3 py-2 bg-input border border-border rounded-md text-foreground text-sm font-mono focus:outline-none focus:ring-1 focus:ring-ring"
                   />
-                </label>
-                <label className="block text-sm">
-                  <span className="block mb-1">{t('settings.storage.addModal.secretAccessKey')}</span>
+                </div>
+                <div>
+                  <label className="block text-sm text-muted-foreground mb-1">
+                    {t('settings.storage.addModal.secretAccessKey')}
+                  </label>
                   <input
                     type="password"
                     value={secretAccessKey}
                     onChange={(e) => setSecretAccessKey(e.target.value)}
-                    required
-                    className="w-full px-3 py-2 border border-input rounded bg-background font-mono text-xs"
+                    required={!isEdit}
+                    placeholder={isEdit ? t('settings.storage.addModal.secretPlaceholder') : ''}
+                    className="w-full px-3 py-2 bg-input border border-border rounded-md text-foreground text-sm font-mono focus:outline-none focus:ring-1 focus:ring-ring"
                   />
-                </label>
-                <label className="block text-sm">
-                  <span className="block mb-1">{t('settings.storage.addModal.prefix')}</span>
+                </div>
+                <div>
+                  <label className="block text-sm text-muted-foreground mb-1">
+                    {t('settings.storage.addModal.prefix')}
+                  </label>
                   <input
                     value={prefix}
                     onChange={(e) => setPrefix(e.target.value)}
-                    className="w-full px-3 py-2 border border-input rounded bg-background"
+                    className="w-full px-3 py-2 bg-input border border-border rounded-md text-foreground text-sm focus:outline-none focus:ring-1 focus:ring-ring"
                   />
-                </label>
-                <label className="flex items-center gap-2 text-sm">
+                </div>
+                <label className="flex items-center gap-2 text-sm text-foreground">
                   <input
                     type="checkbox"
                     checked={forcePathStyle}
@@ -199,85 +252,94 @@ export default function AddBackendModal({ onClose, onAdded }) {
 
             {driver === 'mongo' && (
               <>
-                <label className="block text-sm">
-                  <span className="block mb-1">{t('settings.storage.addModal.uri')}</span>
+                <div>
+                  <label className="block text-sm text-muted-foreground mb-1">
+                    {t('settings.storage.addModal.uri')}
+                  </label>
                   <input
+                    type="password"
                     value={uri}
                     onChange={(e) => setUri(e.target.value)}
-                    required
-                    placeholder="mongodb://..."
-                    className="w-full px-3 py-2 border border-input rounded bg-background font-mono text-xs"
+                    required={!isEdit}
+                    placeholder={isEdit ? t('settings.storage.addModal.uriPlaceholder') : 'mongodb://...'}
+                    className="w-full px-3 py-2 bg-input border border-border rounded-md text-foreground text-sm font-mono focus:outline-none focus:ring-1 focus:ring-ring"
                   />
-                </label>
-                <label className="block text-sm">
-                  <span className="block mb-1">{t('settings.storage.addModal.database')}</span>
+                </div>
+                <div>
+                  <label className="block text-sm text-muted-foreground mb-1">
+                    {t('settings.storage.addModal.database')}
+                  </label>
                   <input
                     value={database}
                     onChange={(e) => setDatabase(e.target.value)}
-                    className="w-full px-3 py-2 border border-input rounded bg-background"
+                    className="w-full px-3 py-2 bg-input border border-border rounded-md text-foreground text-sm focus:outline-none focus:ring-1 focus:ring-ring"
                   />
-                </label>
+                </div>
               </>
             )}
 
-            <div className="flex gap-2 justify-end pt-2">
+            <div className="flex gap-2 pt-2">
               <button
                 type="button"
                 onClick={onClose}
                 disabled={busy}
-                className="px-3 py-2 text-sm rounded border border-border hover:bg-accent disabled:opacity-50"
+                className="px-3 py-2 text-sm rounded-md border border-border text-foreground hover:bg-accent disabled:opacity-50"
               >
                 {t('settings.storage.addModal.cancel')}
               </button>
               <button
                 type="submit"
                 disabled={busy}
-                className="px-3 py-2 text-sm rounded bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                className="flex-1 py-2 rounded-md text-sm font-medium text-white bg-brand-gradient hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
               >
-                {busy ? t('settings.storage.addModal.validating') : t('settings.storage.addModal.validate')}
+                {busy ? submitLabelBusy : submitLabelIdle}
               </button>
             </div>
           </form>
         )}
 
-        {mode === 'token' && (
+        {!isEdit && mode === 'token' && (
           <form onSubmit={handleSubmitToken} className="space-y-3">
             <p className="text-xs text-muted-foreground">
               {t('settings.storage.addModal.tokenHelp')}
             </p>
-            <label className="block text-sm">
-              <span className="block mb-1">{t('settings.storage.addModal.tokenLabel')}</span>
+            <div>
+              <label className="block text-sm text-muted-foreground mb-1">
+                {t('settings.storage.addModal.tokenLabel')}
+              </label>
               <textarea
                 value={token}
                 onChange={(e) => setToken(e.target.value)}
                 placeholder={t('settings.storage.addModal.tokenPlaceholder')}
                 rows={5}
                 required
-                className="w-full px-3 py-2 border border-input rounded bg-background font-mono text-xs break-all"
+                className="w-full px-3 py-2 bg-input border border-border rounded-md text-foreground font-mono text-xs break-all focus:outline-none focus:ring-1 focus:ring-ring"
               />
-            </label>
-            <label className="block text-sm">
-              <span className="block mb-1">{t('settings.storage.addModal.tokenRenameLabel')}</span>
+            </div>
+            <div>
+              <label className="block text-sm text-muted-foreground mb-1">
+                {t('settings.storage.addModal.tokenRenameLabel')}
+              </label>
               <input
                 value={rename}
                 onChange={(e) => setRename(e.target.value)}
                 placeholder={t('settings.storage.addModal.tokenRenamePlaceholder')}
-                className="w-full px-3 py-2 border border-input rounded bg-background"
+                className="w-full px-3 py-2 bg-input border border-border rounded-md text-foreground text-sm focus:outline-none focus:ring-1 focus:ring-ring"
               />
-            </label>
-            <div className="flex gap-2 justify-end pt-2">
+            </div>
+            <div className="flex gap-2 pt-2">
               <button
                 type="button"
                 onClick={onClose}
                 disabled={busy}
-                className="px-3 py-2 text-sm rounded border border-border hover:bg-accent disabled:opacity-50"
+                className="px-3 py-2 text-sm rounded-md border border-border text-foreground hover:bg-accent disabled:opacity-50"
               >
                 {t('settings.storage.addModal.cancel')}
               </button>
               <button
                 type="submit"
                 disabled={busy || !token.trim()}
-                className="px-3 py-2 text-sm rounded bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                className="flex-1 py-2 rounded-md text-sm font-medium text-white bg-brand-gradient hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
               >
                 {busy ? t('settings.storage.addModal.importing') : t('settings.storage.addModal.import')}
               </button>

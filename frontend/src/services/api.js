@@ -1025,6 +1025,16 @@ export async function setDefaultBackend(id) {
   });
 }
 
+export async function updateBackend(id, { name, config }) {
+  const body = {};
+  if (name !== undefined) body.name = name;
+  if (config !== undefined) body.config = config;
+  return localRequest(`/api/storage/backends/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
+}
+
 export async function generateShareToken(backendId) {
   const data = await localRequest(
     `/api/storage/share-token/${encodeURIComponent(backendId)}`,
@@ -1063,6 +1073,14 @@ export function setIntelligenceConfig(payload) {
 export function deleteIntelligenceConfig(provider = null) {
   const qs = provider ? `?provider=${encodeURIComponent(provider)}` : '';
   return localRequest(`/api/intelligence-config${qs}`, { method: 'DELETE' });
+}
+
+// Fetches the raw API key for a configured provider. Server-side authenticated;
+// only returns when the provider is configured. Used by the "Copy key" button —
+// the key never lives in the page state long-term, just enough to reach the
+// clipboard.
+export function revealIntelligenceProvider(provider) {
+  return localRequest(`/api/intelligence-config?reveal=${encodeURIComponent(provider)}`);
 }
 
 // Send a recorded audio Blob/File to the local transcription endpoint.

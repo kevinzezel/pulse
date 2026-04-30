@@ -6,6 +6,31 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [4.3.0-pre] — 2026-04-30
+
+Two Settings ergonomics improvements that make day-to-day backend and intelligence management less painful: you can now copy the saved Gemini API key from Settings → Intelligence (it stays masked in the UI; the raw value is only fetched when you click *Copy key*), and you can edit existing storage backends (rename, swap region/endpoint, rotate credentials) without having to delete-and-recreate them.
+
+### Added
+
+- **Settings → Intelligence: *Copy key* button.** Visible only when Gemini is configured. Calls a new authenticated endpoint that returns the raw key once, writes it to the clipboard via `navigator.clipboard.writeText`, and shows a localized success toast. The key never lives in component state.
+- **Settings → Storage: *Edit* (pencil) action on every non-local backend card.** Opens the backend modal in edit mode. The driver is locked (a backend's driver is part of its identity), but name, endpoint/region/bucket/prefix/path-style/database can all be changed. Secret fields prefill with the masked placeholder `********`; the modal forwards whatever is in the field and the server resolves the placeholder (or an empty/whitespace value) back to the stored secret before persisting, so the user can rotate just the non-secret fields without retyping or accidentally wiping credentials. Edits go through the same ping validation as adds, so a broken config never gets persisted.
+- **Server-side `PATCH /api/storage/backends/:id` with `{ name?, config? }`.** Refuses to touch the `local` backend. Resolves placeholder/empty secret fields back from the stored config, then re-pings S3/Mongo with the merged config before saving. Returns the masked backend in the response (mirrors the GET masking — secrets never echo back). Refuses unknown backend ids with a localized 404 (`errors.backend_unknown`). Driver promise for the edited backend is invalidated and drained in the background so the next read/write rebuilds with the new config.
+- **Server-side `GET /api/intelligence-config?reveal=gemini`.** Returns `{ provider, api_key }` with `Cache-Control: no-store` so the raw key never lands in any browser/proxy cache. The endpoint rejects unknown providers (`errors.intelligence.unknown_provider`, 400) and not-configured providers (`errors.intelligence.gemini.not_configured`, 404). The default `GET /api/intelligence-config` continues to return only `{ configured, masked, model, updated_at }`.
+- **`updateBackend(id, patch)` in `frontend/src/lib/storage.js`** plus `updateBackend(id, { name, config })` in `services/api.js`. Edits go through the same `_setConfigV2` write path used by `addBackend` / `setDefaultBackend`.
+
+### Changed
+
+- **All storage modals match the terminal/flow modal shell.** `AddBackendModal` (now also the edit modal) and `ShareBackendModal` use `bg-overlay/60 px-4` for the overlay, `bg-card border-border rounded-lg p-6` for the card, an inline X close button in the header, `bg-input border-border rounded-md` inputs, and `bg-brand-gradient` for the primary action — same look and feel as `NewTerminalModal` / `NewFlowModal`. Token-import remains a sub-mode of *Add backend*; it is not offered when editing.
+
+### Internal
+
+- **`backends-route.test.js` extended** to 15 cases covering PATCH set_default (no regression), PATCH edit S3 with new credentials, PATCH edit S3 keeping the existing secret when `********` is sent, PATCH edit S3 keeping the existing secret when the field is cleared (empty/whitespace), PATCH edit Mongo keeping the existing URI on placeholder, PATCH edit returning 400 when the ping fails, PATCH edit returning 404 for unknown ids, and PATCH edit refusing to mutate `local`.
+- **New `intelligence-config-route.test.js`** (4 cases) verifying that the default GET masks the key, `?reveal=gemini` returns the raw value, `?reveal=gemini` 404s when not configured, and `?reveal=<unknown>` rejects with `errors.intelligence.unknown_provider`.
+- **i18n catalogs (en / pt-BR / es)** gained: `settings.storage.edit`, `settings.storage.addModal.editTitle/save/saving/successUpdated/secretPlaceholder/uriPlaceholder`, `settings.intelligence.gemini.copyButton/copyTooltip`, `success.storage.backend_updated`, `success.intelligence.gemini_copied`, `errors.intelligence.unknown_provider`, `errors.intelligence.gemini.copy_failed`, `errors.backend_clipboard_failed`. `errors.backend_local_immutable` was relaxed to also cover edits.
+- Verified `npm test`: 30 files / 209 tests passed.
+- Verified `npm run build`.
+- Verified `python3 -c "import service"` on the client.
+
 ## [4.2.9-pre] — 2026-04-29
 
 Removes a hidden probe to `localhost:<port>/health` that the dashboard fired on every server load. The probe was a heuristic to detect when a LAN-IP server happened to be the same machine the browser was on, so the "Open editor" button could fall back to local mode. In practice it generated confusing requests/CORS/TLS errors against a host the user never configured, and could even mis-classify a remote server as local if a different process happened to listen on the same port locally.
@@ -1485,7 +1510,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v4.2.9-pre...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v4.3.0-pre...HEAD
+[4.3.0-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.3.0-pre
 [4.2.9-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.2.9-pre
 [4.2.8-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.2.8-pre
 [4.2.7-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.2.7-pre
