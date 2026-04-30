@@ -5,14 +5,15 @@ export function isLocalHost() {
   return LOOPBACK.has(window.location.hostname);
 }
 
-// Retorna true somente quando temos certeza sem probe de que browser e server
-// rodam na mesma máquina: ambos loopback (localhost / 127.0.0.1 / ::1). Qualquer
-// outro caso ambíguo (browser em IP LAN acessando server do mesmo IP — que pode
-// ser o desktop ou outro notebook na mesma LAN, sem garantia) não conta como
-// local aqui. Quem resolve essa ambiguidade é o probe assíncrono feito pelo
-// ServersProvider: ele tenta `http(s)://localhost:<port>/health` com a
-// apiKey e, se a mesma instância responder, marca o server como "local-
-// reachable" no cache — combinado com isto via `isServerLocal(server)`.
+// Retorna true somente quando browser e servidor são ambos loopback
+// (localhost / 127.0.0.1 / ::1). Servidor cadastrado por IP LAN é tratado
+// como remoto, mesmo que fisicamente rode na mesma máquina — não há mais
+// detecção ativa por probe a localhost (4.2.x tinha; foi removido em
+// 4.2.9-pre por gerar requisições/CORS/TLS para um host não cadastrado e
+// causar falsos positivos quando outro processo usava a mesma porta no
+// notebook do usuário). Quem quiser comportamento "local editor" cadastra o
+// servidor explicitamente como localhost / 127.0.0.1 e abre o dashboard pelo
+// mesmo loopback.
 export function isServerLocalToBrowser(server) {
   if (typeof window === 'undefined' || !server) return false;
   const browserHost = window.location.hostname;

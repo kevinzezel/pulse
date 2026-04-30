@@ -7,7 +7,7 @@ import 'react-mosaic-component/react-mosaic-component.css';
 import { openEditor, getSessionCwd, splitSessionId } from '@/services/api';
 import { normalizeMosaicTree } from '@/utils/mosaicHelpers';
 import { useTranslation, useErrorToast } from '@/providers/I18nProvider';
-import { getServerById, isServerLocal, useServers } from '@/providers/ServersProvider';
+import { getServerById, isServerLocal } from '@/providers/ServersProvider';
 import { buildRemoteEditorUrl } from '@/utils/host';
 import TerminalPane from './TerminalPane';
 import TerminalCaptureModal from './TerminalCaptureModal';
@@ -127,8 +127,6 @@ export default function TerminalMosaic({
 }) {
   const { t } = useTranslation();
   const showError = useErrorToast();
-  // Depend on localReachable so probe results re-render the isLocal decision.
-  useServers();
   const [openingEditorId, setOpeningEditorId] = useState(null);
   const [openingRemoteId, setOpeningRemoteId] = useState(null);
   const [captureSessionId, setCaptureSessionId] = useState(null);

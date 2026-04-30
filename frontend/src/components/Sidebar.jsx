@@ -9,7 +9,7 @@ import {
 } from 'lucide-react';
 import { openEditor, getSessionCwd, splitSessionId } from '@/services/api';
 import { useTranslation, useErrorToast } from '@/providers/I18nProvider';
-import { getServerById, isServerLocal, useServers } from '@/providers/ServersProvider';
+import { getServerById, isServerLocal } from '@/providers/ServersProvider';
 import { useNotifications } from '@/providers/NotificationsProvider';
 import { buildRemoteEditorUrl } from '@/utils/host';
 import NewTerminalModal from './NewTerminalModal';
@@ -46,9 +46,6 @@ export default function Sidebar({
   const showServerTag = servers.length > 1;
   const { t } = useTranslation();
   const showError = useErrorToast();
-  // `localReachable` vem desestruturado só pra forçar re-render quando probes
-  // completam — o valor em si é lido via isServerLocal() abaixo.
-  const { localReachable: _localReachable } = useServers();
   const { supported: notifySupported, permission: notifyPermission, permissionReason: notifyPermissionReason, requestBrowserPermission } = useNotifications();
   const [showModal, setShowModal] = useState(false);
   const [creating, setCreating] = useState(false);

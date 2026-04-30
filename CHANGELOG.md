@@ -6,6 +6,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [4.2.9-pre] — 2026-04-29
+
+Removes a hidden probe to `localhost:<port>/health` that the dashboard fired on every server load. The probe was a heuristic to detect when a LAN-IP server happened to be the same machine the browser was on, so the "Open editor" button could fall back to local mode. In practice it generated confusing requests/CORS/TLS errors against a host the user never configured, and could even mis-classify a remote server as local if a different process happened to listen on the same port locally.
+
+### Removed
+
+- **`https://localhost:<port>/health` probe in `ServersProvider`.** The async `probeLocalReachable` function, the per-server `localReachable` Map, the 30s probe TTL cache, and the `useEffect` that drove the probe across `servers` changes are gone. The browser now only contacts the host the user actually configured (e.g. `https://192.168.0.130:7845/health`), nothing else.
+
+### Changed
+
+- **`isServerLocal(server)` is now a pure check.** A server is "local" only when both the browser and the configured host are loopback (`localhost` / `127.0.0.1` / `::1`). A server registered by LAN IP is treated as remote even if it physically runs on the same machine — for the local-editor fallback the user must register the server explicitly as `localhost`/`127.0.0.1` and open the dashboard from the same loopback origin. `testServer()` and the rest of the health flow are untouched and keep using `server.host`.
+- **Removed dead `useServers().localReachable` reads** in `Sidebar`, `GroupSelector` and `TerminalMosaic`. These were only there to force a re-render when probe results landed; with the probe gone, the underlying server list re-render is enough.
+
+### Tests
+
+- Added `frontend/src/utils/__tests__/host.test.js`: covers `isLocalHost`, `isServerLocalToBrowser` (loopback-pair acceptance, cross-LAN rejection — including the regression case "browser 192.168.0.130 + server 192.168.0.130 stays remote with no probe"), and `buildRemoteEditorUrl` (sshAlias preference, cwd encoding, null fallbacks). 17 tests.
+- Verified `npm test`: 29 files / 198 tests passed.
+- Verified `npm run build`.
+
 ## [4.2.8-pre] — 2026-04-29
 
 Unblocks the dashboard when every configured Pulse client is offline. Before this, hitting "No servers responded" on boot left the user stuck on the modal — the only action was *Try again*, which is useless when the real fix is editing protocol/host/port/API key in settings (the typical case after `pulse config tls on` flipped a client from HTTP to HTTPS).
@@ -1466,7 +1485,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v4.2.8-pre...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v4.2.9-pre...HEAD
+[4.2.9-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.2.9-pre
 [4.2.8-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.2.8-pre
 [4.2.7-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.2.7-pre
 [4.2.6-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.2.6-pre

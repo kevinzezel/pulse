@@ -6,18 +6,10 @@ import { destroyTerminalsByServerId } from '@/components/TerminalPane';
 import { getLocalServers, setLocalServers } from '@/services/api';
 import { useRefetchOnFocus } from '@/utils/useRefetchOnFocus';
 import { isServerLocalToBrowser } from '@/utils/host';
-import { timeoutSignal } from '@/utils/serverHealth';
 
 const ServersContext = createContext(null);
 
-const LOCAL_REACHABLE_TTL_MS = 30000;
-
-// cacheState.localReachable é um Map<serverId, boolean> preenchido pelo probe
-// async de `probeLocalReachable` abaixo. True quando a *mesma instância* do
-// server está acessível via `http(s)://localhost:<port>/health` com a
-// apiKey cadastrada (comprova mesma máquina + mesma instância).
-const cacheState = { servers: [], localReachable: new Map() };
-const localReachableProbeCache = new Map();
+const cacheState = { servers: [] };
 
 export function getServerById(id) {
   if (!id) return null;
@@ -28,15 +20,14 @@ export function getAllServers() {
   return cacheState.servers;
 }
 
-// Combina a heurística pura (utils/host.js — ambos loopback) com o cache do
-// probe assíncrono. Usar daqui nos botões de editor em vez de
-// `isServerLocalToBrowser` direto: se o probe já rodou e comprovou que o
-// localhost responde com a mesma apiKey, este função passa a retornar true
-// mesmo quando o server.host é um IP LAN.
+// "Local" só quando browser e servidor são ambos loopback (localhost /
+// 127.0.0.1 / ::1). Servidor cadastrado por IP LAN é tratado como remoto, mesmo
+// que fisicamente rode na mesma máquina — não fazemos probe oculto pra
+// localhost por motivo de privacidade/CORS/TLS (4.2.x fazia, foi removido).
+// Quem quiser comportamento "local editor" cadastra explicitamente o servidor
+// como localhost e abre o dashboard pelo loopback.
 export function isServerLocal(server) {
-  if (isServerLocalToBrowser(server)) return true;
-  if (!server?.id) return false;
-  return cacheState.localReachable.get(server.id) === true;
+  return isServerLocalToBrowser(server);
 }
 
 function connectionFieldsChanged(a, b) {
@@ -57,44 +48,12 @@ function invalidateAffectedTerminals(oldList, newList) {
   }
 }
 
-async function probeLocalReachable(server) {
-  if (!server?.port || !server?.apiKey) return false;
-  const scheme = server.protocol === 'https' ? 'https' : 'http';
-  const cacheKey = `${scheme}::${server.port}::${server.apiKey}`;
-  const cached = localReachableProbeCache.get(cacheKey);
-  if (cached && Date.now() - cached.checkedAt < LOCAL_REACHABLE_TTL_MS) {
-    return cached.reachable;
-  }
-  // /health valida a apiKey quando ela é enviada. Se vier 200, é a *mesma
-  // instância* rodando na mesma máquina do browser (loopback). Outra instância
-  // na mesma porta retornaria 401 → descartamos como "não é o mesmo server".
-  const url = `${scheme}://localhost:${server.port}/health`;
-  const t = timeoutSignal(1500);
-  try {
-    const res = await fetch(url, {
-      headers: { 'X-API-Key': server.apiKey },
-      signal: t.signal,
-    });
-    const reachable = res.ok;
-    localReachableProbeCache.set(cacheKey, { reachable, checkedAt: Date.now() });
-    return reachable;
-  } catch {
-    localReachableProbeCache.set(cacheKey, { reachable: false, checkedAt: Date.now() });
-    return false;
-  } finally {
-    t.cancel();
-  }
-}
-
 export function ServersProvider({ children }) {
   const pathname = usePathname();
   const [servers, setServers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState(null);
-  // Mantido em paralelo ao cacheState.localReachable só pra disparar re-render
-  // dos consumidores de useServers() quando um probe completa.
-  const [localReachable, setLocalReachable] = useState(new Map());
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -135,43 +94,8 @@ export function ServersProvider({ children }) {
     pathname !== '/login',
   );
 
-  // Probe "same machine" pra cada server que não é loopback já. Corre em
-  // paralelo, best-effort, reavaliado quando a lista de servers muda (invalida
-  // entries que pertenciam a servers removidos/modificados) ou no focus (via
-  // useRefetchOnFocus acima, indiretamente — load() muda `servers` → este
-  // effect reroda). Falha do probe é silenciosa (connection refused / CORS /
-  // timeout / apiKey errada) → entry fica false → botão abre no caminho remoto.
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    let cancelled = false;
-    const aliveIds = new Set(servers.map((s) => s.id));
-    for (const key of Array.from(cacheState.localReachable.keys())) {
-      if (!aliveIds.has(key)) cacheState.localReachable.delete(key);
-    }
-    (async () => {
-      for (const server of servers) {
-        if (cancelled) return;
-        if (isServerLocalToBrowser(server)) {
-          cacheState.localReachable.set(server.id, true);
-          continue;
-        }
-        const reachable = await probeLocalReachable(server);
-        if (cancelled) return;
-        const prev = cacheState.localReachable.get(server.id) === true;
-        if (reachable !== prev) {
-          if (reachable) cacheState.localReachable.set(server.id, true);
-          else cacheState.localReachable.delete(server.id);
-        }
-      }
-      if (!cancelled) {
-        setLocalReachable(new Map(cacheState.localReachable));
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [servers]);
-
   return (
-    <ServersContext.Provider value={{ servers, loading, loaded, error, reload: load, save, localReachable }}>
+    <ServersContext.Provider value={{ servers, loading, loaded, error, reload: load, save }}>
       {children}
     </ServersContext.Provider>
   );

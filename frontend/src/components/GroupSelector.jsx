@@ -30,7 +30,7 @@ import {
   deleteGroup,
   setGroupHidden,
 } from '@/services/api';
-import { getServerById, isServerLocal, useServers } from '@/providers/ServersProvider';
+import { getServerById, isServerLocal } from '@/providers/ServersProvider';
 import { useTranslation, useErrorToast } from '@/providers/I18nProvider';
 import { buildRemoteEditorUrl } from '@/utils/host';
 
@@ -133,8 +133,6 @@ export default function GroupSelector({
   const hiddenGroups = useMemo(() => groups.filter((g) => g.hidden), [groups]);
   const { t } = useTranslation();
   const showError = useErrorToast();
-  // Depend on localReachable so probe results re-render the chip icons.
-  const { localReachable: _localReachable } = useServers();
 
   const [openingGroupKey, setOpeningGroupKey] = useState(null);
 
@@ -230,7 +228,7 @@ export default function GroupSelector({
       out.set(k, v.total > 0 && v.localCount === v.total);
     }
     return out;
-  }, [sessions, visibleGroups, _localReachable]);
+  }, [sessions, visibleGroups]);
 
   async function openAllInGroup(e, groupId) {
     e.stopPropagation();
