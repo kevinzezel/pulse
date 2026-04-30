@@ -4,7 +4,7 @@ import '@excalidraw/excalidraw/index.css';
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import toast from 'react-hot-toast';
-import { Workflow, Loader2 } from 'lucide-react';
+import { Workflow, Loader, Loader2 } from 'lucide-react';
 import {
   listFlows, createFlow, patchFlow, deleteFlow,
   getFlowGroups, reorderFlowGroups,
@@ -605,8 +605,8 @@ export default function FlowsPage() {
           />
           <div className="flex-1 min-h-0 relative" style={{ background: 'hsl(var(--background))' }}>
             {loading ? (
-              <div className="flex h-full items-center justify-center text-muted-foreground text-sm">
-                {t('flows.loading')}
+              <div className="flex h-full items-center justify-center">
+                <Loader className="w-5 h-5 text-muted-foreground animate-spin" />
               </div>
             ) : !selectedFlow ? (
               <EmptyCanvas t={t} hasAny={flowsInSelectedGroup.length > 0} />

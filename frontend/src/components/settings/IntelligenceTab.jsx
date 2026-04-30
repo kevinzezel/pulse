@@ -2,7 +2,10 @@
 
 import { useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
-import { Brain, Loader, Save, Trash2, Eye, EyeOff, CheckCircle, AlertTriangle, ExternalLink, Copy, Check } from 'lucide-react';
+import {
+  Brain, Loader, Save, Trash2, Eye, EyeOff, CheckCircle,
+  AlertTriangle, ExternalLink, Copy, Check,
+} from 'lucide-react';
 import {
   getIntelligenceConfig,
   setIntelligenceConfig,
@@ -17,36 +20,6 @@ const GEMINI_MODELS = [
   'gemini-2.5-flash',
   'gemini-2.5-flash-lite',
 ];
-
-function SecretInput({ value, onChange, placeholder, disabled }) {
-  const { t } = useTranslation();
-  const [revealed, setRevealed] = useState(false);
-  return (
-    <div className="relative">
-      <input
-        type={revealed ? 'text' : 'password'}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        className="w-full px-2 py-1.5 pr-9 text-sm rounded border bg-background text-foreground font-mono"
-        style={{ borderColor: 'hsl(var(--input))' }}
-        disabled={disabled}
-        autoComplete="off"
-        spellCheck={false}
-      />
-      <button
-        type="button"
-        onClick={() => setRevealed((v) => !v)}
-        disabled={!value}
-        className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground disabled:opacity-40"
-        tabIndex={-1}
-        title={revealed ? t('settings.intelligence.gemini.hide') : t('settings.intelligence.gemini.show')}
-      >
-        {revealed ? <EyeOff size={14} /> : <Eye size={14} />}
-      </button>
-    </div>
-  );
-}
 
 function ConfirmClearModal({ open, busy, onConfirm, onCancel }) {
   const { t } = useTranslation();
@@ -71,8 +44,7 @@ function ConfirmClearModal({ open, busy, onConfirm, onCancel }) {
             type="button"
             onClick={onCancel}
             disabled={busy}
-            className="px-3 py-1.5 text-sm rounded border text-foreground hover:bg-accent disabled:opacity-50"
-            style={{ borderColor: 'hsl(var(--border))' }}
+            className="px-3 py-1.5 text-sm rounded-md border border-border text-foreground hover:bg-muted/40 transition-colors disabled:opacity-50"
           >
             {t('common.cancel')}
           </button>
@@ -80,7 +52,7 @@ function ConfirmClearModal({ open, busy, onConfirm, onCancel }) {
             type="button"
             onClick={onConfirm}
             disabled={busy}
-            className="px-3 py-1.5 text-sm rounded bg-destructive text-destructive-foreground disabled:opacity-50 inline-flex items-center gap-1.5 hover:opacity-90"
+            className="px-3 py-1.5 text-sm rounded-md bg-destructive text-destructive-foreground disabled:opacity-50 inline-flex items-center gap-1.5 hover:opacity-90"
           >
             {busy ? <Loader size={14} className="animate-spin" /> : <Trash2 size={14} />}
             {t('settings.intelligence.gemini.clearConfirm.confirm')}
@@ -108,6 +80,7 @@ export default function IntelligenceTab() {
   const [updatedAt, setUpdatedAt] = useState(null);
 
   const [apiKey, setApiKey] = useState('');
+  const [showKey, setShowKey] = useState(false);
   const [model, setModel] = useState(GEMINI_MODELS[0]);
 
   async function refresh() {
@@ -122,6 +95,7 @@ export default function IntelligenceTab() {
       setModel(m);
       setUpdatedAt(gemini.updated_at || null);
       setApiKey('');
+      setShowKey(false);
     } catch (err) {
       showError(err);
     } finally {
@@ -188,146 +162,152 @@ export default function IntelligenceTab() {
     }
   }
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center py-12 text-muted-foreground">
-        <Loader size={16} className="animate-spin mr-2" />
-        {t('common.loading')}
-      </div>
-    );
-  }
-
   const modelChanged = model !== savedModel;
   const hasNewKey = apiKey.trim().length > 0;
   const canSave = !saving && (hasNewKey || (configured && modelChanged));
 
   return (
-    <div className="space-y-6">
-      <header className="space-y-1">
-        <div className="flex items-center gap-2">
-          <Brain className="w-5 h-5 text-primary" />
-          <h2 className="text-lg font-semibold text-foreground">{t('settings.intelligence.title')}</h2>
+    <div className="flex flex-col gap-4">
+      {loading ? (
+        <div className="flex items-center justify-center py-10">
+          <Loader className="w-5 h-5 text-muted-foreground animate-spin" />
         </div>
-        <p className="text-sm text-muted-foreground">{t('settings.intelligence.subtitle')}</p>
-      </header>
+      ) : (
+        <form
+          onSubmit={handleSave}
+          className="rounded-lg border border-border bg-card p-5 sm:p-6 flex flex-col gap-5"
+        >
+          <div
+            className="flex items-center justify-between gap-2 pb-2 border-b"
+            style={{ borderColor: 'hsl(var(--border))' }}
+          >
+            <div className="flex items-center gap-2">
+              <Brain className="w-4 h-4 text-primary" />
+              <h2 className="text-base font-semibold text-foreground">
+                {t('settings.intelligence.gemini.title')}
+              </h2>
+            </div>
+            {configured && (
+              <span className="inline-flex items-center gap-1 text-xs text-success">
+                <CheckCircle size={12} />
+                {t('settings.intelligence.gemini.configuredBadge')}
+              </span>
+            )}
+          </div>
+          <p className="text-xs text-muted-foreground">
+            {t('settings.intelligence.gemini.subtitle')}
+          </p>
 
-      <form
-        onSubmit={handleSave}
-        className="rounded border p-4 space-y-3"
-        style={{ borderColor: 'hsl(var(--border))' }}
-      >
-        <div className="flex items-center justify-between">
-          <div>
-            <h3 className="text-sm font-semibold text-foreground">
-              {t('settings.intelligence.gemini.title')}
-            </h3>
-            <p className="text-xs text-muted-foreground">
-              {t('settings.intelligence.gemini.subtitle')}
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-muted-foreground">
+              {t('settings.intelligence.gemini.apiKeyLabel')}
+            </label>
+            <div className="flex items-stretch gap-1">
+              <input
+                type={showKey ? 'text' : 'password'}
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                placeholder={configured && maskedKey ? maskedKey : 'AIza…'}
+                disabled={saving}
+                autoComplete="off"
+                spellCheck={false}
+                className="flex-1 px-3 py-2 rounded-md bg-input border border-border text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring font-mono"
+              />
+              <button
+                type="button"
+                onClick={() => setShowKey((v) => !v)}
+                disabled={!apiKey || saving}
+                className="px-3 rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors disabled:opacity-40"
+                title={showKey
+                  ? t('settings.intelligence.gemini.hide')
+                  : t('settings.intelligence.gemini.show')}
+              >
+                {showKey ? <EyeOff size={14} /> : <Eye size={14} />}
+              </button>
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              {configured
+                ? t('settings.intelligence.gemini.apiKeyHintConfigured')
+                : t('settings.intelligence.gemini.apiKeyHintEmpty')}
+              {' '}
+              <a
+                href="https://aistudio.google.com/app/apikey"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-primary hover:underline inline-flex items-center gap-0.5"
+              >
+                {t('settings.intelligence.gemini.getKeyLink')}
+                <ExternalLink size={10} />
+              </a>
             </p>
           </div>
-          {configured && (
-            <span className="inline-flex items-center gap-1 text-xs text-success">
-              <CheckCircle size={12} />
-              {t('settings.intelligence.gemini.configuredBadge')}
-            </span>
-          )}
-        </div>
 
-        <div className="space-y-1">
-          <label className="block text-xs text-muted-foreground">
-            {t('settings.intelligence.gemini.apiKeyLabel')}
-          </label>
-          <SecretInput
-            value={apiKey}
-            onChange={setApiKey}
-            placeholder={configured && maskedKey ? maskedKey : 'AIza…'}
-            disabled={saving}
-          />
-          <p className="text-xs text-muted-foreground">
-            {configured
-              ? t('settings.intelligence.gemini.apiKeyHintConfigured')
-              : t('settings.intelligence.gemini.apiKeyHintEmpty')}
-            {' '}
-            <a
-              href="https://aistudio.google.com/app/apikey"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-primary hover:underline inline-flex items-center gap-0.5"
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-muted-foreground">
+              {t('settings.intelligence.gemini.modelLabel')}
+            </label>
+            <select
+              value={model}
+              onChange={(e) => setModel(e.target.value)}
+              disabled={saving}
+              className="w-full px-3 py-2 rounded-md bg-input border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring font-mono"
             >
-              {t('settings.intelligence.gemini.getKeyLink')}
-              <ExternalLink size={10} />
-            </a>
-          </p>
-        </div>
+              {GEMINI_MODELS.map((m) => (
+                <option key={m} value={m}>{m}</option>
+              ))}
+            </select>
+            <p className="text-[11px] text-muted-foreground">
+              {t('settings.intelligence.gemini.modelHint')}
+            </p>
+          </div>
 
-        <div className="space-y-1">
-          <label className="block text-xs text-muted-foreground">
-            {t('settings.intelligence.gemini.modelLabel')}
-          </label>
-          <select
-            value={model}
-            onChange={(e) => setModel(e.target.value)}
-            disabled={saving}
-            className="w-full px-2 py-1.5 text-sm rounded border bg-background text-foreground font-mono"
-            style={{ borderColor: 'hsl(var(--input))' }}
-          >
-            {GEMINI_MODELS.map((m) => (
-              <option key={m} value={m}>{m}</option>
-            ))}
-          </select>
-          <p className="text-xs text-muted-foreground">
-            {t('settings.intelligence.gemini.modelHint')}
-          </p>
-        </div>
+          {updatedAt && (
+            <p className="text-[11px] text-muted-foreground">
+              {t('settings.intelligence.gemini.updatedAt', {
+                when: new Date(updatedAt).toLocaleString(),
+              })}
+            </p>
+          )}
 
-        {updatedAt && (
-          <p className="text-xs text-muted-foreground">
-            {t('settings.intelligence.gemini.updatedAt', {
-              when: new Date(updatedAt).toLocaleString(),
-            })}
-          </p>
-        )}
-
-        <div className="flex items-center justify-end gap-2 pt-1">
-          {configured && (
+          <div className="flex flex-col sm:flex-row gap-2 pt-2 flex-wrap">
             <button
-              type="button"
-              onClick={handleCopy}
-              disabled={copying || saving || clearing}
-              title={t('settings.intelligence.gemini.copyTooltip')}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded border text-foreground hover:bg-accent disabled:opacity-50"
-              style={{ borderColor: 'hsl(var(--border))' }}
+              type="submit"
+              disabled={!canSave || copying}
+              className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-md text-sm font-medium text-white bg-brand-gradient hover:opacity-90 transition-opacity disabled:opacity-50"
             >
-              {copying
-                ? <Loader size={14} className="animate-spin" />
-                : copied
-                ? <Check size={14} className="text-success" />
-                : <Copy size={14} />}
-              {t('settings.intelligence.gemini.copyButton')}
+              {saving ? <Loader size={14} className="animate-spin" /> : <Save size={14} />}
+              {saving ? t('settings.saving') : t('settings.intelligence.gemini.saveButton')}
             </button>
-          )}
-          {configured && (
-            <button
-              type="button"
-              onClick={() => setConfirmClear(true)}
-              disabled={clearing || saving || copying}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded border text-destructive hover:bg-destructive/10 disabled:opacity-50"
-              style={{ borderColor: 'hsl(var(--border))' }}
-            >
-              <Trash2 size={14} />
-              {t('settings.intelligence.gemini.clearButton')}
-            </button>
-          )}
-          <button
-            type="submit"
-            disabled={!canSave || copying}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded bg-primary text-primary-foreground disabled:opacity-50 hover:opacity-90"
-          >
-            {saving ? <Loader size={14} className="animate-spin" /> : <Save size={14} />}
-            {t('settings.intelligence.gemini.saveButton')}
-          </button>
-        </div>
-      </form>
+            {configured && (
+              <button
+                type="button"
+                onClick={handleCopy}
+                disabled={copying || saving || clearing}
+                title={t('settings.intelligence.gemini.copyTooltip')}
+                className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-md text-sm font-medium border border-border text-foreground hover:bg-muted/40 transition-colors disabled:opacity-50"
+              >
+                {copying
+                  ? <Loader size={14} className="animate-spin" />
+                  : copied
+                  ? <Check size={14} className="text-success" />
+                  : <Copy size={14} />}
+                {t('settings.intelligence.gemini.copyButton')}
+              </button>
+            )}
+            {configured && (
+              <button
+                type="button"
+                onClick={() => setConfirmClear(true)}
+                disabled={clearing || saving || copying}
+                className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-md text-sm font-medium border border-border text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-50"
+              >
+                <Trash2 size={14} />
+                {t('settings.intelligence.gemini.clearButton')}
+              </button>
+            )}
+          </div>
+        </form>
+      )}
 
       <ConfirmClearModal
         open={confirmClear}

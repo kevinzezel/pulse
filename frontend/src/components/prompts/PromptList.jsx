@@ -42,8 +42,11 @@ export default function PromptList({
   }
 
   if (loading) {
+    // Centered vertically inside the available area so the spinner sits in the
+    // middle of the page rather than 40px from the top — matches the pattern
+    // used in flows/tasks pages and IntelligenceTab.
     return (
-      <div className="flex items-center justify-center py-10">
+      <div className="flex h-full min-h-[200px] items-center justify-center">
         <Loader className="w-5 h-5 text-muted-foreground animate-spin" />
       </div>
     );

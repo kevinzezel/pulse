@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import toast from 'react-hot-toast';
-import { SquareKanban } from 'lucide-react';
+import { SquareKanban, Loader } from 'lucide-react';
 import {
   listTaskBoards, createTaskBoard, patchTaskBoard, deleteTaskBoard,
   getTaskBoardGroups, reorderTaskBoardGroups,
@@ -442,8 +442,8 @@ export default function TasksPage() {
           />
           <div className="flex-1 min-h-0 relative" style={{ background: 'hsl(var(--background))' }}>
             {loading ? (
-              <div className="flex h-full items-center justify-center text-muted-foreground text-sm">
-                {t('tasks.loading')}
+              <div className="flex h-full items-center justify-center">
+                <Loader className="w-5 h-5 text-muted-foreground animate-spin" />
               </div>
             ) : !selectedBoard ? (
               <EmptyBoard t={t} hasAny={boardsInSelectedGroup.length > 0} />

@@ -6,7 +6,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
-## [4.3.0-pre] — 2026-04-30
+## [4.3.1-pre] — 2026-04-30
 
 Two Settings ergonomics improvements that make day-to-day backend and intelligence management less painful: you can now copy the saved Gemini API key from Settings → Intelligence (it stays masked in the UI; the raw value is only fetched when you click *Copy key*), and you can edit existing storage backends (rename, swap region/endpoint, rotate credentials) without having to delete-and-recreate them.
 
@@ -21,6 +21,8 @@ Two Settings ergonomics improvements that make day-to-day backend and intelligen
 ### Changed
 
 - **All storage modals match the terminal/flow modal shell.** `AddBackendModal` (now also the edit modal) and `ShareBackendModal` use `bg-overlay/60 px-4` for the overlay, `bg-card border-border rounded-lg p-6` for the card, an inline X close button in the header, `bg-input border-border rounded-md` inputs, and `bg-brand-gradient` for the primary action — same look and feel as `NewTerminalModal` / `NewFlowModal`. Token-import remains a sub-mode of *Add backend*; it is not offered when editing.
+- **Settings → Intelligence tab restyled to match Settings → Telegram.** Header (icon + title + *Configured* badge) lives inside the card with a bottom-border separator; subtitle below; field groups use `flex flex-col gap-1` with adjacent eye-toggle buttons (no overlay); hints in `text-[11px] text-muted-foreground`; action row at the bottom with the primary *Save* on `bg-brand-gradient` and *Copy key* / *Remove key* as outlined siblings; centered `Loader` spinner during the initial fetch.
+- **Centered loading spinner on Tasks, Flows and Prompts pages.** While the page fetches its data (slow with the S3 backend), the canvas now renders a `Loader w-5 h-5 animate-spin` centered in the available area instead of plain "loading…" text — same spinner style used elsewhere in the dashboard. `PromptList` upgraded from a `py-10` top-aligned spinner to `h-full min-h-[200px]` vertical centering so the prompts page matches the others.
 
 ### Internal
 
@@ -1510,7 +1512,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v4.3.0-pre...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v4.3.1-pre...HEAD
+[4.3.1-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.3.1-pre
 [4.3.0-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.3.0-pre
 [4.2.9-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.2.9-pre
 [4.2.8-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.2.8-pre
