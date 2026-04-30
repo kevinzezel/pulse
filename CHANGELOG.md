@@ -6,6 +6,35 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [4.4.0-pre] — 2026-04-30
+
+Introduces a reusable, page-grade loading component and rolls it out to the
+sections that previously showed a tiny lone spinner — Tasks, Flows, Prompts and
+the Notes manager — so the empty-area wait state matches the polished look used
+by the terminal restoration overlay.
+
+### Added
+
+- **`PageLoadingState` component (`frontend/src/components/PageLoadingState.jsx`).**
+  A reusable loading state with a larger animated icon inside a muted circle, a
+  required `title`, and optional `description`, monospaced `detail`, custom
+  `className`, and pluggable `icon` (defaults to `Loader` from lucide-react). The
+  container fills the available area and centers itself; the live region uses
+  `role="status"` + `aria-live="polite"` so assistive tech announces the wait.
+- **i18n keys for the new loading copy.** Added `tasks.loadingTitle` /
+  `loadingBody`, `flows.loadingTitle` / `loadingBody`, `prompts.loadingTitle` /
+  `loadingBody`, and `notes.loadingTitle` / `loadingBody` in `en`, `pt-BR` and
+  `es` catalogs.
+
+### Changed
+
+- **Tasks, Flows and Prompts pages** now render `PageLoadingState` while their
+  initial data fetch is in flight, replacing the bare 20px spinner.
+- **Notes manager** consumes `loading` from `NotesProvider` and shows
+  `PageLoadingState` inside the list area only when no notes are rendered yet.
+  Refetches over an already-populated list don't replace the items, the FAB
+  stays operational, and the small inline action spinners are unchanged.
+
 ## [4.3.2-pre] — 2026-04-30
 
 Hardens `pulse upgrade` so interrupted installs cannot strand user data outside
@@ -1528,7 +1557,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v4.3.2-pre...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v4.4.0-pre...HEAD
+[4.4.0-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.4.0-pre
 [4.3.2-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.3.2-pre
 [4.3.1-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.3.1-pre
 [4.3.0-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.3.0-pre

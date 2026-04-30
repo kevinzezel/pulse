@@ -5,6 +5,7 @@ import { X, Plus, Pin, Search, Trash2, Palette, Maximize2 } from 'lucide-react';
 import { useTranslation } from '@/providers/I18nProvider';
 import { useNotes } from '@/providers/NotesProvider';
 import { useIsMobile } from '@/hooks/layout';
+import PageLoadingState from '@/components/PageLoadingState';
 import { ColorPalette } from './ColorPalette';
 import { NoteEditorModal } from './NoteEditorModal';
 
@@ -13,7 +14,7 @@ export function NotesManager() {
   const isMobile = useIsMobile();
   const {
     managerOpen, setManagerOpen,
-    notes, filtered,
+    notes, filtered, loading,
     search, setSearch,
     createNote, deleteNote, patchNoteImmediate,
   } = useNotes();
@@ -173,7 +174,14 @@ export function NotesManager() {
         </div>
 
         <ul className="flex-1 overflow-y-auto p-2">
-          {filtered.length === 0 ? (
+          {loading && notes.length === 0 ? (
+            <li className="h-full">
+              <PageLoadingState
+                title={t('notes.loadingTitle')}
+                description={t('notes.loadingBody')}
+              />
+            </li>
+          ) : filtered.length === 0 ? (
             <li className="p-4 text-center text-sm text-muted-foreground">
               {search.trim() ? t('notes.manager.emptyFiltered') : t('notes.manager.empty')}
             </li>

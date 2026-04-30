@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import toast from 'react-hot-toast';
-import { SquareKanban, Loader } from 'lucide-react';
+import { SquareKanban } from 'lucide-react';
 import {
   listTaskBoards, createTaskBoard, patchTaskBoard, deleteTaskBoard,
   getTaskBoardGroups, reorderTaskBoardGroups,
@@ -17,6 +17,7 @@ import TasksSidebar from '@/components/Tasks/TasksSidebar';
 import NewTaskBoardModal from '@/components/Tasks/NewTaskBoardModal';
 import TaskBoardCanvas from '@/components/Tasks/TaskBoardCanvas';
 import GroupSelector from '@/components/GroupSelector';
+import PageLoadingState from '@/components/PageLoadingState';
 
 const TASK_BOARD_GROUP_SUCCESS_KEYS = Object.freeze({
   created: 'success.task_board_group_created',
@@ -442,9 +443,10 @@ export default function TasksPage() {
           />
           <div className="flex-1 min-h-0 relative" style={{ background: 'hsl(var(--background))' }}>
             {loading ? (
-              <div className="flex h-full items-center justify-center">
-                <Loader className="w-5 h-5 text-muted-foreground animate-spin" />
-              </div>
+              <PageLoadingState
+                title={t('tasks.loadingTitle')}
+                description={t('tasks.loadingBody')}
+              />
             ) : !selectedBoard ? (
               <EmptyBoard t={t} hasAny={boardsInSelectedGroup.length > 0} />
             ) : (

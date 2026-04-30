@@ -5,6 +5,7 @@ import {
   Pin, Globe, FileText, Copy, Send, CornerDownLeft, Pencil, Trash2, Check, Loader,
 } from 'lucide-react';
 import { useTranslation } from '@/providers/I18nProvider';
+import PageLoadingState from '@/components/PageLoadingState';
 import { getPromptGroupName } from './promptUtils';
 
 function bodyPreview(body) {
@@ -42,13 +43,12 @@ export default function PromptList({
   }
 
   if (loading) {
-    // Centered vertically inside the available area so the spinner sits in the
-    // middle of the page rather than 40px from the top — matches the pattern
-    // used in flows/tasks pages and IntelligenceTab.
     return (
-      <div className="flex h-full min-h-[200px] items-center justify-center">
-        <Loader className="w-5 h-5 text-muted-foreground animate-spin" />
-      </div>
+      <PageLoadingState
+        className="min-h-[200px]"
+        title={t('prompts.loadingTitle')}
+        description={t('prompts.loadingBody')}
+      />
     );
   }
 

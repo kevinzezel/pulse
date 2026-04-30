@@ -102,6 +102,8 @@
     "saving": "Salvando...",
     "saved": "Salvo",
     "loading": "Carregando...",
+    "loadingTitle": "Carregando fluxos",
+    "loadingBody": "Buscando os fluxos deste projeto.",
     "assignGroup": "Mover para grupo",
     "noGroup": "Sem grupo"
   },
@@ -155,7 +157,9 @@
     "deleteConfirmMessage": "O quadro \"{name}\" será excluído permanentemente.",
     "deleteConfirm": "Excluir",
     "deleteTaskConfirmTitle": "Excluir tarefa?",
-    "deleteTaskConfirmMessage": "A tarefa \"{title}\" será excluída permanentemente."
+    "deleteTaskConfirmMessage": "A tarefa \"{title}\" será excluída permanentemente.",
+    "loadingTitle": "Carregando quadros",
+    "loadingBody": "Buscando os quadros de tarefas deste projeto."
   },
   "taskBoardGroups": {
     "deleteConfirmMessage": "{n} quadros ficarão sem grupo.",
@@ -985,7 +989,9 @@
     "emptyGroup": "Nenhum prompt neste filtro",
     "emptySearch": "Nenhum prompt corresponde à busca",
     "editorPreview": "(vazio)",
-    "selectPrompt": "Selecione um prompt para visualizar"
+    "selectPrompt": "Selecione um prompt para visualizar",
+    "loadingTitle": "Carregando prompts",
+    "loadingBody": "Buscando a biblioteca de prompts."
   },
   "notifications": {
     "idleTitle": "{context} está ocioso",
@@ -1041,6 +1047,8 @@
   },
   "notes": {
     "fab": "Notas",
+    "loadingTitle": "Carregando notas",
+    "loadingBody": "Buscando as notas deste projeto.",
     "manager": {
       "title": "Notas",
       "new": "Nova nota",

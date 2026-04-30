@@ -102,6 +102,8 @@
     "saving": "Saving...",
     "saved": "Saved",
     "loading": "Loading...",
+    "loadingTitle": "Loading flows",
+    "loadingBody": "Fetching the flows for this project.",
     "assignGroup": "Move to group",
     "noGroup": "No group"
   },
@@ -155,7 +157,9 @@
     "deleteConfirmMessage": "Board \"{name}\" will be permanently deleted.",
     "deleteConfirm": "Delete",
     "deleteTaskConfirmTitle": "Delete task?",
-    "deleteTaskConfirmMessage": "Task \"{title}\" will be permanently deleted."
+    "deleteTaskConfirmMessage": "Task \"{title}\" will be permanently deleted.",
+    "loadingTitle": "Loading boards",
+    "loadingBody": "Fetching the task boards for this project."
   },
   "taskBoardGroups": {
     "deleteConfirmMessage": "{n} boards will become ungrouped.",
@@ -985,7 +989,9 @@
     "emptyGroup": "No prompts in this filter",
     "emptySearch": "No prompts match this search",
     "editorPreview": "(empty)",
-    "selectPrompt": "Select a prompt to preview"
+    "selectPrompt": "Select a prompt to preview",
+    "loadingTitle": "Loading prompts",
+    "loadingBody": "Fetching the prompt library."
   },
   "notifications": {
     "idleTitle": "{context} is idle",
@@ -1041,6 +1047,8 @@
   },
   "notes": {
     "fab": "Notes",
+    "loadingTitle": "Loading notes",
+    "loadingBody": "Fetching the notes for this project.",
     "manager": {
       "title": "Notes",
       "new": "New note",

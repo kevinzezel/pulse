@@ -102,6 +102,8 @@
     "saving": "Guardando...",
     "saved": "Guardado",
     "loading": "Cargando...",
+    "loadingTitle": "Cargando flujos",
+    "loadingBody": "Obteniendo los flujos de este proyecto.",
     "assignGroup": "Mover a grupo",
     "noGroup": "Sin grupo"
   },
@@ -155,7 +157,9 @@
     "deleteConfirmMessage": "El tablero \"{name}\" se eliminará permanentemente.",
     "deleteConfirm": "Eliminar",
     "deleteTaskConfirmTitle": "¿Eliminar tarea?",
-    "deleteTaskConfirmMessage": "La tarea \"{title}\" se eliminará permanentemente."
+    "deleteTaskConfirmMessage": "La tarea \"{title}\" se eliminará permanentemente.",
+    "loadingTitle": "Cargando tableros",
+    "loadingBody": "Obteniendo los tableros de tareas de este proyecto."
   },
   "taskBoardGroups": {
     "deleteConfirmMessage": "{n} tableros quedarán sin grupo.",
@@ -985,7 +989,9 @@
     "emptyGroup": "No hay prompts en este filtro",
     "emptySearch": "Ningún prompt coincide con la búsqueda",
     "editorPreview": "(vacío)",
-    "selectPrompt": "Selecciona un prompt para previsualizarlo"
+    "selectPrompt": "Selecciona un prompt para previsualizarlo",
+    "loadingTitle": "Cargando prompts",
+    "loadingBody": "Obteniendo la biblioteca de prompts."
   },
   "notifications": {
     "idleTitle": "{context} está inactivo",
@@ -1041,6 +1047,8 @@
   },
   "notes": {
     "fab": "Notas",
+    "loadingTitle": "Cargando notas",
+    "loadingBody": "Obteniendo las notas de este proyecto.",
     "manager": {
       "title": "Notas",
       "new": "Nueva nota",

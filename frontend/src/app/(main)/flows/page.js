@@ -4,7 +4,7 @@ import '@excalidraw/excalidraw/index.css';
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import toast from 'react-hot-toast';
-import { Workflow, Loader, Loader2 } from 'lucide-react';
+import { Workflow, Loader2 } from 'lucide-react';
 import {
   listFlows, createFlow, patchFlow, deleteFlow,
   getFlowGroups, reorderFlowGroups,
@@ -19,6 +19,7 @@ import { SAVE_DEBOUNCE_MS } from '@/lib/flowsConfig';
 import FlowsSidebar from '@/components/Flows/FlowsSidebar';
 import NewFlowModal from '@/components/Flows/NewFlowModal';
 import GroupSelector from '@/components/GroupSelector';
+import PageLoadingState from '@/components/PageLoadingState';
 
 const FLOW_GROUP_SUCCESS_KEYS = Object.freeze({
   created: 'success.flow_group_created',
@@ -605,9 +606,10 @@ export default function FlowsPage() {
           />
           <div className="flex-1 min-h-0 relative" style={{ background: 'hsl(var(--background))' }}>
             {loading ? (
-              <div className="flex h-full items-center justify-center">
-                <Loader className="w-5 h-5 text-muted-foreground animate-spin" />
-              </div>
+              <PageLoadingState
+                title={t('flows.loadingTitle')}
+                description={t('flows.loadingBody')}
+              />
             ) : !selectedFlow ? (
               <EmptyCanvas t={t} hasAny={flowsInSelectedGroup.length > 0} />
             ) : hydrated ? (
