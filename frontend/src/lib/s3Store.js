@@ -53,6 +53,19 @@ async function streamToString(stream) {
   return Buffer.concat(chunks).toString('utf-8');
 }
 
+async function streamToBuffer(stream) {
+  if (!stream) return Buffer.alloc(0);
+  if (typeof stream.transformToByteArray === 'function') {
+    const bytes = await stream.transformToByteArray();
+    return Buffer.from(bytes);
+  }
+  const chunks = [];
+  for await (const chunk of stream) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks);
+}
+
 export class S3Driver {
   constructor(config) {
     this._config = {
@@ -104,8 +117,8 @@ export class S3Driver {
     const client = this._client;
     this._client = null;
     if (!client) return null;
-    // Wrap so the drainer of storage.js can call .close() uniformly across
-    // Mongo (returns MongoClient with .close()) and S3 (S3Client has .destroy()).
+    // Wrap so the drainer in storage.js can call .close() uniformly. S3Client
+    // exposes .destroy() rather than .close(), so we adapt it here.
     return {
       close: () => {
         try { client.destroy(); } catch (err) {
@@ -214,6 +227,80 @@ export class S3Driver {
       return true;
     } catch (err) {
       if (err?.$metadata?.httpStatusCode === 404 || err?.name === 'NoSuchKey') return false;
+      throw new StorageUnavailableError(err);
+    }
+  }
+
+  // PutObject without ETag preconditions — task attachments are write-once
+  // (the attachment id is a UUID minted on upload), so the optimistic locking
+  // path that protects shared JSON files is unnecessary here. ContentType is
+  // optional but should be passed when known so GetObject reflects the right
+  // MIME if anything (other than us) happens to read it.
+  async writeBinaryFileAtomic(relPath, buffer, opts = {}) {
+    const key = this._keyFromRelPath(relPath);
+    const client = this._ensureClient();
+    const body = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer);
+    try {
+      const input = {
+        Bucket: this._config.bucket,
+        Key: key,
+        Body: body,
+      };
+      if (opts.contentType) input.ContentType = opts.contentType;
+      await client.send(new PutObjectCommand(input));
+    } catch (err) {
+      console.error('[s3Store] writeBinaryFileAtomic failed:', err);
+      throw new StorageUnavailableError(err);
+    }
+  }
+
+  // Returns { buffer, contentType } or null on miss. ContentType is whatever
+  // S3 returns from GetObject; callers should still trust their own index for
+  // authoritative MIME (object metadata can be tampered with by anything else
+  // writing to the bucket).
+  async readBinaryFile(relPath) {
+    const key = this._keyFromRelPath(relPath);
+    const client = this._ensureClient();
+    try {
+      const res = await client.send(new GetObjectCommand({ Bucket: this._config.bucket, Key: key }));
+      const buffer = await streamToBuffer(res.Body);
+      return { buffer, contentType: res.ContentType };
+    } catch (err) {
+      if (err?.name === 'NoSuchKey' || err?.$metadata?.httpStatusCode === 404) {
+        return null;
+      }
+      console.error('[s3Store] readBinaryFile failed:', err);
+      throw new StorageUnavailableError(err);
+    }
+  }
+
+  // Recursively delete every key matching `<bucketPrefix>/<keyPrefix>`. The
+  // logical relPath prefix gets the same `data/` strip + bucket-prefix prepend
+  // as a regular key. Returns true even when nothing was deleted -- the caller
+  // (project-delete cleanup) treats this as best-effort.
+  async deletePrefix(relPathPrefix) {
+    const client = this._ensureClient();
+    const keyPrefix = this._keyFromRelPath(relPathPrefix);
+    try {
+      let continuationToken;
+      do {
+        const list = await client.send(new ListObjectsV2Command({
+          Bucket: this._config.bucket,
+          Prefix: keyPrefix,
+          ContinuationToken: continuationToken,
+        }));
+        for (const obj of list.Contents || []) {
+          if (!obj.Key) continue;
+          await client.send(new DeleteObjectCommand({
+            Bucket: this._config.bucket,
+            Key: obj.Key,
+          }));
+        }
+        continuationToken = list.IsTruncated ? list.NextContinuationToken : undefined;
+      } while (continuationToken);
+      return true;
+    } catch (err) {
+      console.error('[s3Store] deletePrefix failed:', err);
       throw new StorageUnavailableError(err);
     }
   }

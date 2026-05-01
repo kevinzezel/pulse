@@ -15,7 +15,7 @@ import { promises as fs } from 'fs';
 import { join, dirname } from 'path';
 import { FileDriver } from '../jsonStore.js';
 import { S3Driver } from '../s3Store.js';
-import { MongoDriver } from '../mongoStore.js';
+import { UnsupportedDriverError } from '../storage.js';
 
 // Same path as `lib/projectIndex.js` (post-4.2.1). The reconciler talks to
 // drivers directly via FileDriver/S3Driver/MongoDriver so it doesn't reach
@@ -62,7 +62,7 @@ async function writeJson(rel, data) {
 function buildDriver(backend) {
   if (backend.driver === 'file') return new FileDriver(backend.config || {});
   if (backend.driver === 's3') return new S3Driver(backend.config || {});
-  if (backend.driver === 'mongo') return new MongoDriver(backend.config || {});
+  if (backend.driver === 'mongo') throw new UnsupportedDriverError('mongo');
   throw new Error(`Unknown driver: ${backend.driver}`);
 }
 

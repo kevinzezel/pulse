@@ -1,25 +1,26 @@
 // v3 -> v4 storage migration. Two cases:
 //   - Caso 1: local file install (no remote driver). Re-shards `data/*.json`
 //     under `data/projects/<id>/` and `data/globals/` and writes a v2 config.
-//   - Caso 2: v1 install with `s3` or `mongo` driver. Acquires a remote
-//     migration lock (with a periodic heartbeat), re-shards the existing flat
-//     remote layout into the v4 per-project layout in PARALLEL (the v1 flat
-//     files are left in place so v3 readers can still serve traffic), routes
-//     globals to the LOCAL backend, and rewrites local `storage-config.json`
-//     to v2 with the imported backend marked as default. Each local project
-//     entry gets a `storage_ref` pointing at the imported backend.
+//   - Caso 2: v1 install with `s3` driver. Acquires a remote migration lock
+//     (with a periodic heartbeat), re-shards the existing flat remote layout
+//     into the v4 per-project layout in PARALLEL (the v1 flat files are left
+//     in place so v3 readers can still serve traffic), routes globals to the
+//     LOCAL backend, and rewrites local `storage-config.json` to v2 with the
+//     imported backend marked as default. Each local project entry gets a
+//     `storage_ref` pointing at the imported backend.
 //
-// This module is intentionally NOT wired into boot here -- Task 9 will pick
-// it up. For now it's a pure exported `migrate()` callable from tests and
-// from whatever startup hook lands later.
+// v5.0 removed mongo support: a v1 config with `driver: "mongo"` no longer
+// migrates automatically. The migrator throws UnsupportedDriverError so the
+// API layer surfaces `errors.storage.unsupported_driver` instead of silently
+// pretending nothing happened. Existing mongo data must be exported manually
+// before upgrading.
 
 import { promises as fs } from 'fs';
 import { join, dirname } from 'path';
 import { randomUUID } from 'crypto';
 import { S3Driver } from '../s3Store.js';
-import { MongoDriver } from '../mongoStore.js';
+import { UnsupportedDriverError } from '../storage.js';
 import * as s3Lock from './locks/s3-lock.js';
-import * as mongoLock from './locks/mongo-lock.js';
 
 // Per-project collections that need to be split by `project_id`. The shard
 // filename matches the source filename so the layout stays grep-friendly.
@@ -269,13 +270,12 @@ async function reshardLocalData(storageRef) {
   await writeJson('projects.json', { ...projectsDoc, projects });
 }
 
-// ---------- Caso 2 (remote drivers: s3 / mongo) ----------
+// ---------- Caso 2 (remote drivers: s3) ----------
 
 const HEARTBEAT_INTERVAL_MS = 30 * 1000;
 
 function lockApi(driverType) {
   if (driverType === 's3') return s3Lock;
-  if (driverType === 'mongo') return mongoLock;
   throw new Error(`Unknown driver: ${driverType}`);
 }
 
@@ -373,7 +373,11 @@ async function reshardRemoteData(driver, projects) {
 
 async function migrateCase2(v1Config) {
   const driverType = v1Config.driver;
-  const driver = driverType === 's3' ? new S3Driver(v1Config) : new MongoDriver(v1Config);
+  if (driverType !== 's3') {
+    // v5.0 dropped mongo. Anything else is unknown.
+    throw new UnsupportedDriverError(driverType);
+  }
+  const driver = new S3Driver(v1Config);
   await driver.init();
 
   const ownerId = `migrator-${randomUUID()}`;
@@ -569,7 +573,12 @@ export async function migrate() {
     return { ran: false, reason: 'already-v2' };
   }
 
-  if (shape === 'v1' && (config.driver === 's3' || config.driver === 'mongo')) {
+  if (shape === 'v1' && config.driver === 'mongo') {
+    // v5.0 explicit reject -- anything that auto-migrated mongo before now
+    // fails fast with a translatable error.
+    throw new UnsupportedDriverError('mongo');
+  }
+  if (shape === 'v1' && config.driver === 's3') {
     return await migrateCase2(config);
   }
 

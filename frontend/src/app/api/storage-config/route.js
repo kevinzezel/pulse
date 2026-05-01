@@ -10,7 +10,6 @@ import {
   DRIVERS,
 } from '@/lib/storage';
 import { pingS3 } from '@/lib/s3Store';
-import { pingMongo } from '@/lib/mongoStore';
 
 // Attempt to activate a new config, and if reloadBackend fails, restore the
 // previous on-disk config so the next boot isn't wedged. Ping validation
@@ -32,8 +31,6 @@ async function activateOrRollback(newConfigOrNull) {
   }
 }
 
-const DEFAULT_MONGO_DATABASE = 'pulse';
-
 function bad(detailKey, detail, status = 400, params) {
   const body = { detail, detail_key: detailKey };
   if (params) body.detail_params = params;
@@ -45,10 +42,9 @@ function bad(detailKey, detail, status = 400, params) {
 // plaintext anyway. Redaction was conservative; removing it lets the UI
 // show masked display and copy the raw value on click.
 //
-// SECURITY: the response body carries plaintext secrets (Mongo URI with
-// password, S3 Secret Access Key). Do NOT add logging/tracing that
-// stringifies the response, and do NOT extend this endpoint to be callable
-// without `withAuth`.
+// SECURITY: the response body carries plaintext secrets (S3 Secret Access
+// Key). Do NOT add logging/tracing that stringifies the response, and do NOT
+// extend this endpoint to be callable without `withAuth`.
 export const GET = withAuth(async () => {
   const onDisk = await readConfigAsync();
   const activeDriver = getActiveDriver();
@@ -68,6 +64,12 @@ export const PUT = withAuth(async (req) => {
   catch { return bad('errors.invalid_body', 'Invalid JSON'); }
 
   const driver = typeof body?.driver === 'string' ? body.driver : null;
+  if (driver === 'mongo') {
+    // v5.0 dropped mongo. Surface a translatable error if a stale client/CLI
+    // still posts the old shape. Specific message wins over the generic
+    // "invalid_driver" the next branch would emit.
+    return bad('errors.storage.unsupported_driver', 'MongoDB storage is no longer supported');
+  }
   if (!driver || !DRIVERS.includes(driver)) {
     return bad('errors.storage.invalid_driver', 'Invalid driver', 400);
   }
@@ -80,35 +82,6 @@ export const PUT = withAuth(async (req) => {
       return bad('errors.storage.reload_failed', `Storage reload failed: ${err?.message || err}`, 500, { reason: err?.message || String(err) });
     }
     return NextResponse.json({ detail_key: 'success.storage.file_activated', driver: 'file' });
-  }
-
-  if (driver === 'mongo') {
-    const uri = typeof body?.uri === 'string' ? body.uri.trim() : '';
-    if (!uri) return bad('errors.mongo.uri_required', 'Mongo URI is required');
-    const database = typeof body?.database === 'string' && body.database.trim()
-      ? body.database.trim()
-      : DEFAULT_MONGO_DATABASE;
-
-    try {
-      await pingMongo({ uri, database });
-    } catch (err) {
-      return bad(
-        'errors.mongo.connection_failed',
-        `Mongo connection failed: ${err?.message || err}`,
-        400,
-        { reason: err?.message || String(err) },
-      );
-    }
-
-    try {
-      await activateOrRollback({ driver: 'mongo', uri, database });
-    } catch (err) {
-      return bad('errors.storage.reload_failed', `Storage reload failed: ${err?.message || err}`, 500, { reason: err?.message || String(err) });
-    }
-    return NextResponse.json({
-      detail_key: 'success.storage.config_activated',
-      driver: 'mongo',
-    });
   }
 
   if (driver === 's3') {

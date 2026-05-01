@@ -2,6 +2,7 @@ import {
   readStoreFromBackend,
   writeStoreToBackend,
   withStoreLockOnBackend,
+  getDriverFor,
 } from './storage.js';
 import { findProjectBackend } from './projectIndex.js';
 
@@ -89,6 +90,43 @@ export async function writeProjectFile(projectId, file, data) {
 export async function withProjectLock(projectId, file, mutator) {
   const backendId = await resolveProjectStorage(projectId);
   return withStoreLockOnBackend(backendId, projectPath(projectId, file), mutator);
+}
+
+// ---------- Per-project binary operations (used by task-attachments) ----------
+//
+// `relPath` is interpreted relative to the project root (e.g.
+// "attachments/att-uuid/photo.png"). The driver receives the full
+// "data/projects/<id>/<relPath>" path so the bucket/file layout matches the
+// JSON shards next to it.
+
+export async function writeProjectBinary(projectId, relPath, buffer, opts = {}) {
+  const backendId = await resolveProjectStorage(projectId);
+  const driver = await getDriverFor(backendId);
+  return driver.writeBinaryFileAtomic(projectPath(projectId, relPath), buffer, opts);
+}
+
+export async function readProjectBinary(projectId, relPath) {
+  const backendId = await resolveProjectStorage(projectId);
+  const driver = await getDriverFor(backendId);
+  return driver.readBinaryFile(projectPath(projectId, relPath));
+}
+
+export async function deleteProjectFile(projectId, relPath) {
+  const backendId = await resolveProjectStorage(projectId);
+  const driver = await getDriverFor(backendId);
+  if (typeof driver.deleteFile !== 'function') return false;
+  return driver.deleteFile(projectPath(projectId, relPath));
+}
+
+// Best-effort recursive cleanup. Used by project-delete to remove an entire
+// attachments tree without iterating each file. Drivers without
+// `deletePrefix` (none today, but kept for forward compat) get a silent no-op
+// so the caller can layer this on without runtime checks.
+export async function deleteProjectPrefix(projectId, relPath) {
+  const backendId = await resolveProjectStorage(projectId);
+  const driver = await getDriverFor(backendId);
+  if (typeof driver.deletePrefix !== 'function') return false;
+  return driver.deletePrefix(projectPath(projectId, relPath));
 }
 
 // ---------- Global file operations (always go to local backend) ----------

@@ -90,6 +90,42 @@ describe('isServerLocalToBrowser', () => {
     clearBrowser();
     expect(isServerLocalToBrowser({ host: 'localhost' })).toBe(false);
   });
+
+  // healthEntry.sameServer is the canonical signal coming from the client's
+  // /health response. It overrides the loopback-only fallback so a server
+  // registered by LAN IP that actually runs on this machine is treated as
+  // local — the original motivation for the rewrite.
+  it('treats LAN-IP server as local when health says sameServer=true', () => {
+    setBrowserHost('192.168.0.130');
+    const server = { host: '192.168.0.130' };
+    expect(isServerLocalToBrowser(server, { sameServer: true })).toBe(true);
+  });
+
+  it('treats loopback server as REMOTE when health says sameServer=false', () => {
+    // Adversarial: the browser is on localhost AND the server is on
+    // localhost (heuristic would say "local"), but the canonical answer
+    // disagrees. The flag wins so we don't open a local editor on a host
+    // the user isn't actually sitting at.
+    setBrowserHost('localhost');
+    const server = { host: 'localhost' };
+    expect(isServerLocalToBrowser(server, { sameServer: false })).toBe(false);
+  });
+
+  it('falls back to loopback heuristic when sameServer is null', () => {
+    setBrowserHost('localhost');
+    expect(isServerLocalToBrowser({ host: 'localhost' }, { sameServer: null }))
+      .toBe(true);
+    setBrowserHost('192.168.0.130');
+    expect(isServerLocalToBrowser({ host: '192.168.0.130' }, { sameServer: null }))
+      .toBe(false);
+  });
+
+  it('falls back to loopback heuristic when healthEntry is missing', () => {
+    setBrowserHost('localhost');
+    expect(isServerLocalToBrowser({ host: 'localhost' })).toBe(true);
+    setBrowserHost('192.168.0.130');
+    expect(isServerLocalToBrowser({ host: '192.168.0.130' })).toBe(false);
+  });
 });
 
 describe('buildRemoteEditorUrl', () => {

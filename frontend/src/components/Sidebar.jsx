@@ -189,7 +189,8 @@ export default function Sidebar({
     const isVisible = visibleSessionIds.has(session.id);
     const showActions = isVisible;
     const popoverOpen = assignPopoverSessionId === session.id;
-    const sessionLocal = isServerLocal(getServerById(splitSessionId(session.id).serverId));
+    const sessionServerId = splitSessionId(session.id).serverId;
+    const sessionLocal = isServerLocal(getServerById(sessionServerId), serverHealth[sessionServerId]);
     const sessionServerStatus = serverHealth[session.server_id]?.status || 'unknown';
     return (
       <div

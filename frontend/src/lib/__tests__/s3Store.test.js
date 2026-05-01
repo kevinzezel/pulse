@@ -132,6 +132,96 @@ describe('S3Driver', () => {
     expect(await driver.deleteFile('nonexistent.json')).toBe(false);
   });
 
+  it('writeBinaryFileAtomic sends PutObject with body and ContentType', async () => {
+    s3Mock.on(HeadBucketCommand).resolves({});
+    s3Mock.on(PutObjectCommand).resolves({});
+    const driver = new S3Driver({ bucket: 'b', region: 'us-east-1', access_key_id: 'k', secret_access_key: 's', prefix: 'tenant' });
+    await driver.init();
+    const buf = Buffer.from([0xff, 0x00, 0x10, 0x42]);
+    await driver.writeBinaryFileAtomic('data/projects/p1/attachments/a1/img.png', buf, { contentType: 'image/png' });
+    const calls = s3Mock.commandCalls(PutObjectCommand);
+    expect(calls).toHaveLength(1);
+    const input = calls[0].args[0].input;
+    // `data/` is stripped, bucket prefix is prepended.
+    expect(input.Key).toBe('tenant/projects/p1/attachments/a1/img.png');
+    expect(input.ContentType).toBe('image/png');
+    // Body is the same bytes.
+    expect(Buffer.from(input.Body).equals(buf)).toBe(true);
+    // No If-Match / If-None-Match: write-once semantics for attachments.
+    expect(input.IfMatch).toBeUndefined();
+    expect(input.IfNoneMatch).toBeUndefined();
+  });
+
+  it('readBinaryFile parses GetObject body into a buffer with contentType', async () => {
+    s3Mock.on(HeadBucketCommand).resolves({});
+    const buf = Buffer.from([0xde, 0xad, 0xbe, 0xef]);
+    s3Mock.on(GetObjectCommand).resolves({
+      Body: sdkStreamMixin(Readable.from([buf])),
+      ContentType: 'application/pdf',
+    });
+    const driver = new S3Driver({ bucket: 'b', region: 'us-east-1', access_key_id: 'k', secret_access_key: 's' });
+    await driver.init();
+    const out = await driver.readBinaryFile('data/projects/p1/attachments/a1/doc.pdf');
+    expect(out).not.toBeNull();
+    expect(out.contentType).toBe('application/pdf');
+    expect(Buffer.compare(out.buffer, buf)).toBe(0);
+  });
+
+  it('readBinaryFile returns null on NoSuchKey', async () => {
+    s3Mock.on(HeadBucketCommand).resolves({});
+    s3Mock.on(GetObjectCommand).rejects({ name: 'NoSuchKey', $metadata: { httpStatusCode: 404 } });
+    const driver = new S3Driver({ bucket: 'b', region: 'us-east-1', access_key_id: 'k', secret_access_key: 's' });
+    await driver.init();
+    const out = await driver.readBinaryFile('data/projects/p1/attachments/missing/blob.bin');
+    expect(out).toBeNull();
+  });
+
+  it('deletePrefix lists and deletes every key under the prefix', async () => {
+    s3Mock.on(HeadBucketCommand).resolves({});
+    s3Mock.on(ListObjectsV2Command)
+      .resolvesOnce({
+        Contents: [
+          { Key: 'tenant/projects/p1/attachments/a1/img.png' },
+          { Key: 'tenant/projects/p1/attachments/a2/doc.pdf' },
+        ],
+        IsTruncated: true,
+        NextContinuationToken: 'tok',
+      })
+      .resolvesOnce({
+        Contents: [{ Key: 'tenant/projects/p1/attachments/a3/big.bin' }],
+        IsTruncated: false,
+      });
+    s3Mock.on(DeleteObjectCommand).resolves({});
+    const driver = new S3Driver({ bucket: 'b', region: 'us-east-1', access_key_id: 'k', secret_access_key: 's', prefix: 'tenant' });
+    await driver.init();
+    const ok = await driver.deletePrefix('data/projects/p1/attachments');
+    expect(ok).toBe(true);
+
+    // ListObjectsV2 was called with the bucket-prefixed key prefix.
+    const lists = s3Mock.commandCalls(ListObjectsV2Command);
+    expect(lists).toHaveLength(2);
+    expect(lists[0].args[0].input.Prefix).toBe('tenant/projects/p1/attachments');
+
+    const deletes = s3Mock.commandCalls(DeleteObjectCommand);
+    expect(deletes).toHaveLength(3);
+    const deletedKeys = deletes.map((c) => c.args[0].input.Key).sort();
+    expect(deletedKeys).toEqual([
+      'tenant/projects/p1/attachments/a1/img.png',
+      'tenant/projects/p1/attachments/a2/doc.pdf',
+      'tenant/projects/p1/attachments/a3/big.bin',
+    ]);
+  });
+
+  it('deletePrefix returns true even when nothing matched (idempotent cleanup)', async () => {
+    s3Mock.on(HeadBucketCommand).resolves({});
+    s3Mock.on(ListObjectsV2Command).resolves({ Contents: [], IsTruncated: false });
+    const driver = new S3Driver({ bucket: 'b', region: 'us-east-1', access_key_id: 'k', secret_access_key: 's' });
+    await driver.init();
+    const ok = await driver.deletePrefix('data/projects/p-missing/attachments');
+    expect(ok).toBe(true);
+    expect(s3Mock.commandCalls(DeleteObjectCommand)).toHaveLength(0);
+  });
+
   it('listAllKeys returns keys under the prefix across pagination', async () => {
     s3Mock.on(HeadBucketCommand).resolves({});
     s3Mock.on(ListObjectsV2Command)

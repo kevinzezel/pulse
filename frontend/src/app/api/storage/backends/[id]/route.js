@@ -3,7 +3,6 @@ import { withAuth } from '@/lib/auth';
 import { getConfig, removeBackend, setDefaultBackend, updateBackend } from '@/lib/storage';
 import { listAllProjects } from '@/lib/projectIndex';
 import { pingS3 } from '@/lib/s3Store';
-import { pingMongo } from '@/lib/mongoStore';
 
 function bad(detailKey, detail, status = 400, params) {
   const body = { detail, detail_key: detailKey };
@@ -13,8 +12,7 @@ function bad(detailKey, detail, status = 400, params) {
 
 const SECRET_PLACEHOLDER = '********';
 const S3_SECRET_FIELDS = ['access_key_id', 'secret_access_key'];
-const MONGO_SECRET_FIELDS = ['uri'];
-const ALL_SECRET_FIELDS = [...new Set([...S3_SECRET_FIELDS, ...MONGO_SECRET_FIELDS])];
+const ALL_SECRET_FIELDS = [...S3_SECRET_FIELDS];
 
 // Merge an incoming config patch with the existing backend config: any
 // secret-bearing field whose value is the masked placeholder ("********")
@@ -23,7 +21,7 @@ const ALL_SECRET_FIELDS = [...new Set([...S3_SECRET_FIELDS, ...MONGO_SECRET_FIEL
 // their credentials. Non-secret fields pass through as-is.
 function mergeConfigPreservingSecrets(driver, existingConfig, patchConfig) {
   const merged = { ...patchConfig };
-  const secretFields = driver === 's3' ? S3_SECRET_FIELDS : driver === 'mongo' ? MONGO_SECRET_FIELDS : [];
+  const secretFields = driver === 's3' ? S3_SECRET_FIELDS : [];
   for (const field of secretFields) {
     const incoming = merged[field];
     const isPlaceholder = incoming === SECRET_PLACEHOLDER;
@@ -91,11 +89,6 @@ export const PATCH = withAuth(async (req, { params }) => {
   // back) so a broken edit never gets persisted.
   if (existing.driver === 's3') {
     try { await pingS3(mergedConfig); }
-    catch (err) {
-      return bad('errors.backend_unreachable', `Cannot reach backend: ${err?.message || err}`, 400);
-    }
-  } else if (existing.driver === 'mongo') {
-    try { await pingMongo(mergedConfig); }
     catch (err) {
       return bad('errors.backend_unreachable', `Cannot reach backend: ${err?.message || err}`, 400);
     }

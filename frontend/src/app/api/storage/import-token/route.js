@@ -3,7 +3,6 @@ import { withAuth } from '@/lib/auth';
 import { addBackend, readStoreFromBackend } from '@/lib/storage';
 import { decodeBackendToken, BackendTokenError } from '@/lib/backendToken';
 import { pingS3 } from '@/lib/s3Store';
-import { pingMongo } from '@/lib/mongoStore';
 
 function bad(detailKey, detail, status = 400, params) {
   const body = { detail, detail_key: detailKey };
@@ -30,10 +29,15 @@ export const POST = withAuth(async (req) => {
 
   const { backend } = decoded;
 
+  // v5.0 dropped mongo support: an old token that still encodes a mongo
+  // backend is rejected upfront with a translatable error.
+  if (backend.driver === 'mongo') {
+    return bad('errors.storage.unsupported_driver', 'MongoDB storage is no longer supported');
+  }
+
   // Ping the backend before adding so we surface bad credentials immediately.
   try {
     if (backend.driver === 's3') await pingS3(backend.config);
-    else if (backend.driver === 'mongo') await pingMongo(backend.config);
   } catch (err) {
     return bad('errors.backend_unreachable', `Cannot reach backend: ${err?.message || err}`, 400);
   }

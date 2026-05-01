@@ -71,7 +71,6 @@ describe('POST /api/storage/import-token', () => {
       })),
     }));
     vi.doMock('@/lib/s3Store', () => ({ pingS3: vi.fn(async () => undefined) }));
-    vi.doMock('@/lib/mongoStore', () => ({ pingMongo: vi.fn(async () => undefined) }));
     vi.doMock('@/lib/auth', () => ({ withAuth: (fn) => fn }));
     storage = await import('@/lib/storage');
     backendToken = await import('@/lib/backendToken');
@@ -99,6 +98,24 @@ describe('POST /api/storage/import-token', () => {
     expect(body.projects[0].name).toBe('AdsScanner');
     expect(storage.addBackend).toHaveBeenCalled();
     expect(storage.readStoreFromBackend).toHaveBeenCalledWith('b-new', 'data/projects-manifest.json', expect.anything());
+  });
+
+  it('rejects an old token whose backend is mongo', async () => {
+    const token = backendToken.encodeBackendToken({
+      name: 'Legacy Mongo',
+      driver: 'mongo',
+      config: { uri: 'mongodb://x', database: 'pulse' },
+    });
+    const req = new Request('http://localhost/api/storage/import-token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token }),
+    });
+    const res = await route.POST(req);
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.detail_key).toBe('errors.storage.unsupported_driver');
+    expect(storage.addBackend).not.toHaveBeenCalled();
   });
 
   it('400 on malformed token', async () => {

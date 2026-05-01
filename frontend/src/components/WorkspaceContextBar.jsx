@@ -38,6 +38,7 @@ export default function WorkspaceContextBar({
       onReorder={onReorderGroups}
       onGroupsChanged={onGroupsChanged}
       isMobile={isMobile}
+      serverHealth={serverHealth}
     />
   );
 

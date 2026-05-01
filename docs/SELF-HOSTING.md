@@ -53,7 +53,7 @@ All in `~/.config/pulse/`:
 | `frontend.env`    | `WEB_HOST`, `WEB_PORT`, `AUTH_PASSWORD`, `AUTH_JWT_SECRET`, `AUTH_COOKIE_SECURE` &nbsp;·&nbsp; *(optional)* `TLS_ENABLED`, `TLS_CERT_PATH`, `TLS_KEY_PATH` |
 | `tls/cert.pem` &nbsp;·&nbsp; `tls/key.pem` *(optional)* | created by `pulse config tls on` — RSA-2048 self-signed pair, 825-day validity |
 | `../local/share/pulse/frontend/data/servers.json` | list of Pulse clients the dashboard connects to |
-| `../local/share/pulse/frontend/data/storage-config.json` *(optional)* | when present, the dashboard reads/writes through the configured remote driver (MongoDB or S3) instead of local JSON files |
+| `../local/share/pulse/frontend/data/storage-config.json` *(optional)* | when present, the dashboard reads/writes through the configured remote S3-compatible driver instead of local JSON files |
 
 Prefer `pulse config password` / `pulse config ports` over editing the env files by hand — they keep `servers.json` in sync and restart the right services for you.
 

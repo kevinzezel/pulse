@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useTranslation, useErrorToast } from '@/providers/I18nProvider';
@@ -22,12 +23,18 @@ export default function AddBackendModal({ onClose, onAdded, backend = null }) {
   const isEdit = backend != null;
   const [mode, setMode] = useState('form'); // 'form' | 'token'
   const [busy, setBusy] = useState(false);
+  // Portal target. Some ancestor in the settings tree creates a stacking
+  // trap (transform/filter on a layout container), which makes a child
+  // `fixed inset-0` overlay start at the container's top instead of the
+  // viewport's. Rendering through document.body sidesteps the trap entirely.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
 
-  const initialDriver = backend?.driver === 'mongo' ? 'mongo' : 's3';
+  // v5.0 dropped MongoDB; only s3 remains as a configurable remote driver.
   const initialConfig = backend?.config || {};
+  const driver = 's3';
 
   // Form-mode state
-  const [driver, setDriver] = useState(initialDriver);
   const [name, setName] = useState(backend?.name || '');
   const [endpoint, setEndpoint] = useState(initialConfig.endpoint || '');
   const [bucket, setBucket] = useState(initialConfig.bucket || '');
@@ -36,8 +43,6 @@ export default function AddBackendModal({ onClose, onAdded, backend = null }) {
   const [secretAccessKey, setSecretAccessKey] = useState(initialConfig.secret_access_key || '');
   const [prefix, setPrefix] = useState(initialConfig.prefix || '');
   const [forcePathStyle, setForcePathStyle] = useState(!!initialConfig.force_path_style);
-  const [uri, setUri] = useState(initialConfig.uri || '');
-  const [database, setDatabase] = useState(initialConfig.database || 'pulse');
 
   // Token-mode state
   const [token, setToken] = useState('');
@@ -47,17 +52,15 @@ export default function AddBackendModal({ onClose, onAdded, backend = null }) {
     e.preventDefault();
     setBusy(true);
     try {
-      const config = driver === 's3'
-        ? {
-            endpoint: endpoint || undefined,
-            bucket,
-            region,
-            access_key_id: accessKeyId,
-            secret_access_key: secretAccessKey,
-            prefix,
-            force_path_style: forcePathStyle,
-          }
-        : { uri, database };
+      const config = {
+        endpoint: endpoint || undefined,
+        bucket,
+        region,
+        access_key_id: accessKeyId,
+        secret_access_key: secretAccessKey,
+        prefix,
+        force_path_style: forcePathStyle,
+      };
       if (isEdit) {
         await updateBackend(backend.id, { name, config });
         toast.success(t('settings.storage.addModal.successUpdated', { name }));
@@ -101,8 +104,10 @@ export default function AddBackendModal({ onClose, onAdded, backend = null }) {
     ? t('settings.storage.addModal.saving')
     : t('settings.storage.addModal.validating');
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-overlay/60 px-4">
+  if (!mounted) return null;
+
+  return createPortal((
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-overlay/60 px-4">
       <div className="bg-card border border-border rounded-lg p-6 w-full max-w-md max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-foreground font-semibold">{title}</h3>
@@ -159,19 +164,11 @@ export default function AddBackendModal({ onClose, onAdded, backend = null }) {
               <label className="block text-sm text-muted-foreground mb-1">
                 {t('settings.storage.addModal.driver')}
               </label>
-              <select
-                value={driver}
-                onChange={(e) => setDriver(e.target.value)}
-                disabled={isEdit}
-                className="w-full px-3 py-2 bg-input border border-border rounded-md text-foreground text-sm focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-60"
-              >
-                <option value="s3">{t('settings.storage.addModal.driverS3')}</option>
-                <option value="mongo">{t('settings.storage.addModal.driverMongo')}</option>
-              </select>
+              <div className="w-full px-3 py-2 bg-muted/30 border border-border rounded-md text-foreground text-sm">
+                {t('settings.storage.addModal.driverS3')}
+              </div>
             </div>
 
-            {driver === 's3' && (
-              <>
                 <div>
                   <label className="block text-sm text-muted-foreground mb-1">
                     {t('settings.storage.addModal.endpoint')}
@@ -247,36 +244,6 @@ export default function AddBackendModal({ onClose, onAdded, backend = null }) {
                   />
                   {t('settings.storage.addModal.forcePathStyle')}
                 </label>
-              </>
-            )}
-
-            {driver === 'mongo' && (
-              <>
-                <div>
-                  <label className="block text-sm text-muted-foreground mb-1">
-                    {t('settings.storage.addModal.uri')}
-                  </label>
-                  <input
-                    type="password"
-                    value={uri}
-                    onChange={(e) => setUri(e.target.value)}
-                    required={!isEdit}
-                    placeholder={isEdit ? t('settings.storage.addModal.uriPlaceholder') : 'mongodb://...'}
-                    className="w-full px-3 py-2 bg-input border border-border rounded-md text-foreground text-sm font-mono focus:outline-none focus:ring-1 focus:ring-ring"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm text-muted-foreground mb-1">
-                    {t('settings.storage.addModal.database')}
-                  </label>
-                  <input
-                    value={database}
-                    onChange={(e) => setDatabase(e.target.value)}
-                    className="w-full px-3 py-2 bg-input border border-border rounded-md text-foreground text-sm focus:outline-none focus:ring-1 focus:ring-ring"
-                  />
-                </div>
-              </>
-            )}
 
             <div className="flex gap-2 pt-2">
               <button
@@ -348,5 +315,5 @@ export default function AddBackendModal({ onClose, onAdded, backend = null }) {
         )}
       </div>
     </div>
-  );
+  ), document.body);
 }

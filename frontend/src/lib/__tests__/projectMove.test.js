@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'fs';
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 
@@ -97,6 +97,87 @@ describe('moveProjectShards', () => {
     const destManifest = await storage.readStoreFromBackend('b-second', MANIFEST_REL, null);
     expect(destManifest.projects).toHaveLength(1);
     expect(destManifest.projects[0].id).toBe('p1');
+  });
+
+  it('copies task-attachments.json index AND each binary file referenced by it', async () => {
+    // Index points at one image binary; both index and binary live under p1.
+    await storage.writeStoreToBackend('local', MANIFEST_REL, {
+      v: 1,
+      projects: [{ id: 'p1', name: 'X' }],
+    });
+    await storage.writeStoreToBackend('local', 'data/projects/p1/task-attachments.json', {
+      attachments: [{
+        id: 'att-1',
+        task_id: 't-1',
+        board_id: 'b-1',
+        object_path: 'attachments/att-1/photo.png',
+        name: 'photo.png',
+        mime: 'image/png',
+        size: 4,
+        kind: 'image',
+        created_at: '2026-04-30',
+      }],
+    });
+    const localDriver = await storage.getDriverFor('local');
+    await localDriver.writeBinaryFileAtomic(
+      'data/projects/p1/attachments/att-1/photo.png',
+      Buffer.from([0x89, 0x50, 0x4e, 0x47]),
+      { contentType: 'image/png' },
+    );
+
+    await projectMove.moveProjectShards('p1', 'local', 'b-second', { name: 'X' });
+
+    // Index landed on the destination.
+    const destIndex = await storage.readStoreFromBackend('b-second', 'data/projects/p1/task-attachments.json', null);
+    expect(destIndex).not.toBeNull();
+    expect(destIndex.attachments).toHaveLength(1);
+
+    // Binary landed on the destination with the same bytes.
+    const destDriver = await storage.getDriverFor('b-second');
+    const out = await destDriver.readBinaryFile('data/projects/p1/attachments/att-1/photo.png');
+    expect(out).not.toBeNull();
+    expect(Buffer.compare(out.buffer, Buffer.from([0x89, 0x50, 0x4e, 0x47]))).toBe(0);
+
+    // Source attachments tree was wiped.
+    expect(existsSync(join(tmpDir, 'data', 'projects', 'p1', 'attachments'))).toBe(false);
+  });
+
+  it('aborts the move when an attachment binary is missing on the source', async () => {
+    // Index claims an attachment exists, but the binary file is missing on
+    // the source. The move must abort before touching the dest manifest so
+    // listAllProjects keeps the project on `local`.
+    await storage.writeStoreToBackend('local', MANIFEST_REL, {
+      v: 1,
+      projects: [{ id: 'p1', name: 'X' }],
+    });
+    await storage.writeStoreToBackend('local', 'data/projects/p1/task-attachments.json', {
+      attachments: [{
+        id: 'att-ghost',
+        task_id: 't-1',
+        board_id: 'b-1',
+        object_path: 'attachments/att-ghost/missing.png',
+        name: 'missing.png',
+        mime: 'image/png',
+        size: 1,
+        kind: 'image',
+        created_at: '2026-04-30',
+      }],
+    });
+    // Note: NO writeBinaryFileAtomic for this entry -- the binary is absent.
+
+    await expect(
+      projectMove.moveProjectShards('p1', 'local', 'b-second', { name: 'X' }),
+    ).rejects.toThrow(/attachment binary missing/i);
+
+    // Source is still canonical: the dest manifest never got the project.
+    const destManifest = await storage.readStoreFromBackend('b-second', MANIFEST_REL, null);
+    expect(destManifest === null || (destManifest.projects || []).length === 0).toBe(true);
+    const sourceManifest = await storage.readStoreFromBackend('local', MANIFEST_REL, null);
+    expect(sourceManifest.projects.find((p) => p.id === 'p1')).toBeDefined();
+    const all = await projectIndex.listAllProjects();
+    const p1Entries = all.filter((p) => p.id === 'p1');
+    expect(p1Entries).toHaveLength(1);
+    expect(p1Entries[0].backend_id).toBe('local');
   });
 
   it('regression: after a local -> file-backed move, listAllProjects returns exactly one entry on the destination', async () => {

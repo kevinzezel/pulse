@@ -16,7 +16,7 @@ import AddBackendModal from '@/components/settings/AddBackendModal';
 // paths:
 //
 //  1. Create a project on a backend the user already has (Local always
-//     present, plus any S3/Mongo they added).
+//     present, plus any S3 they added).
 //  2. Add a storage backend -- if it's a token-paste of a colleague's
 //     backend, projects auto-discover from the manifest and the gate
 //     dismisses on the next refresh; if it's a from-scratch backend, the

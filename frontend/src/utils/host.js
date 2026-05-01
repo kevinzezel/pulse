@@ -5,20 +5,33 @@ export function isLocalHost() {
   return LOOPBACK.has(window.location.hostname);
 }
 
-// Retorna true somente quando browser e servidor são ambos loopback
-// (localhost / 127.0.0.1 / ::1). Servidor cadastrado por IP LAN é tratado
-// como remoto, mesmo que fisicamente rode na mesma máquina — não há mais
-// detecção ativa por probe a localhost (4.2.x tinha; foi removido em
-// 4.2.9-pre por gerar requisições/CORS/TLS para um host não cadastrado e
-// causar falsos positivos quando outro processo usava a mesma porta no
-// notebook do usuário). Quem quiser comportamento "local editor" cadastra o
-// servidor explicitamente como localhost / 127.0.0.1 e abre o dashboard pelo
-// mesmo loopback.
-export function isServerLocalToBrowser(server) {
+// Decide se o servidor está rodando na mesma máquina que o browser.
+//
+// Fonte canônica é `healthEntry.sameServer`: o /health do client devolve esse
+// boolean computado a partir do peer IP TCP (loopback ou interface local). Se
+// vier true ou false, ele é a resposta — vence até combinações counter-
+// intuitivas (ex.: dashboard em https://lan-ip e client cadastrado pelo mesmo
+// IP LAN, mas rodando em outra máquina via NAT).
+//
+// Se `healthEntry` for ausente/desconhecido (`sameServer === null` ou entry
+// nula), cai no fallback histórico: só "local" quando browser E servidor estão
+// ambos em loopback. Esse fallback existe pra:
+//   - clientes pre-4.6 que ainda não devolvem same_server;
+//   - render inicial antes do primeiro /health terminar;
+//   - cenário em que o /health falhou e nunca tivemos resposta válida.
+// Em 4.2.x havia um probe oculto a https://localhost:<port>/health pra
+// "promover" servers LAN a local; foi removido em 4.2.9-pre por gerar CORS/
+// TLS pra hosts não cadastrados e gerar falsos positivos quando outro
+// processo ocupava a porta no notebook do usuário. A mesma decisão hoje vive
+// na resposta do próprio client.
+export function isServerLocalToBrowser(server, healthEntry = null) {
   if (typeof window === 'undefined' || !server) return false;
-  const browserHost = window.location.hostname;
   const serverHost = server.host;
   if (!serverHost) return false;
+  if (healthEntry && typeof healthEntry.sameServer === 'boolean') {
+    return healthEntry.sameServer;
+  }
+  const browserHost = window.location.hostname;
   return LOOPBACK.has(browserHost) && LOOPBACK.has(serverHost);
 }
 

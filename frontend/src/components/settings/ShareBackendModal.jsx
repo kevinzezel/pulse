@@ -1,12 +1,17 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Copy, Check, AlertTriangle, X } from 'lucide-react';
 import { useTranslation } from '@/providers/I18nProvider';
 
 export default function ShareBackendModal({ backendName, token, onClose }) {
   const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
+  // Render through document.body to escape any stacking trap created by
+  // ancestor transform/filter on the settings tree -- see AddBackendModal.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
 
   async function handleCopy() {
     try {
@@ -19,8 +24,10 @@ export default function ShareBackendModal({ backendName, token, onClose }) {
     }
   }
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-overlay/60 px-4">
+  if (!mounted) return null;
+
+  return createPortal((
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-overlay/60 px-4">
       <div className="bg-card border border-border rounded-lg p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-foreground font-semibold">
@@ -73,5 +80,5 @@ export default function ShareBackendModal({ backendName, token, onClose }) {
         </div>
       </div>
     </div>
-  );
+  ), document.body);
 }

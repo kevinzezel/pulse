@@ -75,6 +75,27 @@ export function withAuth(handler) {
         { status: 401 }
       );
     }
-    return handler(request, ctx);
+    try {
+      return await handler(request, ctx);
+    } catch (err) {
+      // v5.0: an install whose storage-config.json still references `mongo`
+      // surfaces UnsupportedDriverError from getConfig / getDriverFor anywhere
+      // a route reads project state. Catch it here so EVERY auth-gated route
+      // returns the structured `errors.storage.unsupported_driver` payload
+      // instead of a generic 500. Duck-typed -- importing the class from
+      // storage.js would pull the file/S3 drivers into the middleware bundle,
+      // which runs on Edge Runtime and rejects `process.cwd()`.
+      if (err && err.name === 'UnsupportedDriverError' && typeof err.detailKey === 'string') {
+        return NextResponse.json(
+          {
+            detail: err.message,
+            detail_key: err.detailKey,
+            detail_params: { driver: err.driver },
+          },
+          { status: 503 },
+        );
+      }
+      throw err;
+    }
   };
 }

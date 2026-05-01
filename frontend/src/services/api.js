@@ -766,6 +766,44 @@ export async function deleteTaskBoard(projectId, id) {
   );
 }
 
+// Multipart upload of a single file as a task attachment. `task_id` is
+// optional -- a fresh "new task" modal uploads before the task exists, the
+// server stamps the task_id later on save.
+export async function uploadTaskAttachment(projectId, { boardId, taskId, file, signal }) {
+  const params = new URLSearchParams({ project_id: projectId });
+  if (boardId) params.set('board_id', boardId);
+  if (taskId) params.set('task_id', taskId);
+  const fd = new FormData();
+  fd.append('file', file, file.name);
+  const locale = getCurrentLocale();
+  const res = await fetch(`/api/task-attachments?${params.toString()}`, {
+    method: 'POST',
+    headers: { 'Accept-Language': locale },
+    body: fd,
+    signal,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const err = new Error(data.detail || 'Upload failed');
+    err.detail = data.detail;
+    err.detail_key = data.detail_key;
+    err.detail_params = data.detail_params;
+    err.status = res.status;
+    throw err;
+  }
+  return data.attachment;
+}
+
+// Idempotent delete of a previously-uploaded attachment. Used when the user
+// removes one from the editor (saved on submit) and when a new-task modal is
+// cancelled (best-effort cleanup of orphans).
+export async function deleteTaskAttachment(projectId, attachmentId) {
+  return await localRequest(
+    `/api/task-attachments/${encodeURIComponent(attachmentId)}?project_id=${encodeURIComponent(projectId)}`,
+    { method: 'DELETE' },
+  );
+}
+
 // ===== Task Board Groups =====
 
 export async function getTaskBoardGroups(projectId) {
@@ -976,7 +1014,7 @@ export async function deleteProject(projectId) {
 }
 
 // ----------------------------------------------------------------------------
-// Storage (MongoDB sync) configuration + sync
+// Storage configuration (legacy single-driver API; multi-backend below)
 // ----------------------------------------------------------------------------
 
 export async function getStorageConfig() {
@@ -984,7 +1022,7 @@ export async function getStorageConfig() {
 }
 
 export async function setStorageConfig(payload) {
-  // payload = { driver: 'mongo'|'s3'|'file', ...driver-specific params }
+  // payload = { driver: 's3'|'file', ...driver-specific params }
   return localRequest('/api/storage-config', {
     method: 'PUT',
     body: JSON.stringify(payload),

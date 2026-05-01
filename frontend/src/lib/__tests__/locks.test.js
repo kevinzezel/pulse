@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mockClient } from 'aws-sdk-client-mock';
 import {
   S3Client,
@@ -9,14 +9,10 @@ import {
 } from '@aws-sdk/client-s3';
 import { sdkStreamMixin } from '@smithy/util-stream';
 import { Readable } from 'stream';
-import { MongoMemoryServer } from 'mongodb-memory-server';
-import { MongoClient } from 'mongodb';
 
 import { S3Driver } from '../s3Store.js';
-import { MongoDriver } from '../mongoStore.js';
 import * as fileLock from '../migrations/locks/file-lock.js';
 import * as s3Lock from '../migrations/locks/s3-lock.js';
-import * as mongoLock from '../migrations/locks/mongo-lock.js';
 
 const stringStream = (text) => sdkStreamMixin(Readable.from([Buffer.from(text)]));
 
@@ -29,7 +25,6 @@ describe('file-lock (no-op)', () => {
     expect(await fileLock.heartbeat(null, 'm', 'me')).toBe(true);
   });
 });
-
 describe('s3-lock', () => {
   let s3Mock;
   let driver;
@@ -103,64 +98,5 @@ describe('s3-lock', () => {
     s3Mock.on(DeleteObjectCommand).resolves({});
     await s3Lock.releaseMigrationLock(driver, 'migrating-v4', 'owner-1');
     expect(s3Mock.commandCalls(DeleteObjectCommand)).toHaveLength(1);
-  });
-});
-
-describe('mongo-lock', () => {
-  let mongo;
-  let uri;
-  let driver;
-
-  beforeAll(async () => {
-    mongo = await MongoMemoryServer.create();
-    uri = mongo.getUri();
-  }, 60000);
-
-  afterAll(async () => {
-    if (mongo) await mongo.stop();
-  });
-
-  beforeEach(async () => {
-    const client = new MongoClient(uri);
-    await client.connect();
-    await client.db('pulse_test').dropDatabase();
-    await client.close();
-
-    driver = new MongoDriver({ uri, database: 'pulse_test' });
-    await driver.init();
-  });
-
-  afterEach(async () => {
-    if (driver) await driver.close();
-  });
-
-  it('acquires when no lock exists', async () => {
-    const got = await mongoLock.acquireMigrationLock(driver, 'migrating-v4', 'owner-1');
-    expect(got).toBe(true);
-  });
-
-  it('rejects second acquire when first is fresh', async () => {
-    // Note: in single-process Node these calls serialize on the microtask
-    // queue, so this asserts sequential correctness. Real cross-process
-    // concurrency is enforced by the _id uniqueness + $or stale clause +
-    // 11000 → false handling, which is exercised here by the second call
-    // arriving while the first owner's heartbeat is still fresh.
-    const [a, b] = await Promise.all([
-      mongoLock.acquireMigrationLock(driver, 'migrating-v4', 'owner-1'),
-      mongoLock.acquireMigrationLock(driver, 'migrating-v4', 'owner-2'),
-    ]);
-    expect([a, b].filter(Boolean)).toHaveLength(1);
-  });
-
-  it('release allows another owner to acquire', async () => {
-    expect(await mongoLock.acquireMigrationLock(driver, 'migrating-v4', 'owner-1')).toBe(true);
-    await mongoLock.releaseMigrationLock(driver, 'migrating-v4', 'owner-1');
-    expect(await mongoLock.acquireMigrationLock(driver, 'migrating-v4', 'owner-2')).toBe(true);
-  });
-
-  it('heartbeat returns false if not the owner', async () => {
-    expect(await mongoLock.acquireMigrationLock(driver, 'migrating-v4', 'owner-1')).toBe(true);
-    expect(await mongoLock.heartbeat(driver, 'migrating-v4', 'owner-2')).toBe(false);
-    expect(await mongoLock.heartbeat(driver, 'migrating-v4', 'owner-1')).toBe(true);
   });
 });

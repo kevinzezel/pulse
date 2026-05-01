@@ -145,7 +145,7 @@ For remote clients, the same button opens `vscode://vscode-remote/ssh-remote+<ho
 
 **3 UI languages** — English, Português (Brasil), Español, with full parity (601 keys each).
 
-**Optional cloud sync** — point Pulse at MongoDB or S3-compatible storage (Cloudflare R2, MinIO, B2, GCS, DO Spaces) to share `projects` / `flows` / `notes` / `prompts` / `servers` between machines. Hot-swappable in the UI, no restart. → [`docs/STORAGE.md`](docs/STORAGE.md).
+**Optional cloud sync** — point Pulse at S3-compatible storage (AWS S3, Cloudflare R2, MinIO, Backblaze B2, GCS, DO Spaces) to share `projects` / `flows` / `notes` / `prompts` / `servers` / **task attachments** between machines. Hot-swappable in the UI, no restart. → [`docs/STORAGE.md`](docs/STORAGE.md).
 
 **Optional self-signed HTTPS** — `pulse config tls on --client --dashboard` generates a self-signed cert (no extra deps, just `openssl`) so the dashboard answers on `https://`. Required for browser notifications, clipboard API, and PWA install when accessing from another LAN device (only `localhost` is treated as a secure context over HTTP). → [`docs/SELF-HOSTING.md#https-without-a-reverse-proxy-self-signed`](docs/SELF-HOSTING.md#https-without-a-reverse-proxy-self-signed).
 
@@ -177,7 +177,7 @@ For remote clients, the same button opens `vscode://vscode-remote/ssh-remote+<ho
 ## Documentation
 
 - 📖 [**Self-hosting guide**](docs/SELF-HOSTING.md) — `pulse` CLI, config files, behind a reverse proxy, networking defaults.
-- 📦 [**Storage drivers**](docs/STORAGE.md) — local, MongoDB, S3-compatible (R2, MinIO, B2, GCS).
+- 📦 [**Storage drivers**](docs/STORAGE.md) — local files or any S3-compatible target (R2, MinIO, B2, GCS, DO Spaces). Includes binary task attachments.
 - 🌐 [**Multi-server setup**](docs/MULTI-SERVER.md) — install only the client on remote boxes, register from the dashboard, typical architectures.
 - 🔔 [**Notifications design**](NOTIFICATIONS.md) — the 5 anti-spam rules and the viewing heartbeat in detail.
 - 📜 [**Changelog**](CHANGELOG.md) — release notes per version.

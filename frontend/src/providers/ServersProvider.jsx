@@ -20,14 +20,11 @@ export function getAllServers() {
   return cacheState.servers;
 }
 
-// "Local" só quando browser e servidor são ambos loopback (localhost /
-// 127.0.0.1 / ::1). Servidor cadastrado por IP LAN é tratado como remoto, mesmo
-// que fisicamente rode na mesma máquina — não fazemos probe oculto pra
-// localhost por motivo de privacidade/CORS/TLS (4.2.x fazia, foi removido).
-// Quem quiser comportamento "local editor" cadastra explicitamente o servidor
-// como localhost e abre o dashboard pelo loopback.
-export function isServerLocal(server) {
-  return isServerLocalToBrowser(server);
+// Fonte canônica é o /health do client (`healthEntry.sameServer`). Se o entry
+// for ausente/unknown, cai no fallback de loopback (browser e servidor ambos
+// em localhost / 127.0.0.1 / ::1). Detalhes em utils/host.js.
+export function isServerLocal(server, healthEntry = null) {
+  return isServerLocalToBrowser(server, healthEntry);
 }
 
 function connectionFieldsChanged(a, b) {

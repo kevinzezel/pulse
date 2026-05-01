@@ -6,7 +6,7 @@ export const GET = withAuth(async (req, { params }) => {
   const { id } = await params;
   try {
     // Canonical path — must match the rest of the app (projectIndex,
-    // /api/projects, /api/storage/import-token, projectMove). S3/Mongo strip
+    // /api/projects, /api/storage/import-token, projectMove). S3 strips
     // the leading `data/` on resolution, so the bucket key stays identical.
     const manifest = await readStoreFromBackend(id, 'data/projects-manifest.json', { v: 1, projects: [] });
     return NextResponse.json(manifest);

@@ -127,6 +127,7 @@ export default function GroupSelector({
   deleteConfirmMessageKey = 'groups.deleteConfirmMessage',
   deleteConfirmMessageZeroKey = 'groups.deleteConfirmMessageZero',
   successKeys = DEFAULT_SUCCESS_KEYS,
+  serverHealth = {},
 }) {
   const effectiveItems = items ?? sessions;
   const visibleGroups = useMemo(() => groups.filter((g) => !g.hidden), [groups]);
@@ -219,7 +220,8 @@ export default function GroupSelector({
       const bucket = perGroup.get(gid);
       if (!bucket) continue;
       bucket.total += 1;
-      if (isServerLocal(getServerById(splitSessionId(s.id).serverId))) {
+      const sessionServerId = splitSessionId(s.id).serverId;
+      if (isServerLocal(getServerById(sessionServerId), serverHealth[sessionServerId])) {
         bucket.localCount += 1;
       }
     }
@@ -228,7 +230,7 @@ export default function GroupSelector({
       out.set(k, v.total > 0 && v.localCount === v.total);
     }
     return out;
-  }, [sessions, visibleGroups]);
+  }, [sessions, visibleGroups, serverHealth]);
 
   async function openAllInGroup(e, groupId) {
     e.stopPropagation();
@@ -257,7 +259,7 @@ export default function GroupSelector({
     for (const session of targets) {
       const { serverId } = splitSessionId(session.id);
       const server = getServerById(serverId);
-      if (isServerLocal(server)) localSessions.push(session);
+      if (isServerLocal(server, serverHealth[serverId])) localSessions.push(session);
       else remoteEntries.push({ session, server });
     }
 

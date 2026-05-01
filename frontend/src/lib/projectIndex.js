@@ -3,8 +3,8 @@
 // manifest under `data/projects-manifest.json`, so two installs pointed at
 // the same backend see the same project list automatically.
 //
-// Path detail: the rel path is `data/projects-manifest.json`. The S3 and
-// Mongo drivers strip the leading `data/` so the resolved key is still
+// Path detail: the rel path is `data/projects-manifest.json`. The S3 driver
+// strips the leading `data/` so the resolved key is still
 // `<prefix>/projects-manifest.json` -- collaborators inspecting the bucket
 // see the same layout they always did. The file driver does NOT strip, so
 // the manifest lives inside `<frontend_root>/data/` next to the rest of the
@@ -27,15 +27,15 @@ const MANIFEST_REL = 'data/projects-manifest.json';
 // File-driver pre-4.2.1 wrote the manifest at the install root (no `data/`
 // prefix). Self-heal kicks in on first read of MANIFEST_REL: if the new
 // path is empty/missing AND the legacy file exists, move it. Idempotent
-// after the first call. S3/Mongo strip `data/` on resolution so they
-// always landed at the same key -- no migration needed there.
+// after the first call. S3 strips `data/` on resolution so it always
+// landed at the same key -- no migration needed there.
 const MANIFEST_REL_LEGACY_PRE_421 = 'projects-manifest.json';
 let _legacyMigrationDone = false;
 
 // One-shot self-heal for installs that wrote the manifest at the legacy
 // pre-4.2.1 path (`<frontend_root>/projects-manifest.json` instead of
 // `<frontend_root>/data/projects-manifest.json`). Only the local file
-// driver was affected -- the S3/Mongo drivers strip `data/` on resolution
+// driver was affected -- the S3 driver strips `data/` on resolution
 // so the on-disk key never moved. Sentinel value uses null instead of an
 // empty `{ projects: [] }` so we can distinguish "absent" from "present
 // but empty".

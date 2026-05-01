@@ -6,7 +6,7 @@ const MIN_INTERVAL_MS = 2000;
 
 // Refetch when tab becomes visible again. Debounced so repeated focus events
 // don't spam the server. Used to mitigate stale UI when another device has
-// updated shared MongoDB-backed data.
+// updated shared S3-backed data.
 export function useRefetchOnFocus(fn, enabled = true) {
   const fnRef = useRef(fn);
   const lastRef = useRef(Date.now());

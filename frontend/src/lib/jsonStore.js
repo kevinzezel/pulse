@@ -1,5 +1,6 @@
 import { promises as fs } from 'fs';
 import { dirname, join, normalize, isAbsolute } from 'path';
+import { Buffer } from 'buffer';
 
 // Default base dir for the singleton facade. `process.cwd()` is fine in dev,
 // but under systemd the worker process that handles writes can drift to a
@@ -68,6 +69,56 @@ export class FileDriver {
       if (err.code === 'ENOENT') return false;
       throw err;
     }
+  }
+
+  // Atomic binary write — same temp+rename ritual as JSON, but accepts a Buffer
+  // (or anything Buffer.from() understands). `contentType` is accepted for API
+  // parity with the S3 driver and is otherwise ignored: the local filesystem
+  // has no metadata slot for it and we always re-derive Content-Type from the
+  // attachment index when serving downloads.
+  async writeBinaryFileAtomic(relPath, buffer, _opts = {}) {
+    const full = this._resolvePath(relPath);
+    await fs.mkdir(dirname(full), { recursive: true });
+    const tmp = `${full}.tmp-${process.pid}-${Date.now()}`;
+    const data = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer);
+    try {
+      await fs.writeFile(tmp, data);
+      await fs.rename(tmp, full);
+    } catch (err) {
+      try { await fs.unlink(tmp); } catch {}
+      console.error(`[jsonStore] writeBinaryFileAtomic failed for ${full}:`, err);
+      throw err;
+    }
+  }
+
+  // Returns { buffer, contentType: undefined } or null when the file is missing.
+  // contentType is undefined here -- the file driver doesn't persist MIME, so
+  // callers must read it from their own index/manifest.
+  async readBinaryFile(relPath) {
+    const full = this._resolvePath(relPath);
+    try {
+      const buffer = await fs.readFile(full);
+      return { buffer, contentType: undefined };
+    } catch (err) {
+      if (err.code === 'ENOENT') return null;
+      throw err;
+    }
+  }
+
+  // Recursively remove every file under `relPathPrefix`. Returns true if the
+  // prefix existed and was removed, false if it was already absent. Idempotent
+  // -- callers (project-delete cleanup) can ignore the return value but tests
+  // rely on it to assert "no-op when missing".
+  async deletePrefix(relPathPrefix) {
+    const full = this._resolvePath(relPathPrefix);
+    try {
+      await fs.stat(full);
+    } catch (err) {
+      if (err.code === 'ENOENT') return false;
+      throw err;
+    }
+    await fs.rm(full, { recursive: true, force: true });
+    return true;
   }
 
   async withFileLock(relPath, mutator) {

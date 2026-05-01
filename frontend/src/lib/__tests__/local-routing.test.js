@@ -20,7 +20,7 @@ describe('readLocalStore / writeLocalStore route to backend "local"', () => {
       v: 2,
       backends: [
         { id: 'local', name: 'Local', driver: 'file', config: {} },
-        // We don't actually configure a real S3/Mongo here — declaring it as
+        // We don't actually configure a real S3 here — declaring it as
         // default with a `file` driver is enough to detect routing mistakes:
         // if readLocalStore wrongly went through the default backend, the file
         // would land at a different prefix (covered by the file-content

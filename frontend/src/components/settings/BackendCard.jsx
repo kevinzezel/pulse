@@ -56,9 +56,7 @@ export default function BackendCard({ backend, isDefault, projectCount, onChange
 
   const driverLabel = backend.driver === 'file'
     ? t('settings.storage.addModal.driverFile')
-    : backend.driver === 's3'
-    ? t('settings.storage.addModal.driverS3')
-    : t('settings.storage.addModal.driverMongo');
+    : t('settings.storage.addModal.driverS3');
 
   return (
     <div className="border border-border rounded-lg p-4 bg-card">
@@ -69,7 +67,7 @@ export default function BackendCard({ backend, isDefault, projectCount, onChange
             {isDefault && <Star className="size-4 text-primary fill-primary shrink-0" />}
           </div>
           <p className="text-sm text-muted-foreground mt-1">
-            {driverLabel} {' · '} {projectCount} project(s)
+            {driverLabel} {' · '} {t('settings.storage.projectCount', { count: projectCount })}
           </p>
         </div>
         <div className="flex items-center gap-1 shrink-0">

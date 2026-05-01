@@ -6,6 +6,147 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [5.0.0-pre] — 2026-04-30
+
+Adds first-class binary attachments to tasks, a read-first card view, and
+health-based same-machine detection for editor actions. It also removes
+MongoDB as a storage driver entirely. Existing installs that still pointed at
+MongoDB must export their data and re-import it into S3 or local files before
+upgrading — the dashboard now refuses to load a config that references `mongo`
+and surfaces `errors.storage.unsupported_driver`.
+
+### Added
+
+- **Task attachments.** Each task can hold up to 20 files (max 20 MB
+  each) covering images (PNG, JPEG, GIF, WebP, AVIF), PDFs, and Office
+  documents (Word, Excel, PowerPoint). The editor exposes a
+  drag-and-drop area, a file picker, and Ctrl+V paste from the
+  description textarea — pasted images become inline Markdown links
+  while PDFs/Office files become file links.
+- **`/api/task-attachments` REST surface.** `POST` accepts a multipart
+  upload (validates project, board/task, MIME, size), `GET
+  /api/task-attachments/<id>/content` serves the bytes through the auth
+  cookie (never a presigned S3 URL), and `DELETE` is idempotent so the
+  cancel-new-task flow can clean up orphans without surfacing 404s.
+- **Per-project attachments index** at
+  `data/projects/<projectId>/task-attachments.json`. Binaries live next
+  to the existing project shards under
+  `data/projects/<projectId>/attachments/<id>/<safeName>`.
+- **Binary methods on the file and S3 drivers.**
+  `writeBinaryFileAtomic`, `readBinaryFile`, and `deletePrefix` ship on
+  both drivers; `deletePrefix` lets project-delete drop an entire
+  attachments tree in one shot. Unit tests cover round-tripping bytes,
+  ContentType handling, and prefix cleanup.
+- **Project move/delete cleanup.** `moveProjectShards` now copies
+  `task-attachments.json` and each binary it references to the
+  destination backend before deleting the source tree;
+  `DELETE /api/projects/<id>` calls `deletePrefix` on
+  `data/projects/<id>/attachments` (best-effort).
+- **i18n keys** for the attachment UI and validation errors in `en`,
+  `pt-BR`, and `es` catalogs.
+- **Read-first task view modal** (`TaskViewModal`). Clicking an existing
+  card opens a large read-only modal with a Markdown-rendered description,
+  a big-thumbnail image gallery (`object-contain`), and a download list for
+  document attachments. The `Edit` button transitions to the existing
+  editor; `Delete` is gated behind a confirm step. New tasks still open
+  the editor directly.
+- **`TaskMarkdown` safe renderer.** First-party paragraphs/links/images/
+  bare-URL renderer with no new deps. HTML in source (`<script>`, etc.)
+  appears as text — no `dangerouslySetInnerHTML`, no third-party
+  sanitizer.
+- **Canonical attachment hydration on GET / PATCH.** Both
+  `/api/task-boards` and `/api/task-boards/[id]` now run the response
+  through `hydrateBoardsAttachments`, which reads
+  `task-attachments.json` once and replaces every `task.attachments[]`
+  entry with the authoritative `{name, mime, size, kind, url, created_at}`
+  shape. A task on disk that stores only `{id}` still serializes with
+  full metadata for the UI.
+
+### Fixed
+
+- **`projectMove` no longer cuts over with a missing binary.** A move
+  whose `task-attachments.json` references a file that's gone from the
+  source (or that fails to write to the destination) now throws *before*
+  the manifest cutover, leaving the project canonical on the source so
+  the user can retry.
+- **Editor cancel cleans new uploads on existing-task edits too.**
+  Previously only new-task cancels deleted session uploads, so an upload
+  during an edit-then-cancel left orphan rows in the project's attachment
+  index. The cleanup now runs in both flows; a `submittedRef` gate
+  guarantees a successful save never tears down the just-persisted
+  attachments. Removing a newly-uploaded file before saving also deletes it
+  immediately, even while editing an existing task, because save-time diffing
+  can only delete attachments that were part of the saved task beforehand.
+- **In-flight attachment uploads are cancelled safely.** Closing the editor
+  now marks active temp uploads as cancelled before aborting their requests,
+  so a late 201 response deletes its just-created attachment instead of
+  inserting an invisible orphan. The save button is also disabled while any
+  upload is still running.
+- **Multi-file paste/drop respects the attachment cap per batch.** The
+  editor filters invalid files first, then starts only the uploads that fit
+  in the remaining 20 slots and shows a single limit error for the rest.
+- **Pasted image Markdown now renders inline in task previews.** The editor
+  preview and read-first task modal preserve `![alt](attachment-url)` at the
+  point where the user inserted it, while the separate image gallery skips
+  images already embedded in the description.
+- **`DELETE /api/task-boards/[id]` now tears down attachments.** Every
+  attachment id on every task in the deleted board flows through
+  `deleteAttachmentCompletely` after the file write commits. Per-id
+  failures are logged but don't roll back the board removal.
+
+### Changed
+
+- **Open-editor "local vs remote" decision now uses the client's `/health`
+  response.** The Pulse client computes a `same_server` boolean from the
+  direct TCP peer IP (loopback or matching one of the host's interface IPs)
+  and includes it in the `/health` payload. The dashboard records that flag
+  per server in `ServerHealthProvider`, refreshes it when server connection
+  settings change, and uses it to decide between local `code <path>` (via
+  `/open-editor`) and the remote
+  `vscode://vscode-remote/ssh-remote+...` URL handler. This fixes the case
+  where a server registered by LAN IP that actually runs on the same machine
+  was incorrectly treated as remote. When the flag is unavailable
+  (older client, first render, /health failed) the previous loopback-only
+  heuristic stays as the safe fallback. `X-Forwarded-For` and `Forwarded`
+  are intentionally ignored — only `request.client.host` is trusted; future
+  reverse-proxy support will require an explicit trusted-proxy gate.
+- **Task editor modal grew to `max-w-4xl` / `max-h-[92vh]`** with a
+  two-column desktop layout (description + media preview on the left,
+  attachments toolbar on the right) and a 12-row textarea.
+- **`TaskMediaPreview`** now renders entries from `task.attachments`
+  directly — images get thumbnails, PDFs/Office files render as a file
+  card with icon, name, and size — alongside the URL extraction it
+  already did from the description.
+- **`TaskCard` compact mode** picks up the attachments preview so the
+  first image shows as a thumbnail without opening the modal.
+
+### Removed
+
+- **MongoDB storage driver.** `frontend/src/lib/mongoStore.js`,
+  `migrations/locks/mongo-lock.js`, and the matching tests are gone.
+  `mongodb` and `mongodb-memory-server` were dropped from
+  `frontend/package.json`. Storage configs that still mention `mongo`
+  are rejected upfront with `errors.storage.unsupported_driver`.
+- **`isMongoMode()` helper** (last v1.5.x compat seam) and the
+  `errors.mongo.*` i18n branch.
+
+### Internal
+
+- New `frontend/src/lib/taskAttachments.js` encapsulates the index
+  read/write + binary path layout. Routes never touch the index file
+  directly so the lock semantics stay in one place.
+- Route tests for upload validation (valid image/PDF/Office, invalid
+  type, oversize, missing project), download (inline disposition for
+  images/PDF, attachment for Office), idempotent DELETE, and rejection
+  of legacy Mongo tokens / configs.
+- Task-board route tests for create-with-attachments,
+  edit-removes-binary, delete-task-cleans-attachments, and the
+  v5-normalization that hydrates legacy tasks without an `attachments`
+  field as `[]`.
+- Project-move test seeding both the index and a real binary on the
+  source backend, asserting both land on the destination and the source
+  attachments tree is wiped.
+
 ## [4.5.0] — 2026-04-30
 
 Aligns Settings → Intelligence with the existing Telegram token editor: the
@@ -1579,7 +1720,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v4.5.0...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v5.0.0-pre...HEAD
+[5.0.0-pre]: https://github.com/kevinzezel/pulse/releases/tag/v5.0.0-pre
 [4.5.0]: https://github.com/kevinzezel/pulse/releases/tag/v4.5.0
 [4.4.0-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.4.0-pre
 [4.3.2-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.3.2-pre

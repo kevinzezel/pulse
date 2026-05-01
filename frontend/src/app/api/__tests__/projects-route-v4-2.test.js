@@ -327,10 +327,12 @@ describe('DELETE /api/projects/[id] (v4.2)', () => {
   let projectIndex;
   let storage;
   let deleteFileMock;
+  let deletePrefixMock;
 
   beforeEach(async () => {
     vi.resetModules();
     deleteFileMock = vi.fn(async () => true);
+    deletePrefixMock = vi.fn(async () => true);
     // Default to a 2-project install so DELETE is allowed; tests that
     // exercise the "last-remaining" guard override this per-call.
     vi.doMock('@/lib/projectIndex', () => ({
@@ -348,6 +350,7 @@ describe('DELETE /api/projects/[id] (v4.2)', () => {
     vi.doMock('@/lib/storage', () => ({
       getDriverFor: vi.fn(async () => ({
         deleteFile: deleteFileMock,
+        deletePrefix: deletePrefixMock,
       })),
     }));
     vi.doMock('@/lib/auth', () => ({ withAuth: (fn) => fn }));
@@ -366,12 +369,23 @@ describe('DELETE /api/projects/[id] (v4.2)', () => {
     const body = await res.json();
     expect(body.removed).toBe(true);
     expect(projectIndex.removeProjectFromManifest).toHaveBeenCalledWith('local', 'p1');
-    // 7 shard files attempted.
+    // Per-project shards attempted.
     expect(deleteFileMock).toHaveBeenCalled();
     const calls = deleteFileMock.mock.calls.map((c) => c[0]);
     expect(calls).toContain('data/projects/p1/flows.json');
     expect(calls).toContain('data/projects/p1/notes.json');
     expect(calls).toContain('data/projects/p1/prompts.json');
+    expect(calls).toContain('data/projects/p1/task-attachments.json');
+    // Attachment binaries cleaned up via deletePrefix.
+    expect(deletePrefixMock).toHaveBeenCalledWith('data/projects/p1/attachments');
+  });
+
+  it('does not abort when deletePrefix on attachments fails', async () => {
+    deletePrefixMock.mockRejectedValueOnce(new Error('storage offline'));
+    const req = new Request('http://localhost/api/projects/p1', { method: 'DELETE' });
+    const res = await route.DELETE(req, { params: Promise.resolve({ id: 'p1' }) });
+    expect(res.status).toBe(200);
+    expect(projectIndex.removeProjectFromManifest).toHaveBeenCalledWith('local', 'p1');
   });
 
   it('404 when project not found', async () => {

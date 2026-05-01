@@ -79,9 +79,15 @@ def health(request: Request):
         return JSONResponse(status_code=401, content={"status": "UNAUTHORIZED"})
 
     from resources.terminal import terminal_stats
+    from tools.network import is_same_server_peer
+    # Only the direct TCP peer is trusted. X-Forwarded-For / Forwarded are
+    # ignored on purpose — when a reverse proxy is introduced later, a separate
+    # trusted-proxy config gate should opt into reading them.
+    peer_ip = request.client.host if request.client else None
     return JSONResponse(status_code=200, content={
         "status": "UP",
         "version": VERSION,
+        "same_server": is_same_server_peer(peer_ip),
         "terminal": terminal_stats(),
     })
 

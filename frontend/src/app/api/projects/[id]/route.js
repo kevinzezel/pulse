@@ -21,7 +21,12 @@ const SHARD_FILES = [
   'prompt-groups.json',
   'task-boards.json',
   'task-board-groups.json',
+  // v5.0: index of task attachment metadata. The binaries themselves live
+  // under `attachments/` and are deleted via deletePrefix below.
+  'task-attachments.json',
 ];
+
+const ATTACHMENTS_PREFIX = 'attachments';
 
 const NAME_MAX = 64;
 
@@ -104,6 +109,16 @@ export const DELETE = withAuth(async (req, { params }) => {
         } catch {
           // Single-file failure is non-fatal -- continue cleaning the rest.
         }
+      }
+    }
+    // v5.0: drop the entire attachments tree in one shot via deletePrefix.
+    // Failures here are non-fatal too -- orphan bytes in the bucket are a
+    // storage-cost concern, not a correctness concern.
+    if (typeof driver.deletePrefix === 'function') {
+      try {
+        await driver.deletePrefix(`data/projects/${id}/${ATTACHMENTS_PREFIX}`);
+      } catch (err) {
+        console.warn(`[projects/delete] attachments cleanup failed for ${id}: ${err?.message || err}`);
       }
     }
   } catch {

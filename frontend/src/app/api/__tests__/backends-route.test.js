@@ -54,7 +54,6 @@ describe('POST /api/storage/backends', () => {
       setDefaultBackend: vi.fn(),
     }));
     vi.doMock('@/lib/s3Store', () => ({ pingS3: vi.fn(async () => undefined) }));
-    vi.doMock('@/lib/mongoStore', () => ({ pingMongo: vi.fn(async () => undefined) }));
     vi.doMock('@/lib/auth', () => ({ withAuth: (fn) => fn }));
     storage = await import('@/lib/storage');
     route = await import('@/app/api/storage/backends/route');
@@ -89,6 +88,23 @@ describe('POST /api/storage/backends', () => {
     expect(body.id).toBe('b-new');
     expect(pingS3).toHaveBeenCalled();
     expect(storage.addBackend).toHaveBeenCalled();
+  });
+
+  it('rejects driver:"mongo" with errors.storage.unsupported_driver', async () => {
+    const req = new Request('http://localhost/api/storage/backends', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'Legacy Mongo',
+        driver: 'mongo',
+        config: { uri: 'mongodb://x', database: 'pulse' },
+      }),
+    });
+    const res = await route.POST(req);
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.detail_key).toBe('errors.storage.unsupported_driver');
+    expect(storage.addBackend).not.toHaveBeenCalled();
   });
 
   it('400 when ping fails', async () => {
@@ -133,12 +149,6 @@ describe('PATCH/DELETE /api/storage/backends/[id]', () => {
               force_path_style: false,
             },
           },
-          {
-            id: 'b-2',
-            name: 'Mongo',
-            driver: 'mongo',
-            config: { uri: 'mongodb://old-host', database: 'pulse' },
-          },
         ],
         default_backend_id: 'local',
       })),
@@ -151,7 +161,6 @@ describe('PATCH/DELETE /api/storage/backends/[id]', () => {
       listAllProjects: vi.fn(async () => []),
     }));
     vi.doMock('@/lib/s3Store', () => ({ pingS3: vi.fn(async () => undefined) }));
-    vi.doMock('@/lib/mongoStore', () => ({ pingMongo: vi.fn(async () => undefined) }));
     vi.doMock('@/lib/auth', () => ({ withAuth: (fn) => fn }));
     storage = await import('@/lib/storage');
     route = await import('@/app/api/storage/backends/[id]/route');
@@ -259,26 +268,6 @@ describe('PATCH/DELETE /api/storage/backends/[id]', () => {
     const persisted = storage.updateBackend.mock.calls[0][1];
     expect(persisted.config.access_key_id).toBe('OLDKEY');
     expect(persisted.config.secret_access_key).toBe('OLDSECRET');
-  });
-
-  it('PATCH edit Mongo keeps existing URI when "********" is sent', async () => {
-    const { pingMongo } = await import('@/lib/mongoStore');
-    const req = new Request('http://localhost/api/storage/backends/b-2', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name: 'Mongo Updated',
-        config: { uri: '********', database: 'pulse-prod' },
-      }),
-    });
-    const res = await route.PATCH(req, { params: Promise.resolve({ id: 'b-2' }) });
-    expect(res.status).toBe(200);
-    const pingArg = pingMongo.mock.calls[0][0];
-    expect(pingArg.uri).toBe('mongodb://old-host');
-    expect(pingArg.database).toBe('pulse-prod');
-    const persisted = storage.updateBackend.mock.calls[0][1];
-    expect(persisted.config.uri).toBe('mongodb://old-host');
-    expect(persisted.config.database).toBe('pulse-prod');
   });
 
   it('PATCH edit returns 400 when ping fails and does not persist', async () => {

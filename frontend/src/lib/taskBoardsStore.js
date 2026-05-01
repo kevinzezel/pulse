@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto';
 import { readStore, writeStore, withStoreLock } from './storage.js';
+import { normalizePublicAttachments } from './taskAttachments.js';
 
 export const TASK_BOARDS_REL = 'data/task-boards.json';
 export const TASK_BOARDS_EMPTY = { boards: [], updated_at: null };
@@ -56,6 +57,13 @@ export function normalizeBoard(board) {
       start_date: normalizeDate(t?.start_date),
       end_date: normalizeDate(t?.end_date),
       assignee: typeof t?.assignee === 'string' ? t.assignee : '',
+      // Tasks pre-v5 don't have an attachments[] field. normalizePublicAttachments
+      // returns [] for missing/invalid input so the on-disk shape is uniform
+      // after the first read. Legacy `image_url`/`video_url` columns are
+      // intentionally NOT promoted to attachments -- they live as Markdown
+      // links inside the description (see appendLegacyMediaLinks above) and
+      // attachments[] is reserved for files actually uploaded to the project.
+      attachments: normalizePublicAttachments(t?.attachments),
       created_at: t?.created_at || now,
       updated_at: t?.updated_at || now,
     };

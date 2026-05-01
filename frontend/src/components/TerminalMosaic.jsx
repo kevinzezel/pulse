@@ -145,7 +145,7 @@ export default function TerminalMosaic({
 
   function isSessionLocal(sessionId) {
     const { serverId } = splitSessionId(sessionId);
-    return isServerLocal(getServerById(serverId));
+    return isServerLocal(getServerById(serverId), serverHealth[serverId]);
   }
 
   async function handleOpenEditor(sessionId) {

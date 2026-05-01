@@ -87,7 +87,11 @@ const TaskCard = forwardRef(function TaskCard(
         )}
       </div>
 
-      <TaskMediaPreview description={task.description} compact />
+      <TaskMediaPreview
+        description={task.description}
+        attachments={Array.isArray(task.attachments) ? task.attachments : []}
+        compact
+      />
 
       {(dateSegment || assigneeInitials) && (
         <div className="mt-2 flex min-h-6 items-center gap-2">

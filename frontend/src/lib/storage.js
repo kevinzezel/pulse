@@ -3,16 +3,12 @@ import { dirname, join } from 'path';
 import { randomUUID } from 'crypto';
 import { FileDriver } from './jsonStore.js';
 import { S3Driver } from './s3Store.js';
-import { MongoDriver } from './mongoStore.js';
 import * as fileStoreLegacy from './jsonStore.js';
 import * as s3StoreLegacy from './s3Store.js';
-import * as mongoStoreLegacy from './mongoStore.js';
 import { ensureMigrationsApplied, _resetMigrationsForTests } from './migrations/index.js';
 
 const FRONTEND_ROOT = process.env.PULSE_FRONTEND_ROOT || process.cwd();
 const CONFIG_PATH = join(FRONTEND_ROOT, 'data', 'storage-config.json');
-const LEGACY_MONGO_CONFIG_PATH = join(FRONTEND_ROOT, 'data', 'mongo-config.json');
-const DEFAULT_MONGO_DATABASE = 'pulse';
 
 // 10s grace period for in-flight requests using the old client to complete
 // before the connection is closed during a hot-reload. Picked as a ceiling
@@ -21,15 +17,28 @@ const DEFAULT_MONGO_DATABASE = 'pulse';
 const OLD_BACKEND_DRAIN_MS = 10000;
 
 // Supported driver identifiers. Kept in one place so UI / validation /
-// persistence stay in sync.
-export const DRIVERS = Object.freeze(['file', 'mongo', 's3']);
+// persistence stay in sync. Mongo support was removed in v5.0 (breaking
+// change) -- a config that still references `mongo` triggers
+// errors.storage.unsupported_driver instead of silently falling back.
+export const DRIVERS = Object.freeze(['file', 's3']);
+
+// Thrown by driver-construction paths when the on-disk config still mentions
+// a driver this build no longer ships (today: `mongo`). Surfaces as
+// `errors.storage.unsupported_driver` to API callers.
+export class UnsupportedDriverError extends Error {
+  constructor(driver) {
+    super(`Unsupported storage driver: ${driver}`);
+    this.name = 'UnsupportedDriverError';
+    this.driver = driver;
+    this.detailKey = 'errors.storage.unsupported_driver';
+  }
+}
 
 // Driver factory registry — Plan 2 routes will pick a backend by id and
 // instantiate the right class via this map.
 const DRIVER_FACTORIES = {
   file: (config) => new FileDriver(config),
   s3: (config) => new S3Driver(config),
-  mongo: (config) => new MongoDriver(config),
 };
 
 const DEFAULT_LOCAL_BACKEND = Object.freeze({
@@ -45,15 +54,6 @@ const _driverPromises = new Map();
 let _reloadPromise = null;
 
 // ---------- v1 normalization (preserved for back-compat reads / UI shape) ----------
-
-function normalizeMongoParams(raw) {
-  const uri = typeof raw?.uri === 'string' ? raw.uri.trim() : '';
-  if (!uri) return null;
-  const database = typeof raw?.database === 'string' && raw.database.trim()
-    ? raw.database.trim()
-    : DEFAULT_MONGO_DATABASE;
-  return { uri, database };
-}
 
 function normalizeS3Params(raw) {
   const bucket = typeof raw?.bucket === 'string' ? raw.bucket.trim() : '';
@@ -73,21 +73,18 @@ function normalizeS3Params(raw) {
 
 // Turn a raw object into a valid v1 storage config, or null if invalid.
 // File driver has no params; returning null signals "no remote config".
+// A `mongo` driver (or the legacy { uri, database } shape that implied mongo)
+// is rejected loudly via UnsupportedDriverError -- v5.0 dropped mongo support
+// and we never want to silently coerce such configs back to local.
 function normalizeV1Config(raw) {
   if (!raw || typeof raw !== 'object') return null;
   const driver = typeof raw.driver === 'string' ? raw.driver : null;
-  if (driver === 'mongo') {
-    const params = normalizeMongoParams(raw);
-    return params ? { driver: 'mongo', ...params } : null;
+  if (driver === 'mongo' || (!driver && typeof raw.uri === 'string')) {
+    throw new UnsupportedDriverError('mongo');
   }
   if (driver === 's3') {
     const params = normalizeS3Params(raw);
     return params ? { driver: 's3', ...params } : null;
-  }
-  // Legacy shape: no `driver` key, just { uri, database } → implicitly mongo.
-  if (!driver && typeof raw.uri === 'string') {
-    const params = normalizeMongoParams(raw);
-    return params ? { driver: 'mongo', ...params } : null;
   }
   return null;
 }
@@ -128,6 +125,10 @@ async function _readConfigFromDisk() {
       // v:3 is the v4.2 reconciler marker -- same v2 shape internally, just
       // signals "manifest reconciliation has happened". Reader treats them
       // identically; only the migrator cares about the distinction.
+      // v5.0 dropped mongo: refuse to load a config that still has a mongo
+      // backend so the user sees a clear error instead of a silent fallback.
+      const mongoBackend = parsed.backends.find((b) => b?.driver === 'mongo');
+      if (mongoBackend) throw new UnsupportedDriverError('mongo');
       // Defensive: ensure 'local' backend always exists and default is set.
       if (!parsed.backends.find((b) => b.id === 'local')) {
         parsed.backends.unshift({ ...DEFAULT_LOCAL_BACKEND });
@@ -139,27 +140,7 @@ async function _readConfigFromDisk() {
     const normalized = normalizeV1Config(parsed);
     return _wrapV1AsV2(normalized);
   } catch (err) {
-    if (err?.code === 'ENOENT') {
-      // Fall through to legacy mongo-config.json migration.
-      try {
-        const legacy = await fs.readFile(LEGACY_MONGO_CONFIG_PATH, 'utf-8');
-        const parsed = JSON.parse(legacy);
-        const normalized = normalizeMongoParams(parsed);
-        if (!normalized) return emptyV2Config();
-        const v1 = { driver: 'mongo', ...normalized };
-        // Migrate: write v1 shape to the new path, remove the old file.
-        try {
-          await _writeV1ToDisk(v1);
-          try { await fs.unlink(LEGACY_MONGO_CONFIG_PATH); } catch {}
-        } catch (writeErr) {
-          console.error('[storage] legacy mongo-config.json migration failed:', writeErr);
-        }
-        return _wrapV1AsV2(v1);
-      } catch (legacyErr) {
-        if (legacyErr?.code === 'ENOENT') return emptyV2Config();
-        throw legacyErr;
-      }
-    }
+    if (err?.code === 'ENOENT') return emptyV2Config();
     throw err;
   }
 }
@@ -265,7 +246,12 @@ export async function getDriverFor(backendId) {
     const backend = cfg.backends.find((b) => b.id === backendId);
     if (!backend) throw new Error(`Unknown backend: ${backendId}`);
     const factory = DRIVER_FACTORIES[backend.driver];
-    if (!factory) throw new Error(`Unknown driver: ${backend.driver}`);
+    if (!factory) {
+      // v5.0: a backend with `driver: "mongo"` would land here. Surface a
+      // structured error so the API layer can map it to a translated message.
+      if (backend.driver === 'mongo') throw new UnsupportedDriverError('mongo');
+      throw new Error(`Unknown driver: ${backend.driver}`);
+    }
     const inst = factory(backend.config || {});
     await inst.init();
     return inst;
@@ -403,11 +389,9 @@ export async function resetForTests() {
   _reloadPromise = null;
   _resetMigrationsForTests();
   try { await fs.unlink(CONFIG_PATH); } catch {}
-  try { await fs.unlink(LEGACY_MONGO_CONFIG_PATH); } catch {}
   // Restore the real factories — tests may have stubbed them.
   DRIVER_FACTORIES.file = (config) => new FileDriver(config);
   DRIVER_FACTORIES.s3 = (config) => new S3Driver(config);
-  DRIVER_FACTORIES.mongo = (config) => new MongoDriver(config);
 }
 
 export function _setDriverFactoryForTests(driverName, factory) {
@@ -460,11 +444,6 @@ export function getActiveConfig() {
 // True when any remote driver (not `file`) is the default.
 export function isRemoteStorageActive() {
   return getActiveDriver() !== 'file';
-}
-
-// Back-compat for v1.5.x callers that predate multi-driver support.
-export function isMongoMode() {
-  return getActiveDriver() === 'mongo';
 }
 
 // Returns the v1-shaped on-disk config (or null when the default is local
@@ -563,7 +542,7 @@ export async function reloadBackend() {
 export async function getDriverModule(driverName) {
   if (driverName === 'file') return fileStoreLegacy;
   if (driverName === 's3') return s3StoreLegacy;
-  if (driverName === 'mongo') return mongoStoreLegacy;
+  if (driverName === 'mongo') throw new UnsupportedDriverError('mongo');
   throw new Error(`Unknown driver: ${driverName}`);
 }
 

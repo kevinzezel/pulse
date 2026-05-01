@@ -12,6 +12,7 @@ import {
   DEFAULT_COLUMNS,
 } from '@/lib/taskBoardsConfig';
 import { normalizeBoards } from '@/lib/taskBoardsStore';
+import { hydrateBoardsAttachments } from '@/lib/taskAttachments';
 
 const FILE = 'task-boards.json';
 const EMPTY = { boards: [] };
@@ -46,7 +47,12 @@ export const GET = withAuth(async (req) => {
   }
   try {
     const boards = await readNormalizedBoards(projectId);
-    return NextResponse.json({ boards });
+    // Hydrate attachments through the canonical task-attachments.json index
+    // so the response always carries authoritative name/mime/size/kind/url
+    // even when a task on disk only stored {id} (e.g., right after a
+    // create_task PATCH that didn't echo full metadata back).
+    const hydrated = await hydrateBoardsAttachments(projectId, boards);
+    return NextResponse.json({ boards: hydrated });
   } catch (err) {
     if (/unknown project/i.test(err?.message || '')) {
       return bad('errors.project_not_found', 'project not found', 404, { project_id: projectId });

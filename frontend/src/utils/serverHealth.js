@@ -29,7 +29,18 @@ export async function testServer(server) {
     });
     if (auth.status === 401) return { ok: false, reason: 'bad_key' };
     if (!auth.ok) return { ok: false, reason: 'unknown' };
-    return { ok: true };
+    // The client's /health response is the canonical source for "is the
+    // browser on the same machine as this Pulse client". Older clients (pre
+    // 4.6) don't include the field — we record null so the caller falls back
+    // to the loopback heuristic instead of guessing.
+    let sameServer = null;
+    try {
+      const body = await auth.json();
+      if (typeof body?.same_server === 'boolean') sameServer = body.same_server;
+    } catch {
+      // Body may be missing or non-JSON on older clients; keep null.
+    }
+    return { ok: true, sameServer };
   } catch (err) {
     const isTimeout = err?.name === 'TimeoutError' || err?.name === 'AbortError';
     return { ok: false, reason: isTimeout ? 'timeout' : 'unreachable' };

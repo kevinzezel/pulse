@@ -13,8 +13,15 @@ import {
   TASK_TITLE_MAX,
   TASK_DESCRIPTION_MAX,
   TASK_ASSIGNEE_MAX,
+  TASK_ATTACHMENT_MAX_PER_TASK,
 } from '@/lib/taskBoardsConfig';
 import { normalizeBoards } from '@/lib/taskBoardsStore';
+import {
+  normalizePublicAttachments,
+  stampAttachmentsForTask,
+  deleteAttachmentCompletely,
+  hydrateBoardsAttachments,
+} from '@/lib/taskAttachments';
 import { reorderById } from '@/utils/reorder';
 
 const FILE = 'task-boards.json';
@@ -119,6 +126,27 @@ function findTask(board, taskId) {
   return idx;
 }
 
+function validateAttachmentsInput(rawAttachments) {
+  // attachments are optional on a payload; undefined signals "do not touch
+  // existing". An explicit empty array is allowed and means "drop all".
+  if (rawAttachments === undefined) return undefined;
+  if (rawAttachments === null) return [];
+  if (!Array.isArray(rawAttachments)) {
+    throw appErr('errors.invalid_body', 'attachments must be an array');
+  }
+  if (rawAttachments.length > TASK_ATTACHMENT_MAX_PER_TASK) {
+    throw appErr(
+      'errors.task_attachment_limit',
+      'Too many attachments on this task',
+      { params: { max: TASK_ATTACHMENT_MAX_PER_TASK } },
+    );
+  }
+  // We don't trust the client-sent `name/mime/...` here -- the index is the
+  // authoritative source. But we still normalize so a malformed entry can't
+  // poison disk state.
+  return normalizePublicAttachments(rawAttachments);
+}
+
 function buildTaskFromInput(input, { now, existing = null }) {
   const title = validateName(input?.title ?? existing?.title, {
     requiredKey: 'errors.task_title_required',
@@ -138,6 +166,11 @@ function buildTaskFromInput(input, { now, existing = null }) {
   const assignee = input?.assignee !== undefined
     ? validateAssignee(input.assignee)
     : (existing?.assignee ?? '');
+  // attachments: undefined -> keep existing; array -> replace; null -> wipe.
+  const inputAttachments = validateAttachmentsInput(input?.attachments);
+  const attachments = inputAttachments !== undefined
+    ? inputAttachments
+    : (Array.isArray(existing?.attachments) ? existing.attachments : []);
   return {
     id: existing?.id || `task-${randomUUID()}`,
     title,
@@ -145,6 +178,7 @@ function buildTaskFromInput(input, { now, existing = null }) {
     start_date: startDate,
     end_date: endDate,
     assignee,
+    attachments,
     created_at: existing?.created_at || now,
     updated_at: now,
   };
@@ -228,17 +262,46 @@ function applyAction(board, action, now) {
       next.tasks.push(created);
       next.columns[colIdx].task_ids.push(created.id);
       next.columns[colIdx].updated_at = now;
+      // Attachments uploaded with no task_id (new-task flow) get stamped to
+      // this task here. Done outside the lock by the caller after we return.
+      next._sideEffects = next._sideEffects || [];
+      next._sideEffects.push({
+        type: 'stamp_attachments',
+        attachment_ids: created.attachments.map((a) => a.id),
+        task_id: created.id,
+      });
       break;
     }
     case 'update_task': {
       const taskIdx = findTask(next, action.task_id);
-      const updated = buildTaskFromInput(action.task, { now, existing: next.tasks[taskIdx] });
+      const previous = next.tasks[taskIdx];
+      const updated = buildTaskFromInput(action.task, { now, existing: previous });
       next.tasks[taskIdx] = updated;
+      // Diff for attachment cleanup: anything present on `previous` but not
+      // on `updated` is a user-initiated removal -- the binary + index entry
+      // get torn down. The caller does this AFTER the file write commits so
+      // a write failure doesn't leave the index inconsistent with the task.
+      const previousIds = new Set((previous.attachments || []).map((a) => a.id));
+      const updatedIds = new Set(updated.attachments.map((a) => a.id));
+      const removedIds = [...previousIds].filter((id) => !updatedIds.has(id));
+      const newIds = [...updatedIds].filter((id) => !previousIds.has(id));
+      next._sideEffects = next._sideEffects || [];
+      if (removedIds.length > 0) {
+        next._sideEffects.push({ type: 'delete_attachments', attachment_ids: removedIds });
+      }
+      if (newIds.length > 0) {
+        next._sideEffects.push({
+          type: 'stamp_attachments',
+          attachment_ids: newIds,
+          task_id: updated.id,
+        });
+      }
       break;
     }
     case 'delete_task': {
       const taskIdx = findTask(next, action.task_id);
-      const taskId = next.tasks[taskIdx].id;
+      const previous = next.tasks[taskIdx];
+      const taskId = previous.id;
       next.tasks.splice(taskIdx, 1);
       next.columns = next.columns.map((c) => {
         if (!c.task_ids.includes(taskId)) return c;
@@ -248,6 +311,11 @@ function applyAction(board, action, now) {
           updated_at: now,
         };
       });
+      const ids = (previous.attachments || []).map((a) => a.id);
+      if (ids.length > 0) {
+        next._sideEffects = next._sideEffects || [];
+        next._sideEffects.push({ type: 'delete_attachments', attachment_ids: ids });
+      }
       break;
     }
     case 'move_task': {
@@ -354,11 +422,18 @@ export const PATCH = withAuth(async (req, { params }) => {
   }
 
   try {
+    let sideEffects = [];
     const updated = await withProjectLock(projectId, FILE, async () => {
       const boards = await readNormalizedBoardsInsideLock(projectId);
       const idx = findBoard(boards, id);
       const now = new Date().toISOString();
       const next = applyAction(boards[idx], body, now);
+      // applyAction parks attachment side-effects on next._sideEffects so we
+      // can apply them (binary delete / index re-stamp) AFTER the file write
+      // commits -- if the write throws, side-effects never run and the
+      // attachment index stays consistent with what's on disk.
+      sideEffects = Array.isArray(next._sideEffects) ? next._sideEffects : [];
+      delete next._sideEffects;
       // Force-set project_id from URL so a stale or missing field on disk
       // never leaks across projects.
       next.project_id = projectId;
@@ -366,7 +441,32 @@ export const PATCH = withAuth(async (req, { params }) => {
       await writeProjectFile(projectId, FILE, { boards });
       return next;
     });
-    return NextResponse.json(updated);
+
+    // Side-effect pass. Failures here are logged but do not roll back the
+    // task-boards write -- a stale attachment entry is recoverable on the
+    // next project-delete cleanup, but a task that says it has an attachment
+    // it doesn't is permanently confusing.
+    for (const eff of sideEffects) {
+      if (eff.type === 'delete_attachments') {
+        for (const aid of eff.attachment_ids) {
+          try { await deleteAttachmentCompletely(projectId, aid); }
+          catch (err) {
+            console.warn(`[task-boards] attachment cleanup failed for ${aid}: ${err?.message || err}`);
+          }
+        }
+      } else if (eff.type === 'stamp_attachments') {
+        try { await stampAttachmentsForTask(projectId, eff.attachment_ids, eff.task_id, id); }
+        catch (err) {
+          console.warn(`[task-boards] attachment stamp failed: ${err?.message || err}`);
+        }
+      }
+    }
+
+    // Hydrate attachments via the canonical project index so the response
+    // carries full {name, mime, size, kind, url, created_at} even when the
+    // task on disk stored only {id}. Reads task-attachments.json once.
+    const [hydratedBoard] = await hydrateBoardsAttachments(projectId, [updated]);
+    return NextResponse.json(hydratedBoard);
   } catch (err) {
     if (/unknown project/i.test(err?.message || '')) {
       return bad('errors.project_not_found', 'project not found', 404, { project_id: projectId });
@@ -384,15 +484,34 @@ export const DELETE = withAuth(async (req, { params }) => {
 
   try {
     let removed = false;
+    let attachmentIds = [];
     await withProjectLock(projectId, FILE, async () => {
       const boards = await readNormalizedBoardsInsideLock(projectId);
+      const target = boards.find((b) => b && b.id === id);
+      if (!target) return;
       const next = boards.filter((b) => !(b && b.id === id));
-      if (next.length === boards.length) return;
+      // Snapshot every attachment id on the board's tasks before the write
+      // so the side-effect pass below has a stable list. Failures here are
+      // logged but never roll back the board removal.
+      attachmentIds = (target.tasks || []).flatMap((task) => (
+        Array.isArray(task?.attachments)
+          ? task.attachments.map((a) => a?.id).filter(Boolean)
+          : []
+      ));
       removed = true;
       await writeProjectFile(projectId, FILE, { boards: next });
     });
     if (!removed) {
       return bad('errors.task_board_not_found', 'Board not found', 404, { id });
+    }
+    // Side-effect pass: tear down attachments AFTER the board file commits.
+    // A storage failure leaves orphan binaries in the index but the board
+    // itself is gone -- project-delete cleanup is the safety net.
+    for (const aid of attachmentIds) {
+      try { await deleteAttachmentCompletely(projectId, aid); }
+      catch (err) {
+        console.warn(`[task-boards] attachment cleanup on board delete failed for ${aid}: ${err?.message || err}`);
+      }
     }
     return NextResponse.json({ ok: true });
   } catch (err) {

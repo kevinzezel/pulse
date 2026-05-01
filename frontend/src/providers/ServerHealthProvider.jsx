@@ -31,7 +31,20 @@ function initialEntry() {
     nextRetryAt: null,
     attempt: 0,
     maxAutoAttempts: SERVER_HEALTH_MAX_AUTO_ATTEMPTS,
+    // null = unknown (never checked, or pre-4.6 client without the field).
+    // true/false = canonical answer from the client's /health response.
+    sameServer: null,
   };
+}
+
+function connectionKey(server) {
+  if (!server?.id) return '';
+  return [
+    server.protocol === 'https' ? 'https' : 'http',
+    server.host || '',
+    server.port || '',
+    server.apiKey || '',
+  ].join('::');
 }
 
 export function ServerHealthProvider({ children }) {
@@ -39,8 +52,10 @@ export function ServerHealthProvider({ children }) {
   const [health, setHealth] = useState({});
   // serverId -> { timer, attempt }
   const timersRef = useRef(new Map());
-  // serverId -> in-flight check Promise (evita probes simultâneos no mesmo server)
+  // serverId -> { key, promise } (evita probes simultâneos da mesma config)
   const inflightRef = useRef(new Map());
+  // serverId -> connectionKey last scheduled for the canonical /health probe.
+  const probedConnectionRef = useRef(new Map());
   const serversRef = useRef([]);
 
   useEffect(() => { serversRef.current = servers; }, [servers]);
@@ -56,7 +71,8 @@ export function ServerHealthProvider({ children }) {
         next.lastCheckedAt === cur.lastCheckedAt &&
         next.nextRetryAt === cur.nextRetryAt &&
         next.attempt === cur.attempt &&
-        next.maxAutoAttempts === cur.maxAutoAttempts
+        next.maxAutoAttempts === cur.maxAutoAttempts &&
+        next.sameServer === cur.sameServer
       ) {
         return prev;
       }
@@ -76,8 +92,9 @@ export function ServerHealthProvider({ children }) {
 
   const checkServer = useCallback(async (server, opts = {}) => {
     if (!server?.id) return null;
+    const key = connectionKey(server);
     const inflight = inflightRef.current.get(server.id);
-    if (inflight) return inflight;
+    if (inflight?.key === key) return inflight.promise;
     const promise = (async () => {
       const slot = timersRef.current.get(server.id);
       setEntry(server.id, {
@@ -87,6 +104,10 @@ export function ServerHealthProvider({ children }) {
         maxAutoAttempts: SERVER_HEALTH_MAX_AUTO_ATTEMPTS,
       });
       const result = await testServer(server);
+      const current = serversRef.current.find(s => s.id === server.id);
+      if (!current || connectionKey(current) !== key) {
+        return result;
+      }
       const now = new Date().toISOString();
       if (result.ok) {
         setEntry(server.id, {
@@ -97,6 +118,7 @@ export function ServerHealthProvider({ children }) {
           nextRetryAt: null,
           attempt: 0,
           maxAutoAttempts: SERVER_HEALTH_MAX_AUTO_ATTEMPTS,
+          sameServer: typeof result.sameServer === 'boolean' ? result.sameServer : null,
         });
         cancelBackoff(server.id);
       } else {
@@ -114,9 +136,10 @@ export function ServerHealthProvider({ children }) {
       }
       return result;
     })().finally(() => {
-      inflightRef.current.delete(server.id);
+      const current = inflightRef.current.get(server.id);
+      if (current?.key === key) inflightRef.current.delete(server.id);
     });
-    inflightRef.current.set(server.id, promise);
+    inflightRef.current.set(server.id, { key, promise });
     return promise;
   }, [setEntry, cancelBackoff]);
   checkServerRef.current = checkServer;
@@ -248,7 +271,39 @@ export function ServerHealthProvider({ children }) {
         timersRef.current.delete(id);
       }
     }
+    for (const id of Array.from(probedConnectionRef.current.keys())) {
+      if (!aliveIds.has(id)) probedConnectionRef.current.delete(id);
+    }
   }, [servers]);
+
+  // Popula a resposta canônica `sameServer` a partir de /health no fluxo
+  // normal de carregamento. O dashboard principal também chama /api/sessions
+  // e marca o server como online, mas esse endpoint não carrega same_server;
+  // sem esta checagem, servers cadastrados por IP LAN continuariam caindo no
+  // fallback antigo até o usuário apertar retry/test manual.
+  useEffect(() => {
+    for (const server of servers) {
+      if (!server?.id) continue;
+      const key = connectionKey(server);
+      const prev = probedConnectionRef.current.get(server.id);
+      if (prev === key) continue;
+      probedConnectionRef.current.set(server.id, key);
+      if (prev !== undefined) {
+        cancelBackoff(server.id);
+        setEntry(server.id, {
+          status: SERVER_HEALTH_STATUS.UNKNOWN,
+          reason: null,
+          lastSeenAt: null,
+          lastCheckedAt: null,
+          nextRetryAt: null,
+          attempt: 0,
+          maxAutoAttempts: SERVER_HEALTH_MAX_AUTO_ATTEMPTS,
+          sameServer: null,
+        });
+      }
+      checkServerRef.current?.(server, { scheduleBackoff: false });
+    }
+  }, [servers, cancelBackoff, setEntry]);
 
   useEffect(() => {
     const timers = timersRef.current;

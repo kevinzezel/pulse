@@ -68,6 +68,45 @@ describe('FileDriver', () => {
     expect(await driver.deleteFile('nonexistent.json')).toBe(false);
   });
 
+  it('writeBinaryFileAtomic + readBinaryFile round-trip preserves bytes', async () => {
+    const buf = Buffer.from([0xff, 0x00, 0x10, 0x42, 0xde, 0xad, 0xbe, 0xef]);
+    await driver.writeBinaryFileAtomic('attachments/a1/blob.bin', buf, { contentType: 'application/octet-stream' });
+    const result = await driver.readBinaryFile('attachments/a1/blob.bin');
+    expect(result).not.toBeNull();
+    expect(Buffer.compare(result.buffer, buf)).toBe(0);
+    // FileDriver does not persist contentType -- it only round-trips via S3.
+    expect(result.contentType).toBeUndefined();
+  });
+
+  it('readBinaryFile returns null when the file does not exist', async () => {
+    const result = await driver.readBinaryFile('attachments/missing/blob.bin');
+    expect(result).toBeNull();
+  });
+
+  it('deletePrefix removes every file under the prefix recursively', async () => {
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+    await driver.writeBinaryFileAtomic('projects/p1/attachments/a1/img.png', png);
+    await driver.writeBinaryFileAtomic('projects/p1/attachments/a2/doc.pdf', png);
+    await driver.writeJsonFileAtomic('projects/p1/task-attachments.json', { attachments: [] });
+    // A sibling project that must NOT be touched -- the prefix is project-scoped.
+    await driver.writeBinaryFileAtomic('projects/p2/attachments/a3/other.png', png);
+
+    const removed = await driver.deletePrefix('projects/p1/attachments');
+    expect(removed).toBe(true);
+
+    expect(await driver.readBinaryFile('projects/p1/attachments/a1/img.png')).toBeNull();
+    expect(await driver.readBinaryFile('projects/p1/attachments/a2/doc.pdf')).toBeNull();
+    // Sibling project untouched.
+    expect(await driver.readBinaryFile('projects/p2/attachments/a3/other.png')).not.toBeNull();
+    // Sibling JSON in same project untouched (different prefix).
+    const j = await driver.readJsonFile('projects/p1/task-attachments.json', null);
+    expect(j).toEqual({ attachments: [] });
+  });
+
+  it('deletePrefix is idempotent when the prefix does not exist', async () => {
+    expect(await driver.deletePrefix('does/not/exist')).toBe(false);
+  });
+
   it('withFileLock serializes across two instances on the same dataDir', async () => {
     // Regression guard: if _locks were moved to instance state (this._locks),
     // two drivers on the same dataDir would race. The module-level Map keyed

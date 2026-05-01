@@ -24,6 +24,7 @@ import { patchTaskBoard } from '@/services/api';
 import TaskColumn from './TaskColumn';
 import TaskCard from './TaskCard';
 import TaskEditorModal from './TaskEditorModal';
+import TaskViewModal from './TaskViewModal';
 import TaskColumnModal from './TaskColumnModal';
 
 function SortableColumn({
@@ -131,6 +132,12 @@ export default function TaskBoardCanvas({ board, projectId, onBoardUpdate, assig
   const boardRef = useRef(board);
   const [columnModal, setColumnModal] = useState(null); // null | { mode, column? }
   const [columnSubmitting, setColumnSubmitting] = useState(false);
+  // Two separate modal states: `viewState` opens the read-first view modal
+  // (existing tasks default to it), `editorState` opens the editor (new
+  // tasks AND view -> Edit transitions). Splitting them keeps the "click to
+  // read, click again to edit" affordance distinct from the legacy "click
+  // to edit immediately" behavior the editor still expects.
+  const [viewState, setViewState] = useState(null); // { taskId }
   const [editorState, setEditorState] = useState(null); // { columnId, taskId? }
   const [taskBusy, setTaskBusy] = useState(false);
   const [taskDeleting, setTaskDeleting] = useState(false);
@@ -339,8 +346,15 @@ export default function TaskBoardCanvas({ board, projectId, onBoardUpdate, assig
     setEditorState({ columnId, taskId: null });
   }
 
-  function openEditTask(taskId) {
-    const column = findColumnByTaskId(board, taskId);
+  // Click on an existing task card -> open the read-first view modal.
+  function openViewTask(taskId) {
+    setViewState({ taskId });
+  }
+
+  // Triggered from the view modal's "Edit" button: close view, open editor.
+  function switchViewToEditor(taskId) {
+    const column = findColumnByTaskId(boardRef.current, taskId);
+    setViewState(null);
     setEditorState({ columnId: column?.id || null, taskId });
   }
 
@@ -367,6 +381,11 @@ export default function TaskBoardCanvas({ board, projectId, onBoardUpdate, assig
       setEditorState(null);
     } catch (err) {
       showError(err);
+      // Re-throw so the editor modal can keep `submittedRef` false. Without
+      // this, a failed PATCH (e.g. transient 500) would mark the modal as
+      // "submitted", and a subsequent user cancel would skip the orphan
+      // cleanup -- leaving uploads from this session dangling in the index.
+      throw err;
     } finally {
       setTaskBusy(false);
     }
@@ -403,6 +422,24 @@ export default function TaskBoardCanvas({ board, projectId, onBoardUpdate, assig
     }
   }
 
+  async function deleteViewedTask() {
+    if (!viewState?.taskId) return;
+    setTaskDeleting(true);
+    try {
+      const updated = await patchTaskBoard(projectId, boardRef.current.id, {
+        action: 'delete_task',
+        task_id: viewState.taskId,
+      });
+      onBoardUpdate(updated);
+      boardRef.current = updated;
+      setViewState(null);
+    } catch (err) {
+      showError(err);
+    } finally {
+      setTaskDeleting(false);
+    }
+  }
+
   const columnSortableIds = board.columns.map((c) => `column:${c.id}`);
 
   const overlay = activeDrag?.type === 'task'
@@ -421,6 +458,9 @@ export default function TaskBoardCanvas({ board, projectId, onBoardUpdate, assig
 
   const editorTask = editorState?.taskId
     ? board.tasks.find((task) => task.id === editorState.taskId) || null
+    : null;
+  const viewedTask = viewState?.taskId
+    ? board.tasks.find((task) => task.id === viewState.taskId) || null
     : null;
 
   return (
@@ -443,7 +483,7 @@ export default function TaskBoardCanvas({ board, projectId, onBoardUpdate, assig
                   onCreateTask={openCreateTask}
                   onEditColumn={(col) => setColumnModal({ mode: 'rename', column: col })}
                   onDeleteColumn={handleDeleteColumn}
-                  onTaskClick={openEditTask}
+                  onTaskClick={openViewTask}
                 />
               ))}
             </SortableContext>
@@ -466,9 +506,21 @@ export default function TaskBoardCanvas({ board, projectId, onBoardUpdate, assig
         <DragOverlay>{overlay}</DragOverlay>
       </DndContext>
 
+      {viewState && viewedTask && !editorState && (
+        <TaskViewModal
+          task={viewedTask}
+          deleting={taskDeleting}
+          onClose={() => !taskDeleting && setViewState(null)}
+          onEdit={() => switchViewToEditor(viewState.taskId)}
+          onDelete={deleteViewedTask}
+        />
+      )}
+
       {editorState && (
         <TaskEditorModal
           task={editorTask}
+          projectId={projectId}
+          boardId={board.id}
           onClose={() => !taskBusy && !taskDeleting && setEditorState(null)}
           onSubmit={submitEditor}
           onDelete={editorTask ? deleteEditorTask : null}
