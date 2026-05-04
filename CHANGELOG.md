@@ -6,6 +6,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [5.0.1] — 2026-05-04
+
+Promotes the v5 task attachments release to the stable channel and includes a
+Fedora/RHEL installer fix merged after `v5.0.0-pre`.
+
+### Changed
+
+- **Stable channel promotion.** `v5.0.1` promotes the `v5.0.0-pre`
+  task attachments release, including read-first task views, health-based
+  editor locality, and the MongoDB storage-driver removal, to the stable
+  channel.
+
+### Fixed
+
+- **Fedora/RHEL installer bootstrap.** The installer now detects `dnf`,
+  installs runtime packages through `dnf`, and installs Node.js/npm from
+  `dnf` when needed instead of aborting as apt-only.
+
 ## [5.0.0-pre] — 2026-04-30
 
 Adds first-class binary attachments to tasks, a read-first card view, and
@@ -1720,7 +1738,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v5.0.0-pre...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v5.0.1...HEAD
+[5.0.1]: https://github.com/kevinzezel/pulse/releases/tag/v5.0.1
 [5.0.0-pre]: https://github.com/kevinzezel/pulse/releases/tag/v5.0.0-pre
 [4.5.0]: https://github.com/kevinzezel/pulse/releases/tag/v4.5.0
 [4.4.0-pre]: https://github.com/kevinzezel/pulse/releases/tag/v4.4.0-pre
