@@ -166,8 +166,10 @@ detect_platform() {
             esac
             if need_cmd apt-get; then
                 PULSE_PM=apt
+            elif need_cmd dnf; then
+                PULSE_PM=dnf
             else
-                die "Pulse v1 supports apt-based distros only (Debian/Ubuntu/WSL Ubuntu). Open an issue for Fedora/Arch support: https://github.com/${GITHUB_REPO}/issues"
+                die "Unsupported package manager. Pulse supports apt (Debian/Ubuntu/WSL Ubuntu) and dnf (Fedora/RHEL). Open an issue for Arch/other support: https://github.com/${GITHUB_REPO}/issues"
             fi
             ;;
         Darwin)
@@ -210,6 +212,9 @@ install_packages() {
         apt)
             $PULSE_SUDO apt-get update -qq
             apt_install_noninteractive "$@"
+            ;;
+        dnf)
+            $PULSE_SUDO dnf install -y "$@"
             ;;
         brew)
             brew install "$@"
@@ -275,6 +280,10 @@ ensure_node() {
                 curl -fsSL https://deb.nodesource.com/setup_20.x | "$PULSE_SUDO" bash -
             fi
             apt_install_noninteractive nodejs
+            ;;
+        dnf)
+            log "installing Node.js via dnf"
+            $PULSE_SUDO dnf install -y nodejs npm
             ;;
     esac
     node_ok || die "Node.js 18.18+ installation failed"
