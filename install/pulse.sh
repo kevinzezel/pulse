@@ -44,6 +44,13 @@ detect_os() {
     esac
 }
 
+is_wsl() {
+    case "$(uname -r 2>/dev/null || true)" in
+        *icrosoft*|*Microsoft*|*WSL*|*wsl*) return 0 ;;
+    esac
+    [ -r /proc/version ] && grep -qi 'microsoft\|wsl' /proc/version 2>/dev/null
+}
+
 # Map "client"/"dashboard"/"all" to the unit list per platform.
 resolve_units() {
     target="${1:-all}"
@@ -265,6 +272,68 @@ cmd_open() {
             else printf '  open this URL in your browser: %s\n' "$url"; fi
             ;;
         macos) open "$url" ;;
+    esac
+}
+
+desktop_exec_quote() {
+    printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g; s/%/%%/g'
+}
+
+cmd_shortcut_add() {
+    [ "$PULSE_OS" = linux ] || die "shortcuts are currently supported on native Linux only"
+    is_wsl && die "shortcuts are not supported inside WSL; use the Windows Start Menu shortcut or run: pulse open"
+    [ -f "$CONFIG_ROOT/frontend.env" ] || die "dashboard not installed (no frontend.env)"
+
+    pulse_bin="$(command -v pulse 2>/dev/null || true)"
+    if [ -z "$pulse_bin" ] || [ ! -x "$pulse_bin" ]; then
+        pulse_bin="$HOME/.local/bin/pulse"
+    fi
+    [ -x "$pulse_bin" ] || die "pulse executable not found; expected $HOME/.local/bin/pulse"
+
+    apps_dir="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
+    desktop_file="$apps_dir/pulse.desktop"
+    icon_path="$INSTALL_ROOT/frontend/src/app/icon.svg"
+    icon_value="utilities-terminal"
+    [ -f "$icon_path" ] && icon_value="$icon_path"
+    exec_path="$(desktop_exec_quote "$pulse_bin")"
+
+    mkdir -p "$apps_dir"
+    cat > "$desktop_file" <<EOF
+[Desktop Entry]
+Type=Application
+Name=Pulse
+Comment=Open the Pulse dashboard
+Exec="$exec_path" open
+TryExec=$pulse_bin
+Icon=$icon_value
+Terminal=false
+Categories=Development;
+StartupNotify=true
+EOF
+    chmod 644 "$desktop_file"
+
+    if need_cmd update-desktop-database; then
+        update-desktop-database "$apps_dir" >/dev/null 2>&1 || true
+    fi
+
+    log "installed application menu shortcut: $desktop_file"
+    log "the shortcut launches 'pulse open', so it follows your current HTTP/HTTPS dashboard config"
+}
+
+cmd_shortcut() {
+    sub="${1:-}"
+    [ "$#" -gt 0 ] && shift || true
+    case "$sub" in
+        add) cmd_shortcut_add "$@" ;;
+        ''|help|-h|--help)
+            cat <<EOF
+${BOLD}Usage:${NC} pulse shortcut <subcommand>
+
+${BOLD}Subcommands:${NC}
+  add      register Pulse in the Linux application menu
+EOF
+            ;;
+        *) die "unknown shortcut subcommand: '$sub' (run: pulse shortcut help)" ;;
     esac
 }
 
@@ -1259,6 +1328,7 @@ ${BOLD}Service commands:${NC}
 
 ${BOLD}Dashboard:${NC}
   open                         open the dashboard in your browser
+  shortcut add                 register Pulse in the Linux application menu
 
 ${BOLD}Lifecycle:${NC}
   upgrade [-y] [--preview]     fetch latest release and reinstall (--preview = install latest vX.Y.Z-pre)
@@ -1309,6 +1379,7 @@ case "$cmd" in
     restart)       cmd_restart "$@" ;;
     logs)          cmd_logs "$@" ;;
     open)          cmd_open "$@" ;;
+    shortcut)      cmd_shortcut "$@" ;;
     upgrade)       cmd_upgrade "$@" ;;
     uninstall)     cmd_uninstall "$@" ;;
     keys)          cmd_keys "$@" ;;

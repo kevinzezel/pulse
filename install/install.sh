@@ -1218,6 +1218,9 @@ print_success() {
     printf "    %bpulse start%b / %bstop%b / %brestart%b     control services\n"                 "$DIM" "$NC" "$DIM" "$NC" "$DIM" "$NC"
     printf "    %bpulse logs client -f%b        follow client logs (or 'dashboard')\n"           "$DIM" "$NC"
     printf "    %bpulse open%b                  open the dashboard in the browser\n"             "$DIM" "$NC"
+    if [ "$PULSE_OS" = linux ] && [ "${PULSE_IS_WSL:-0}" = 0 ] && [ "$PULSE_CLIENT_ONLY" = 0 ]; then
+        printf "    %bpulse shortcut add%b          register Pulse in the application menu\n"      "$DIM" "$NC"
+    fi
     printf "    %bpulse upgrade%b               fetch the latest release and reinstall\n"        "$DIM" "$NC"
     printf "    %bpulse uninstall%b             remove everything\n"                             "$DIM" "$NC"
     printf "    %bpulse keys show%b / %bregen%b      show or rotate the client API_KEY\n"        "$DIM" "$NC" "$DIM" "$NC"

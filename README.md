@@ -45,6 +45,10 @@ irm https://raw.githubusercontent.com/kevinzezel/pulse/main/install/install.ps1 
 
 Open `http://localhost:3000` when it finishes. That's it.
 
+On native Linux (not WSL), run `pulse shortcut add` after install or upgrade if
+you want Pulse in your application menu. The launcher follows the current
+`http://` / `https://` dashboard setting automatically.
+
 <p align="center">
   <img src="assets/hero.png" alt="Pulse dashboard — split mosaic with two AI CLI panes and a floating sticky note" width="100%"/>
 </p>

@@ -6,6 +6,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the 
 
 ## [Unreleased]
 
+## [5.1.0] — 2026-05-05
+
+### Added
+
+- **Native Linux application menu shortcut command.** `pulse shortcut add` now
+  registers Pulse in the Linux application menu without hardcoding a URL. The
+  command is blocked on macOS and WSL. The launcher calls `pulse open`, so it
+  follows the current dashboard host, port, and HTTP/HTTPS state from
+  `frontend.env`. Existing installs receive the command after upgrade and can run
+  it manually; upgrades do not alter the menu automatically.
+
 ## [5.0.1] — 2026-05-04
 
 Promotes the v5 task attachments release to the stable channel and includes a
@@ -1738,7 +1749,8 @@ First public release.
 
 Migration from earlier dev builds: see the README "Self-hosting" section and run `./start.sh` once — it regenerates `.env` files with sane defaults.
 
-[Unreleased]: https://github.com/kevinzezel/pulse/compare/v5.0.1...HEAD
+[Unreleased]: https://github.com/kevinzezel/pulse/compare/v5.1.0...HEAD
+[5.1.0]: https://github.com/kevinzezel/pulse/releases/tag/v5.1.0
 [5.0.1]: https://github.com/kevinzezel/pulse/releases/tag/v5.0.1
 [5.0.0-pre]: https://github.com/kevinzezel/pulse/releases/tag/v5.0.0-pre
 [4.5.0]: https://github.com/kevinzezel/pulse/releases/tag/v4.5.0

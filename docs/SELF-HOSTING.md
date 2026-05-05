@@ -23,6 +23,7 @@ pulse upgrade --preview         # install the latest preview (vX.Y.Z-pre) instea
 pulse check-updates             # ask GitHub if a newer stable exists
 pulse check-updates --preview   # ask GitHub if a newer preview exists
 pulse uninstall                 # remove everything
+pulse shortcut add              # native Linux: register Pulse in the application menu
 
 pulse keys show                 # print the client's API_KEY
 pulse keys regen                # rotate it (updates servers.json too)
@@ -56,6 +57,12 @@ All in `~/.config/pulse/`:
 | `../local/share/pulse/frontend/data/storage-config.json` *(optional)* | when present, the dashboard reads/writes through the configured remote S3-compatible driver instead of local JSON files |
 
 Prefer `pulse config password` / `pulse config ports` over editing the env files by hand — they keep `servers.json` in sync and restart the right services for you.
+
+On native Linux (not WSL), `pulse shortcut add` adds Pulse to your application
+menu. It launches `pulse open`, so the menu item follows the current dashboard
+protocol, host, and port from `frontend.env` instead of hardcoding `http://` or
+`https://`. Existing installs get the command after `pulse upgrade`; run it once
+if you want the menu entry.
 
 ## Behind a reverse proxy
 
